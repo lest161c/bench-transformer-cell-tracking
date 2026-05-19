@@ -9,11 +9,21 @@
 #SBATCH --cpus-per-task=8
 
 source $(conda info --base)/etc/profile.d/conda.sh
-conda activate trackastra_env
 
-cd /data/cat/ws/lest161c-cell_tracking/lest161c-ssl_cell_tracking-1778979601/trackastra
+if ! conda env list | grep -q trackastra_env; then
+    echo "Creating trackastra_env..."
+    conda create -y -n trackastra_env python=3.10
+    conda activate trackastra_env
+    pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+    pip install lightning pandas scikit-image tifffile edt tqdm configargparse wandb tensorboard dask joblib
+else
+    conda activate trackastra_env
+fi
 
+TRK=/data/cat/ws/lest161c-cell_tracking/lest161c-ssl_cell_tracking-1778979601/trackastra
+cd $TRK
 git pull origin feature/sparse-attention-gather
+pip install -e . --no-deps 2>/dev/null || true
 
 cat > /tmp/vanvliet_sparse_k16.yaml << 'CONFIG'
 name: vanvliet_sparse_k16
