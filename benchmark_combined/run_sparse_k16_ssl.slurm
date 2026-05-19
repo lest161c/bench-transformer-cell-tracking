@@ -27,12 +27,12 @@ if [ "$TEST" = "1" ]; then
         echo "Creating env..."
         conda create --prefix "$ENV_DIR" python=3.10 -y
         conda activate "$ENV_DIR"
-        pip install setuptools && pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
-        pip install lightning pandas scikit-image tifffile edt tqdm configargparse wandb tensorboard dask joblib
+        python -m pip install setuptools && python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+        python -m pip install lightning pandas scikit-image tifffile edt tqdm configargparse wandb tensorboard dask joblib
     }
     cd "$TRK"
     git pull origin feature/sparse-attention-gather
-    pip install -e .
+    python -m pip install -e .
     python -c "import trackastra; from trackastra.model import TrackingTransformer; print('trackastra OK:', TrackingTransformer); import torch; print('CUDA:', torch.cuda.is_available())"
     echo "=== TEST PASSED ==="
     exit 0
@@ -43,12 +43,12 @@ conda activate "$ENV_DIR" 2>/dev/null || {
     echo "Creating env..."
     conda create --prefix "$ENV_DIR" python=3.10 -y
     conda activate "$ENV_DIR"
-    pip install setuptools && pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
-    pip install lightning pandas scikit-image tifffile edt tqdm configargparse wandb tensorboard dask joblib
+    python -m pip install setuptools && python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+    python -m pip install lightning pandas scikit-image tifffile edt tqdm configargparse wandb tensorboard dask joblib
 }
 cd "$TRK"
 git pull origin feature/sparse-attention-gather
-pip install -e .
+python -m pip install -e .
 mkdir -p logs
 
 python scripts/train.py \
@@ -57,8 +57,8 @@ python scripts/train.py \
     --input_train data/vanvliet/rpsM data/vanvliet/recA data/vanvliet/pheA data/vanvliet/metA data/vanvliet/cib data/vanvliet/trpL \
     --input_val data/vanvliet/rpsM data/vanvliet/recA data/vanvliet/pheA \
     --outdir runs --distributed False \
-    --batch_size 8 --max_tokens 8192 \
-    --d_model 256 --num_encoder_layers 4 --num_decoder_layers 4 \
+    --batch_size 48 --max_tokens 4096 \
+    --d_model 320 --num_encoder_layers 6 --num_decoder_layers 6 \
     --pos_embed_per_dim 32 --feat_embed_per_dim 8 \
     --dropout 0.01 --lr 1e-4 \
     --features wrfeat --causal_norm quiet_softmax \
