@@ -27,9 +27,10 @@ if [ "$TEST" = "1" ]; then
         echo "Creating env..."
         conda create --prefix "$ENV_DIR" python=3.10 -y
         conda activate "$ENV_DIR"
-        python -m pip install setuptools && python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
-        python -m pip install lightning pandas scikit-image tifffile edt tqdm configargparse wandb tensorboard dask joblib
     }
+    python -m pip install setuptools
+    python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+    python -m pip install lightning pandas scikit-image tifffile edt tqdm configargparse wandb tensorboard dask joblib
     cd "$TRK"
     git pull origin feature/sparse-attention-gather
     python -m pip install -e .
@@ -43,9 +44,10 @@ conda activate "$ENV_DIR" 2>/dev/null || {
     echo "Creating env..."
     conda create --prefix "$ENV_DIR" python=3.10 -y
     conda activate "$ENV_DIR"
-    python -m pip install setuptools && python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
-    python -m pip install lightning pandas scikit-image tifffile edt tqdm configargparse wandb tensorboard dask joblib
 }
+python -m pip install setuptools
+python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+python -m pip install lightning pandas scikit-image tifffile edt tqdm configargparse wandb tensorboard dask joblib
 cd "$TRK"
 git pull origin feature/sparse-attention-gather
 python -m pip install -e .
