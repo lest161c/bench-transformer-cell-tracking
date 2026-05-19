@@ -1,0 +1,63 @@
+# SSL Pretraining Configuration
+# Mirrors trackastra config schema where applicable
+
+name: ssl_v1
+
+# Data
+data_root: ../data/vanvliet
+conditions: [rpsM, recA, pheA, metA, cib, trpL]
+ndim: 2
+
+# Feature extraction (matches trackastra wrfeat regionprops2)
+features: regionprops2
+# regionprops2: equivalent_diameter_area, intensity_mean, inertia_tensor, border_dist
+# Total feat_dim = 7 (2D)
+
+# Distortion families (comma-separated list: affine,elastic,jitter,dropout,photometric)
+distortions: [affine, elastic, jitter, dropout, photometric]
+
+# Distortion params
+affine:
+  degrees: 15
+  scale: [0.85, 1.15]
+  shear: [0.1, 0.1]
+
+elastic:
+  alpha: [10, 50]
+  sigma: [5, 15]
+
+jitter:
+  std: [2, 8]
+  p_cell_jitter: 0.8
+
+dropout:
+  p_drop: [0.05, 0.2]
+
+photometric:
+  scale: [0.5, 2.0]
+  shift: [-0.1, 0.1]
+
+# Encoder (ASCENT-inspired)
+encoder:
+  d_model: 128
+  nhead: 4
+  num_layers: 4
+  dim_feedforward: 256
+  dropout: 0.1
+  pos_embed_per_dim: 32
+
+# Association head
+head:
+  n_mode_queries: 5
+  hidden_dim: 128
+
+# Training
+training:
+  batch_size: 4
+  max_tokens: 2048
+  lr: 0.0003
+  weight_decay: 0.01
+  epochs: 5
+  val_split: 0.1
+  log_every: 10
+  checkpoint_every: 10

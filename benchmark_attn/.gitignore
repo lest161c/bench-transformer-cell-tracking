@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.venv/
+benchmark_sparse.html
+benchmark_sparse.png
+plot_backends.html
+plot_params.html

@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.pdf
+.venv/
+benchmark_sparse.html
+benchmark_ssl.html
+benchmark_combined.html
+ablation_full.html
+benchmark_comprehensive.html
+runs/
