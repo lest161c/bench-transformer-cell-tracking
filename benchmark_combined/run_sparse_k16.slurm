@@ -25,7 +25,7 @@ if [ "$TEST" = "1" ]; then
     echo "=== TEST MODE: env setup only ==="
     conda activate "$ENV_DIR" 2>/dev/null || {
         echo "Creating env..."
-        conda create -y -n trackastra_env python=3.10
+        conda create --prefix "$ENV_DIR" python=3.10 -y
         conda activate "$ENV_DIR"
         pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
         pip install lightning pandas scikit-image tifffile edt tqdm configargparse wandb tensorboard dask joblib
@@ -41,7 +41,7 @@ fi
 # --- Normal mode ---
 conda activate "$ENV_DIR" 2>/dev/null || {
     echo "Creating env..."
-    conda create -y -n trackastra_env python=3.10
+    conda create --prefix "$ENV_DIR" python=3.10 -y
     conda activate "$ENV_DIR"
     pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
     pip install lightning pandas scikit-image tifffile edt tqdm configargparse wandb tensorboard dask joblib
