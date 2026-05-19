@@ -9,7 +9,6 @@
 #SBATCH --gpus-per-node=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=90G
-#SBATCH --exclusive
 
 export PIP_REQUIRE_VIRTUALENV=false
 export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
