@@ -11,7 +11,7 @@
 source $(conda info --base)/etc/profile.d/conda.sh
 conda activate trackastra_env
 
-cd /data/cat/ws/lest161c-ssl_cell_tracking/trackastra
+cd /data/cat/ws/lest161c-cell_tracking/lest161c-ssl_cell_tracking-1778979601/trackastra
 
 git pull origin feature/sparse-attention-gather
 
