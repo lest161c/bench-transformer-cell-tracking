@@ -7,10 +7,10 @@
 #SBATCH --mem=90GB
 #SBATCH --time=24:00:00
 #SBATCH --cpus-per-task=8
+#SBATCH --nodes=1
 
 source $(conda info --base)/etc/profile.d/conda.sh
 
-# Self-contained env setup
 if ! conda env list | grep -q trackastra_env; then
     echo "Creating trackastra_env..."
     conda create -y -n trackastra_env python=3.10
@@ -24,8 +24,6 @@ fi
 TRK=/data/cat/ws/lest161c-cell_tracking/lest161c-ssl_cell_tracking-1778979601/trackastra
 cd $TRK
 git pull origin feature/sparse-attention-gather
-
-# Reinstall trackastra in case of updates
 pip install -e . --no-deps 2>/dev/null || true
 
 cat > /tmp/vanvliet_baseline.yaml << 'CONFIG'

@@ -7,6 +7,7 @@
 #SBATCH --mem=90GB
 #SBATCH --time=24:00:00
 #SBATCH --cpus-per-task=8
+#SBATCH --nodes=1
 
 source $(conda info --base)/etc/profile.d/conda.sh
 
