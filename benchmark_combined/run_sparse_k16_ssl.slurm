@@ -27,7 +27,7 @@ if [ "$TEST" = "1" ]; then
         echo "Creating env..."
         conda create --prefix "$ENV_DIR" python=3.10 -y
         conda activate "$ENV_DIR"
-        pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+        pip install setuptools && pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
         pip install lightning pandas scikit-image tifffile edt tqdm configargparse wandb tensorboard dask joblib
     }
     cd "$TRK"
@@ -43,7 +43,7 @@ conda activate "$ENV_DIR" 2>/dev/null || {
     echo "Creating env..."
     conda create --prefix "$ENV_DIR" python=3.10 -y
     conda activate "$ENV_DIR"
-    pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+    pip install setuptools && pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
     pip install lightning pandas scikit-image tifffile edt tqdm configargparse wandb tensorboard dask joblib
 }
 cd "$TRK"
@@ -64,5 +64,5 @@ python scripts/train.py \
     --features wrfeat --causal_norm quiet_softmax \
     --attn_positional_bias rope --spatial_pos_cutoff 256 \
     --delta_cutoff 2 --knn_neighbors 16 \
-    --ssl_pretrain True --ssl_epochs 5 --ssl_conditions rpsM recA pheA metA cib trpL
+    --ssl_pretrain True --ssl_epochs 5 --ssl_conditions rpsM recA pheA metA cib trpL \
     --mixedp True --num_workers 8 --seed 42 --augment 3
