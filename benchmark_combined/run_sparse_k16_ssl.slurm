@@ -15,6 +15,11 @@ export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
 export MKL_NUM_THREADS=$SLURM_CPUS_PER_TASK
 export NCCL_DEBUG=WARN
 export CUBLAS_WORKSPACE_CONFIG=:4096:8
+export PYTHONNOUSERSITE=1
+unset PYTHONPATH
+export WANDB_DISABLED=true
+export WANDB_MODE=disabled
+unset PYTHONHOME
 
 eval "$(conda shell.bash hook)"
 TRK=/data/cat/ws/lest161c-cell_tracking/lest161c-ssl_cell_tracking-1778979601/trackastra
@@ -45,8 +50,10 @@ conda activate "$ENV_DIR" 2>/dev/null || {
     conda create --prefix "$ENV_DIR" python=3.10 -y
     conda activate "$ENV_DIR"
 }
-python -m pip install setuptools
+python -m pip install --upgrade --force-reinstall setuptools
 python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+export WANDB_DISABLED=true
+export WANDB_MODE=disabled
 python -m pip install lightning pandas scikit-image tifffile edt tqdm configargparse wandb tensorboard dask joblib
 cd "$TRK"
 git pull origin feature/sparse-attention-gather
