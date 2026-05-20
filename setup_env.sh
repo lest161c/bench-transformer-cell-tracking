@@ -16,6 +16,7 @@ echo "=== Creating fresh env ==="
 conda create --prefix "$ENV" python=3.10 -y
 
 echo "=== Activating ==="
+eval "$(conda shell.bash hook)"
 conda activate "$ENV"
 
 echo "=== Python path check ==="
