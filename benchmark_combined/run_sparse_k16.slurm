@@ -63,8 +63,8 @@ mkdir -p logs
 python scripts/train.py \
     --name sparse_k16 --ndim 2 --window 10 --epochs 100 --warmup_epochs 10 \
     --detection_folders TRA \
-    --input_train data/vanvliet/rpsM data/vanvliet/recA data/vanvliet/pheA data/vanvliet/metA data/vanvliet/cib data/vanvliet/trpL \
-    --input_val data/vanvliet/rpsM data/vanvliet/recA data/vanvliet/pheA \
+    --input_train /data/cat/ws/mawe985g-data/data/celltracking/vanvliet/rpsM /data/cat/ws/mawe985g-data/data/celltracking/vanvliet/recA /data/cat/ws/mawe985g-data/data/celltracking/vanvliet/pheA /data/cat/ws/mawe985g-data/data/celltracking/vanvliet/metA /data/cat/ws/mawe985g-data/data/celltracking/vanvliet/cib /data/cat/ws/mawe985g-data/data/celltracking/vanvliet/trpL \
+    --input_val /data/cat/ws/mawe985g-data/data/celltracking/vanvliet/rpsM /data/cat/ws/mawe985g-data/data/celltracking/vanvliet/recA /data/cat/ws/mawe985g-data/data/celltracking/vanvliet/pheA \
     --outdir runs --distributed False \
     --batch_size 48 --max_tokens 4096 \
     --d_model 320 --num_encoder_layers 6 --num_decoder_layers 6 \
