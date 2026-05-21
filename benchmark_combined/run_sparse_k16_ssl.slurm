@@ -66,7 +66,7 @@ python scripts/train.py \
     --input_train /data/cat/ws/mawe985g-data/data/celltracking/vanvliet/rpsM /data/cat/ws/mawe985g-data/data/celltracking/vanvliet/recA /data/cat/ws/mawe985g-data/data/celltracking/vanvliet/pheA /data/cat/ws/mawe985g-data/data/celltracking/vanvliet/metA /data/cat/ws/mawe985g-data/data/celltracking/vanvliet/cib /data/cat/ws/mawe985g-data/data/celltracking/vanvliet/trpL \
     --input_val /data/cat/ws/mawe985g-data/data/celltracking/vanvliet/rpsM /data/cat/ws/mawe985g-data/data/celltracking/vanvliet/recA /data/cat/ws/mawe985g-data/data/celltracking/vanvliet/pheA \
     --outdir runs --distributed False \
-    --batch_size 48 --max_tokens 4096 \
+    --batch_size 24 --max_tokens 4096 \
     --d_model 320 --num_encoder_layers 6 --num_decoder_layers 6 \
     --pos_embed_per_dim 32 --feat_embed_per_dim 8 \
     --dropout 0.01 --lr 1e-4 \
