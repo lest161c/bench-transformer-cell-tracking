@@ -28,6 +28,9 @@ max_tokens: 2048
 batch_size: 48
 detection_folders:
   - TRA
+crop_size:
+  - 320
+  - 320
 attn_positional_bias: rope
 features: wrfeat
 knn_neighbors: 16
