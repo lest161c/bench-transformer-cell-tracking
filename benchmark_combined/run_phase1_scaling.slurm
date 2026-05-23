@@ -75,16 +75,14 @@ Ks = [4, 16, 32, 64]
 results = []
 
 def sparse_attn(q, k, v, knn_idx):
-    """Memory-efficient KNN gather: avoids expanding to (B,N,K,d)."""
-    B, N_knn, K = knn_idx.shape
-    _, N_q, d = q.shape
-    # k_sel: (B, K, N_q, d) by gathering per query
+    """KNN gather: expand q to (B,N,1,d), k_sel to (B,N,K,d) for FA."""
+    B, N, K = knn_idx.shape
+    d = q.shape[-1]
     idx_flat = knn_idx.view(B, -1)
-    k_sel = torch.gather(k, 1, idx_flat.unsqueeze(-1).expand(-1,-1,d))
-    k_sel = k_sel.view(B, N_q, K, d)
-    v_sel = torch.gather(v, 1, idx_flat.unsqueeze(-1).expand(-1,-1,d))
-    v_sel = v_sel.view(B, N_q, K, d)
-    return torch.nn.functional.scaled_dot_product_attention(q, k_sel, v_sel)
+    k_sel = torch.gather(k, 1, idx_flat.unsqueeze(-1).expand(-1,-1,d)).view(B,N,K,d)
+    v_sel = torch.gather(v, 1, idx_flat.unsqueeze(-1).expand(-1,-1,d)).view(B,N,K,d)
+    out = torch.nn.functional.scaled_dot_product_attention(q.unsqueeze(2), k_sel, v_sel)
+    return out.squeeze(2)
 
 for L in Ls:
     for N in Ns:
@@ -120,10 +118,10 @@ for L in Ls:
                 results.append({"N":N,"L":L,"K":"dense","variant":"masked",
                                "time_ms_per_step":f"{dt:.3f}","mem_mb":f"{mem:.1f}"})
                 print(f"  DENSE  N={N:5d} L={L:2d}: {dt:8.3f}ms  {mem:8.1f}MB")
-            except RuntimeError:
+            except RuntimeError as e:
                 results.append({"N":N,"L":L,"K":"dense","variant":"masked",
-                               "time_ms_per_step":"OOM","mem_mb":"OOM"})
-                print(f"  DENSE  N={N:5d} L={L:2d}: OOM")
+                               "time_ms_per_step":"ERR","mem_mb":"ERR"})
+                print(f"  DENSE  N={N:5d} L={L:2d}: ERR: {str(e)[:100]}")
 
         # Sparse KNN
         for K in Ks:
@@ -155,10 +153,10 @@ for L in Ls:
                 results.append({"N":N,"L":L,"K":f"K={K}","variant":"knn_gather",
                                "time_ms_per_step":f"{dt:.3f}","mem_mb":f"{mem:.1f}"})
                 print(f"  KNN K={K:2d} N={N:5d} L={L:2d}: {dt:8.3f}ms  {mem:8.1f}MB")
-            except RuntimeError:
+            except RuntimeError as e:
                 results.append({"N":N,"L":L,"K":f"K={K}","variant":"knn_gather",
-                               "time_ms_per_step":"OOM","mem_mb":"OOM"})
-                print(f"  KNN K={K:2d} N={N:5d} L={L:2d}: OOM")
+                               "time_ms_per_step":"ERR","mem_mb":"ERR"})
+                print(f"  KNN K={K:2d} N={N:5d} L={L:2d}: ERR: {str(e)[:100]}")
         print()
 
 Path("runs/phase1").mkdir(parents=True, exist_ok=True)
