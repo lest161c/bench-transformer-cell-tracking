@@ -55,7 +55,7 @@ mkdir -p runs
 
 cat > config_cluster.yaml << 'YEOF'
 name: ssl_phase1
-data_root: DATA_DIR_PLACEHOLDER
+data_root: DATA_DIR_PLACEHOLDER/vanvliet
 conditions: [rpsM, recA, pheA, metA, cib, trpL]
 ndim: 2
 features: regionprops2

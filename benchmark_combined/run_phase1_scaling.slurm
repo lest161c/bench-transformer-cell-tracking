@@ -67,66 +67,80 @@ device = torch.device("cuda")
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
 
-d_model, nhead, B, warmup, repeat = 256, 4, 8, 5, 20
+d_model, nhead, B, warmup, repeat = 256, 4, 2, 5, 10
 head_dim = d_model // nhead
 Ns = [128, 256, 512, 1024, 2048, 4096, 8192]
 Ls = [1, 6, 12]
 Ks = [4, 16, 32, 64]
 results = []
 
+def sparse_attn(q, k, v, knn_idx):
+    """Memory-efficient KNN gather: avoids expanding to (B,N,K,d)."""
+    B, N_knn, K = knn_idx.shape
+    _, N_q, d = q.shape
+    # k_sel: (B, K, N_q, d) by gathering per query
+    idx_flat = knn_idx.view(B, -1)
+    k_sel = torch.gather(k, 1, idx_flat.unsqueeze(-1).expand(-1,-1,d))
+    k_sel = k_sel.view(B, N_q, K, d)
+    v_sel = torch.gather(v, 1, idx_flat.unsqueeze(-1).expand(-1,-1,d))
+    v_sel = v_sel.view(B, N_q, K, d)
+    return torch.nn.functional.scaled_dot_product_attention(q, k_sel, v_sel)
+
 for L in Ls:
     for N in Ns:
-        # Dense baseline (masked SDPA — simulates Trackastra attn_mask)
+        # Dense baseline
         if N <= 4096:
             try:
+                torch.cuda.empty_cache()
                 coords = torch.randn(N, 2, device=device, dtype=torch.float16)
                 dist = torch.cdist(coords, coords)
                 attn_mask = torch.zeros(N, N, device=device, dtype=torch.float16)
                 attn_mask[dist > 100] = -1e9
 
                 torch.cuda.synchronize(); torch.cuda.reset_peak_memory_stats()
-                for _ in range(warmup):
-                    for _ in range(L):
+                with torch.no_grad():
+                    for _ in range(warmup):
                         x = torch.randn(B, N, d_model, device=device, dtype=torch.float16)
-                        q = k = v = x
-                        scores = torch.matmul(q, k.transpose(-2, -1)) / (head_dim ** 0.5) + attn_mask
-                        x = torch.matmul(torch.softmax(scores, dim=-1), v)
+                        for _ in range(L):
+                            q = k = v = x
+                            scores = torch.matmul(q, k.transpose(-2,-1)) / (head_dim**0.5) + attn_mask
+                            x = torch.matmul(torch.softmax(scores, dim=-1), v)
                 torch.cuda.synchronize(); mem = torch.cuda.max_memory_allocated() / (1024**2)
+                torch.cuda.empty_cache()
 
                 t0 = time.perf_counter()
                 for _ in range(repeat):
                     x = torch.randn(B, N, d_model, device=device, dtype=torch.float16)
-                    q = k = v = x
-                    scores = torch.matmul(q, k.transpose(-2, -1)) / (head_dim ** 0.5) + attn_mask
-                    x = torch.matmul(torch.softmax(scores, dim=-1), v)
+                    for _ in range(L):
+                        q = k = v = x
+                        scores = torch.matmul(q, k.transpose(-2,-1)) / (head_dim**0.5) + attn_mask
+                        x = torch.matmul(torch.softmax(scores, dim=-1), v)
                 torch.cuda.synchronize()
                 dt = (time.perf_counter() - t0) / repeat * 1000
                 results.append({"N":N,"L":L,"K":"dense","variant":"masked",
                                "time_ms_per_step":f"{dt:.3f}","mem_mb":f"{mem:.1f}"})
                 print(f"  DENSE  N={N:5d} L={L:2d}: {dt:8.3f}ms  {mem:8.1f}MB")
-            except RuntimeError as e:
+            except RuntimeError:
                 results.append({"N":N,"L":L,"K":"dense","variant":"masked",
                                "time_ms_per_step":"OOM","mem_mb":"OOM"})
                 print(f"  DENSE  N={N:5d} L={L:2d}: OOM")
 
-        # Sparse KNN (gather-based, FlashAttention-compatible)
+        # Sparse KNN
         for K in Ks:
             if K >= N: continue
             try:
+                torch.cuda.empty_cache()
                 torch.cuda.synchronize(); torch.cuda.reset_peak_memory_stats()
-                for _ in range(warmup):
-                    x = torch.randn(B, N, d_model, device=device, dtype=torch.float16)
-                    coords = torch.randn(B, N, 2, device=device, dtype=torch.float16)
-                    d2 = torch.cdist(coords, coords)
-                    _, kidx = torch.topk(d2, k=K, dim=-1, largest=False)
-                    for _ in range(L):
-                        q = k = v = x
-                        k_sel = torch.gather(k.unsqueeze(2).expand(-1,-1,K,-1), 1,
-                                            kidx.unsqueeze(-1).expand(-1,-1,-1,d_model))
-                        v_sel = torch.gather(v.unsqueeze(2).expand(-1,-1,K,-1), 1,
-                                            kidx.unsqueeze(-1).expand(-1,-1,-1,d_model))
-                        x = torch.nn.functional.scaled_dot_product_attention(q, k_sel, v_sel)
+                with torch.no_grad():
+                    for _ in range(warmup):
+                        x = torch.randn(B, N, d_model, device=device, dtype=torch.float16)
+                        coords = torch.randn(B, N, 2, device=device, dtype=torch.float16)
+                        d2 = torch.cdist(coords, coords)
+                        _, kidx = torch.topk(d2, k=K, dim=-1, largest=False)
+                        for _ in range(L):
+                            x = sparse_attn(x, x, x, kidx)
                 torch.cuda.synchronize(); mem = torch.cuda.max_memory_allocated() / (1024**2)
+                torch.cuda.empty_cache()
 
                 t0 = time.perf_counter()
                 for _ in range(repeat):
@@ -135,18 +149,13 @@ for L in Ls:
                     d2 = torch.cdist(coords, coords)
                     _, kidx = torch.topk(d2, k=K, dim=-1, largest=False)
                     for _ in range(L):
-                        q = k = v = x
-                        k_sel = torch.gather(k.unsqueeze(2).expand(-1,-1,K,-1), 1,
-                                            kidx.unsqueeze(-1).expand(-1,-1,-1,d_model))
-                        v_sel = torch.gather(v.unsqueeze(2).expand(-1,-1,K,-1), 1,
-                                            kidx.unsqueeze(-1).expand(-1,-1,-1,d_model))
-                        x = torch.nn.functional.scaled_dot_product_attention(q, k_sel, v_sel)
+                        x = sparse_attn(x, x, x, kidx)
                 torch.cuda.synchronize()
                 dt = (time.perf_counter() - t0) / repeat * 1000
                 results.append({"N":N,"L":L,"K":f"K={K}","variant":"knn_gather",
                                "time_ms_per_step":f"{dt:.3f}","mem_mb":f"{mem:.1f}"})
                 print(f"  KNN K={K:2d} N={N:5d} L={L:2d}: {dt:8.3f}ms  {mem:8.1f}MB")
-            except RuntimeError as e:
+            except RuntimeError:
                 results.append({"N":N,"L":L,"K":f"K={K}","variant":"knn_gather",
                                "time_ms_per_step":"OOM","mem_mb":"OOM"})
                 print(f"  KNN K={K:2d} N={N:5d} L={L:2d}: OOM")
