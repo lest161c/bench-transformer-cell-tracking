@@ -8,7 +8,6 @@ delta_cutoff: 1
 num_encoder_layers: 6
 num_decoder_layers: 6
 causal_norm: quiet_softmax
-cache: true
 cachedir: runs/.cache
 compress: true
 d_model: 320
@@ -58,10 +57,4 @@ input_val:
   - /data/cat/ws/mawe985g-data/data/celltracking/vanvliet/recA/151031-03
   - /data/cat/ws/mawe985g-data/data/celltracking/vanvliet/trpL/151021-11
 
-input_test:
-  - /data/cat/ws/mawe985g-data/data/celltracking/vanvliet/rpsM/151029_E1-1
-  - /data/cat/ws/mawe985g-data/data/celltracking/vanvliet/rpsM/151029_E1-5
-  - /data/cat/ws/mawe985g-data/data/celltracking/vanvliet/rpsM/151101_E3-12
-  - /data/cat/ws/mawe985g-data/data/celltracking/vanvliet/trpL/150309-04
-  - /data/cat/ws/mawe985g-data/data/celltracking/vanvliet/trpL/150310-11
-  - /data/cat/ws/mawe985g-data/data/celltracking/vanvliet/pheA/160112-06
+
