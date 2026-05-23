@@ -1,8 +1,7 @@
 """SSL pretraining with configurable attention (dense or sparse K)."""
 
-import csv, logging, sys, yaml, time, os, math, gc
+import logging, yaml, time, math, gc
 from pathlib import Path
-from collections import OrderedDict
 
 import numpy as np
 import torch
@@ -15,13 +14,24 @@ from tqdm import tqdm
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
-ROOT = Path(__file__).parent.parent
-sys.path.insert(0, str(ROOT / "benchmark_attn"))
 from model_parts import GatherSparseAttention
 
-from track_encoder import AgentCentricNormalization
 from ssl_pipeline import load_experiment_frames, SSLDataset, collate_ssl
 from distortions import DistortionPipeline
+
+
+# AgentCentricNormalization moved here (removed from track_encoder.py)
+class AgentCentricNormalization(nn.Module):
+    def __init__(self, ndim=2):
+        super().__init__()
+        self.ndim = ndim
+    def forward(self, coords_src, coords_tgt):
+        B, N_src, D = coords_src.shape
+        _, N_tgt, _ = coords_tgt.shape
+        disp = coords_tgt[:, None, :, :] - coords_src[:, :, None, :]
+        dist = torch.norm(disp, dim=-1, keepdim=True)
+        dir_vec = F.normalize(disp + 1e-8, dim=-1)
+        return torch.cat([disp, dir_vec, dist], dim=-1)
 
 
 # ============================================================

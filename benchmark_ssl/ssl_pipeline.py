@@ -1,18 +1,13 @@
-"""SSL pretext task pipeline.
+"""SSL contrastive-learning pipeline.
 
-Loads cell tracking data (masks + images), extracts WRFeatures per frame,
-applies geometric distortions to create synthetic frame pairs with identity
-association labels.
+Loads cell detection data (masks + images), extracts WRFeatures per frame,
+applies independent geometric/feature distortions to create two augmented
+views. The encoder must learn to produce consistent embeddings for the same
+cell across both views (positive pairs) while pushing apart different cells
+(negative pairs).
 
-Output format compatible with Trackastra:
-  coords:       (N, ndim) — spatial only (time added by Trackastra)
-  features:     (N, feat_dim)
-  assoc_matrix: (N_src, N_tgt) — binary, identity i→i
-
-Design avoids shortcut learning via:
-- Agent-centric coordinate normalization (like ASCENT)
-- Distortion diversity prevents memorization
-- Per-cell jitter hardest/best pretext
+Contrastive learning eliminates the need for tracking annotations.
+Only segmentations (or detections) are required.
 """
 
 import logging
@@ -127,16 +122,14 @@ def load_experiment_frames(exp_dir, conditions=None):
 
 
 class SSLDataset(Dataset):
-    """Dataset for SSL pretraining.
+    """Dataset for contrastive SSL pretraining.
 
-    Produces synthetic frame pairs with identity association labels.
-    No real tracking labels needed — only segmentations.
+    Produces two independently augmented views from each frame.
+    No tracking labels needed — only segmentations.
 
-    Args:
-        frames: List of (cond, exp, frame_idx, mask_path, img_path)
-        distortion_pipeline: DistortionPipeline instance
-        ndim: 2 or 3
-        features: "regionprops" or "regionprops2"
+    Cells are sorted by label in both views so that matching cells
+    occupy the same index positions. This enables straightforward
+    positive-pair identification in the NT-Xent loss.
     """
 
     def __init__(self, frames, distortion_pipeline=None, ndim=2, features="regionprops2"):
@@ -159,91 +152,106 @@ class SSLDataset(Dataset):
 
         result = features_from_frame(mask, img, self.features)
         if result is None:
-            return {
-                "coords_src": torch.zeros(0, self.ndim, dtype=torch.float32),
-                "coords_tgt": torch.zeros(0, self.ndim, dtype=torch.float32),
-                "features_src": torch.zeros(0, 7, dtype=torch.float32),
-                "features_tgt": torch.zeros(0, 7, dtype=torch.float32),
-                "assoc_matrix": torch.zeros(0, 0, dtype=torch.float32),
-                "n_src": 0, "n_tgt": 0,
-            }
+            return self._empty_item()
 
         coords_src, labels_src, feats_dict_src = result
 
         if self.distortion_pipeline is not None:
-            _, _, coords_tgt, feats_dict_tgt, labels_tgt = self.distortion_pipeline(
+            c1, f1, l1, c2, f2, l2 = self.distortion_pipeline(
                 coords_src, feats_dict_src, labels_src
             )
         else:
-            coords_tgt = coords_src.copy()
-            feats_dict_tgt = {k: v.copy() for k, v in feats_dict_src.items()}
-            labels_tgt = labels_src.copy()
+            c1, f1, l1 = coords_src.copy(), {k: v.copy() for k, v in feats_dict_src.items()}, labels_src.copy()
+            c2, f2, l2 = coords_src.copy(), {k: v.copy() for k, v in feats_dict_src.items()}, labels_src.copy()
 
-        # Build identity association matrix
-        n_src, n_tgt = len(labels_src), len(labels_tgt)
-        assoc = np.zeros((n_src, n_tgt), dtype=np.float32)
-        label_to_tgt = {int(lbl): j for j, lbl in enumerate(labels_tgt)}
-        for i, lbl in enumerate(labels_src):
-            j = label_to_tgt.get(int(lbl))
-            if j is not None:
-                assoc[i, j] = 1.0
+        feats1 = np.concatenate(list(f1.values()), axis=-1).astype(np.float32)
+        feats2 = np.concatenate(list(f2.values()), axis=-1).astype(np.float32)
 
-        # Stack features
-        feats_src = np.concatenate(list(feats_dict_src.values()), axis=-1).astype(np.float32)
-        feats_tgt = np.concatenate(list(feats_dict_tgt.values()), axis=-1).astype(np.float32)
+        # Sort both views by label so matching cells occupy same indices
+        idx1 = np.argsort(l1)
+        idx2 = np.argsort(l2)
 
         return {
-            "coords_src": torch.from_numpy(coords_src).float(),
-            "coords_tgt": torch.from_numpy(coords_tgt).float(),
-            "features_src": torch.from_numpy(feats_src).float(),
-            "features_tgt": torch.from_numpy(feats_tgt).float(),
-            "assoc_matrix": torch.from_numpy(assoc).float(),
-            "n_src": n_src, "n_tgt": n_tgt,
+            "coords1": torch.from_numpy(c1[idx1]).float(),
+            "coords2": torch.from_numpy(c2[idx2]).float(),
+            "features1": torch.from_numpy(feats1[idx1]).float(),
+            "features2": torch.from_numpy(feats2[idx2]).float(),
+            "labels1": torch.from_numpy(l1[idx1]).long(),
+            "labels2": torch.from_numpy(l2[idx2]).long(),
+            "n1": len(l1),
+            "n2": len(l2),
+        }
+
+    def _empty_item(self):
+        return {
+            "coords1": torch.zeros(0, self.ndim),
+            "coords2": torch.zeros(0, self.ndim),
+            "features1": torch.zeros(0, 7),
+            "features2": torch.zeros(0, 7),
+            "labels1": torch.zeros(0, dtype=torch.long),
+            "labels2": torch.zeros(0, dtype=torch.long),
+            "n1": 0,
+            "n2": 0,
         }
 
 
 def collate_ssl(batch):
-    """Collate batch with padding (matches trackastra convention)."""
-    max_src = max(b["n_src"] for b in batch)
-    max_tgt = max(b["n_tgt"] for b in batch)
+    """Collate batch with padding for two-view contrastive learning.
+
+    Both views are padded to max(N1, N2) across the batch.
+    Cells are sorted by label, so position i in view1 corresponds
+    to the same cell (if present in both views) at position i in view2.
+
+    Returns dict with keys: coords1, coords2, features1, features2,
+    padding_mask1, padding_mask2, valid_pair (which positions have
+    matching cells in both views), n1, n2.
+    """
+    batch = [b for b in batch if b["n1"] > 0 or b["n2"] > 0]
+    if len(batch) == 0:
+        return None
+
+    max_n = max(max(b["n1"], b["n2"]) for b in batch)
     B = len(batch)
 
     ndim = 2
     fdim = 7
-    for b in batch:
-        if b["n_src"] > 0:
-            ndim = b["coords_src"].shape[-1]
-            fdim = b["features_src"].shape[-1]
+    for b_i in batch:
+        if b_i["n1"] > 0:
+            ndim = b_i["coords1"].shape[-1]
+            fdim = b_i["features1"].shape[-1]
             break
 
-    coords_src = torch.zeros(B, max_src, ndim)
-    coords_tgt = torch.zeros(B, max_tgt, ndim)
-    feats_src = torch.zeros(B, max_src, fdim)
-    feats_tgt = torch.zeros(B, max_tgt, fdim)
-    assoc = torch.zeros(B, max_src, max_tgt)
-    pad_src = torch.ones(B, max_src, dtype=torch.bool)
-    pad_tgt = torch.ones(B, max_tgt, dtype=torch.bool)
+    c1 = torch.zeros(B, max_n, ndim)
+    c2 = torch.zeros(B, max_n, ndim)
+    f1 = torch.zeros(B, max_n, fdim)
+    f2 = torch.zeros(B, max_n, fdim)
+    l1 = torch.full((B, max_n,), -1, dtype=torch.long)
+    l2 = torch.full((B, max_n,), -1, dtype=torch.long)
+    pm1 = torch.ones(B, max_n, dtype=torch.bool)
+    pm2 = torch.ones(B, max_n, dtype=torch.bool)
 
     for i, b in enumerate(batch):
-        ns, nt = b["n_src"], b["n_tgt"]
-        if ns > 0:
-            coords_src[i, :ns] = b["coords_src"]
-            feats_src[i, :ns] = b["features_src"]
-            pad_src[i, :ns] = False
-        if nt > 0:
-            coords_tgt[i, :nt] = b["coords_tgt"]
-            feats_tgt[i, :nt] = b["features_tgt"]
-            pad_tgt[i, :nt] = False
-        if ns > 0 and nt > 0:
-            assoc[i, :ns, :nt] = b["assoc_matrix"]
+        n1, n2 = b["n1"], b["n2"]
+        if n1 > 0:
+            c1[i, :n1] = b["coords1"]
+            f1[i, :n1] = b["features1"]
+            l1[i, :n1] = b["labels1"]
+            pm1[i, :n1] = False
+        if n2 > 0:
+            c2[i, :n2] = b["coords2"]
+            f2[i, :n2] = b["features2"]
+            l2[i, :n2] = b["labels2"]
+            pm2[i, :n2] = False
+
+    valid_pair = (l1 == l2) & ~pm1 & ~pm2
 
     return {
-        "coords_src": coords_src, "coords_tgt": coords_tgt,
-        "features_src": feats_src, "features_tgt": feats_tgt,
-        "assoc_matrix": assoc,
-        "padding_mask_src": pad_src, "padding_mask_tgt": pad_tgt,
-        "n_src": torch.tensor([b["n_src"] for b in batch]),
-        "n_tgt": torch.tensor([b["n_tgt"] for b in batch]),
+        "coords1": c1, "coords2": c2,
+        "features1": f1, "features2": f2,
+        "padding_mask1": pm1, "padding_mask2": pm2,
+        "valid_pair": valid_pair,
+        "n1": torch.tensor([b["n1"] for b in batch]),
+        "n2": torch.tensor([b["n2"] for b in batch]),
     }
 
 
@@ -253,7 +261,6 @@ if __name__ == "__main__":
     print(f"Found {len(frames)} frames in rpsM")
 
     from distortions import DistortionPipeline
-    import yaml
     with open("config.yaml") as f:
         cfg = yaml.safe_load(f)
     dist = DistortionPipeline.from_config(cfg)
@@ -261,6 +268,6 @@ if __name__ == "__main__":
     ds = SSLDataset(frames[:20], distortion_pipeline=dist)
     loader = DataLoader(ds, batch_size=2, collate_fn=collate_ssl)
     for batch in loader:
-        print(f"coords_src: {batch['coords_src'].shape}, assoc: {batch['assoc_matrix'].shape}")
-        print(f"  positives: {batch['assoc_matrix'].sum().item()}")
+        print(f"coords1: {batch['coords1'].shape}, coords2: {batch['coords2'].shape}")
+        print(f"  valid pairs: {batch['valid_pair'].sum().item()}")
         break

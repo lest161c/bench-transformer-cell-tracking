@@ -1,10 +1,12 @@
-"""Distortion families for SSL pretext task.
+"""Distortion families for SSL contrastive learning.
 
-Each distortion takes a frame's WRFeatures (coords + features + labels)
-and returns a synthetic "next frame" with identity associations preserved.
+Each distortion independently transforms a synthetic "view" of a single frame.
+For contrastive SSL: two independent augmented views are generated from each
+original frame. The model learns to produce similar embeddings for the same
+cell across views while pushing apart embeddings of different cells.
 
-Key principle: distortions must be diverse enough to prevent shortcut learning.
-If the model can predict identity just from warp geometry, SSL fails.
+Design principle: augmentations must be destructive enough to prevent
+the encoder from using trivial geometric shortcuts (coordinate memorization).
 """
 
 import numpy as np
@@ -27,7 +29,7 @@ def _transform_affine_feature(k, v, M):
     elif k in ("intensity_mean", "intensity_max", "intensity_min", "border_dist"):
         return v
     else:
-        return v  # pass through unknown feats
+        return v
 
 
 class AffineDistortion:
@@ -44,7 +46,6 @@ class AffineDistortion:
         s = self.rng.uniform(*self.scale, 3)
         shy = self.rng.uniform(-self.shear[0], self.shear[0])
         shx = self.rng.uniform(-self.shear[1], self.shear[1])
-
         R = np.array([
             [1, 0, 0],
             [0, np.cos(theta), -np.sin(theta)],
@@ -78,36 +79,25 @@ class ElasticDistortion:
         ndim = coords.shape[-1]
         alpha = self.rng.uniform(*self.alpha_range)
         sigma = self.rng.uniform(*self.sigma_range)
-
-        # Build coarse displacement grid
         grid_size = 16
         grid_axes = [np.linspace(0, 1, grid_size) for _ in range(ndim)]
         grid_pts = np.stack(np.meshgrid(*grid_axes, indexing="ij"), axis=-1).reshape(-1, ndim)
         rand_disp = self.rng.randn(grid_size ** ndim, ndim).astype(np.float32)
-
-        # Smooth per-coordinate with gaussian_filter
         for d_i in range(ndim):
             field = rand_disp[:, d_i].reshape(*([grid_size] * ndim))
             field = gaussian_filter(field, sigma, mode="nearest")
             rand_disp[:, d_i] = field.ravel()
         rand_disp *= alpha
-
-        # Normalize coords to [0, 1] grid
         coords_norm = coords.copy().astype(np.float32)
         cmin = coords_norm.min(axis=0)
         cmax = coords_norm.max(axis=0)
         cmax = np.where(cmax == cmin, cmin + 1, cmax)
         coords_norm = (coords_norm - cmin) / (cmax - cmin)
-
-        # Interpolate: nearest neighbor for speed
         from scipy.spatial import cKDTree
         tree = cKDTree(grid_pts)
         _, idx = tree.query(coords_norm)
         cell_disp = rand_disp[idx]
-
         coords_t = coords + cell_disp.astype(np.float32)
-
-        # Feature changes: area approximately preserved with small noise
         feats_t = OrderedDict()
         for k, v in features.items():
             if k == "pretrained_feats":
@@ -117,16 +107,15 @@ class ElasticDistortion:
                 feats_t[k] = v * noise
             else:
                 feats_t[k] = v.copy()
-
         return coords_t, feats_t
 
 
 class JitterDistortion:
     """Per-cell independent jitter — simulates independent cell motion.
 
-    This is the most realistic distortion for tracking: each cell moves
-    independently, like real biological motion. The model MUST learn
-    cell identity features (area, shape, intensity) to solve this.
+    This is the single most effective augmentation (per ASCENT ablation).
+    Each cell moves independently, forcing the model to learn identity
+    features beyond coordinate matching.
     """
 
     def __init__(self, std=(2, 8), p_cell_jitter=0.8, rng=None):
@@ -138,29 +127,21 @@ class JitterDistortion:
         ndim = coords.shape[-1]
         n = len(labels)
         std = self.rng.uniform(*self.std_range)
-
-        # Each cell gets independent displacement
         jitter = self.rng.randn(n, ndim).astype(np.float32) * std
-
-        # Some cells don't move (to prevent pure-distortion shortcut)
         mask = self.rng.rand(n) < self.p_cell_jitter
         jitter[~mask] = 0
-
         coords_t = coords + jitter
-
-        # Preserve all features exactly (identity of cell unchanged)
         feats_t = OrderedDict(
             (k, v.copy()) for k, v in features.items() if k != "pretrained_feats"
         )
-
         return coords_t, feats_t
 
 
 class DropoutDistortion:
     """Simulate segmentation failures — drop random subset of cells.
 
-    Dropped cells have NO correspondence in the synthetic next frame.
-    Teaches the model to handle false negatives / cell death.
+    Dropped cells have NO counterpart in the other view.
+    Teaches the model to handle false negatives / detection failures.
     """
 
     def __init__(self, p_drop=(0.05, 0.2), rng=None):
@@ -171,8 +152,6 @@ class DropoutDistortion:
         n = len(labels)
         p_drop = self.rng.uniform(*self.p_drop_range)
         keep = self.rng.rand(n) > p_drop
-
-        # Return only surviving cells
         coords_t = coords[keep]
         feats_t = OrderedDict(
             (k, v[keep]) for k, v in features.items() if k != "pretrained_feats"
@@ -181,11 +160,7 @@ class DropoutDistortion:
 
 
 class PhotometricDistortion:
-    """Intensity/value shifts (only affects intensity features, not geometry).
-
-    Useful only if image-based features are used. For shallow features,
-    this adjusts intensity_mean/max/min values.
-    """
+    """Intensity/value shifts for intensity-based features."""
 
     def __init__(self, scale=(0.5, 2.0), shift=(-0.1, 0.1), rng=None):
         self.scale_range = scale
@@ -195,7 +170,6 @@ class PhotometricDistortion:
     def __call__(self, coords, features, labels):
         scale = self.rng.uniform(*self.scale_range)
         shift = self.rng.uniform(*self.shift_range)
-
         feats_t = OrderedDict()
         for k, v in features.items():
             if k == "pretrained_feats":
@@ -204,12 +178,43 @@ class PhotometricDistortion:
                 feats_t[k] = v * scale + shift
             else:
                 feats_t[k] = v.copy()
+        return coords.copy(), feats_t
 
+
+class FeatureNoise:
+    """Add Gaussian noise to all features to prevent shortcut memorization.
+
+    Without feature noise, the encoder can memorize exact feature values
+    (area, inertia_tensor, etc.) to match cells across views instead of
+    learning robust identity representations.
+    """
+
+    def __init__(self, std=(0.02, 0.15), rng=None):
+        self.std_range = std
+        self.rng = rng if rng is not None else np.random.RandomState()
+
+    def __call__(self, coords, features, labels):
+        std = self.rng.uniform(*self.std_range)
+        feats_t = OrderedDict()
+        for k, v in features.items():
+            if k == "pretrained_feats":
+                continue
+            noise = self.rng.randn(*v.shape).astype(np.float32) * std
+            feat_std = np.std(v)
+            if feat_std > 1e-6:
+                noise = noise * (feat_std * 0.1)  # Scale noise to ~10% of feature std
+            feats_t[k] = v + noise
         return coords.copy(), feats_t
 
 
 class DistortionPipeline:
-    """Apply a sequence of distortions to produce synthetic frame pair."""
+    """Apply sequence of distortions to generate two independent augmented views.
+
+    Each call produces two views with independently sampled distortions.
+    This is the core of the contrastive SSL pretext task: the encoder must
+    learn to produce consistent embeddings for the same cell across two
+    differently-distorted views of the same frame.
+    """
 
     def __init__(self, distortions, seed=None):
         self.rng = np.random.RandomState(seed)
@@ -224,6 +229,7 @@ class DistortionPipeline:
         jitter_cfg = config.get("jitter", {})
         dropout_cfg = config.get("dropout", {})
         photometric_cfg = config.get("photometric", {})
+        feature_noise_cfg = config.get("feature_noise", {})
 
         name_to_cls = {
             "affine": lambda: AffineDistortion(**affine_cfg, rng=rng),
@@ -231,6 +237,7 @@ class DistortionPipeline:
             "jitter": lambda: JitterDistortion(**jitter_cfg, rng=rng),
             "dropout": lambda: DropoutDistortion(**dropout_cfg, rng=rng),
             "photometric": lambda: PhotometricDistortion(**photometric_cfg, rng=rng),
+            "feature_noise": lambda: FeatureNoise(**feature_noise_cfg, rng=rng),
         }
 
         distortions = []
@@ -242,27 +249,27 @@ class DistortionPipeline:
         return cls(distortions, seed=config.get("seed"))
 
     def __call__(self, coords, features, labels):
-        """Apply distortions sequentially. Returns (src_coords, src_feats, tgt_coords, tgt_feats, tgt_labels).
+        """Generate two independent augmented views.
 
-        src = original frame (reference)
-        tgt = distorted frame (synthetic "next frame")
+        Args:
+            coords:   (N, ndim) — cell coordinates
+            features: OrderedDict of (N, *) — regionprops features
+            labels:   (N,) — cell identity labels
 
-        Identity association: i → i for all cells that survive.
-        Key for successful SSL: model must predict identity correspondence
-        using cell identity features, not warp shortcuts.
+        Returns:
+            coords1, feats1, labels1: view 1 (independently distorted)
+            coords2, feats2, labels2: view 2 (independently distorted)
         """
-        coords_src = coords.copy()
-        feats_src = {k: v.copy() for k, v in features.items()}
 
-        # Apply each distortion in sequence
-        coords_t = coords.copy()
-        feats_t = {k: v.copy() for k, v in features.items()}
-        labels_t = labels.copy()
+        def _apply_view(coord, feat, lab):
+            c, f, l = coord.copy(), {k: v.copy() for k, v in feat.items()}, lab.copy()
+            for dist in self.distortions:
+                c, f = dist(c, f, l)
+                if isinstance(dist, DropoutDistortion):
+                    l = l[:len(c)]
+            return c, f, l
 
-        for distortion in self.distortions:
-            coords_t, feats_t = distortion(coords_t, feats_t, labels_t)
-            # Handle dropout: if cells removed, trim labels too
-            if isinstance(distortion, DropoutDistortion):
-                labels_t = labels_t[:len(coords_t)]
+        c1, f1, l1 = _apply_view(coords, features, labels)
+        c2, f2, l2 = _apply_view(coords, features, labels)
 
-        return coords_src, feats_src, coords_t, feats_t, labels_t
+        return c1, f1, l1, c2, f2, l2

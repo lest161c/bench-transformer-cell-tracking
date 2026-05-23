@@ -1,11 +1,19 @@
-"""Standalone SSL training script. Logs metrics to CSV for plotting."""
+"""Standalone contrastive SSL training with InfoNCE (NT-Xent) loss.
+
+Trains CellEmbedder using SimCLR-style contrastive learning:
+- Two augmented views per frame → embeddings z1, z2
+- Positive pairs: same cell across views
+- Negative pairs: all other cells in the frame (in-batch negatives)
+- Loss: Normalized Temperature-scaled Cross Entropy (NT-Xent)
+
+Replaces old approach: BCE loss on association matrix + wrong ASCENT architecture.
+"""
 
 import csv, logging, sys, yaml, time, os
 from pathlib import Path
 
 import numpy as np
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
@@ -13,23 +21,81 @@ from tqdm import tqdm
 
 from distortions import DistortionPipeline
 from ssl_pipeline import load_experiment_frames, SSLDataset, collate_ssl
-from track_encoder import AssociationEncoder
+from track_encoder import CellEmbedder
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
 
-def assoc_accuracy(logits, targets):
-    preds = (logits > 0).float()
-    tp = (preds * targets).sum()
-    fp = (preds * (1 - targets)).sum()
-    fn = ((1 - preds) * targets).sum()
-    tn = ((1 - preds) * (1 - targets)).sum()
-    acc = (tp + tn) / (tp + fp + fn + tn + 1e-8)
-    prec = tp / (tp + fp + 1e-8)
-    rec = tp / (tp + fn + 1e-8)
-    f1 = 2 * prec * rec / (prec + rec + 1e-8)
-    return acc.item(), prec.item(), rec.item(), f1.item()
+def nt_xent_loss(z1, z2, padding_mask1, padding_mask2, temperature=0.05):
+    """NT-Xent (InfoNCE) loss for contrastive representation learning.
+
+    Computes per-frame: for each cell present in both views, the positive
+    pair is (embed_view1, embed_view2). All other cells in the frame serve
+    as negatives.
+
+    Args:
+        z1:             (B, N, D) — embeddings from view 1
+        z2:             (B, N, D) — embeddings from view 2
+        padding_mask1:  (B, N)   — True for padded positions in view 1
+        padding_mask2:  (B, N)   — True for padded positions in view 2
+        temperature:    float    — softmax temperature (0.05 standard in SimCLR)
+
+    Cells at position i in both views are assumed to be the same cell
+    (guaranteed by label-sorted collation).
+
+    Returns:
+        scalar loss averaged over frames (and valid cells within frames).
+    """
+    B, N_max, D = z1.shape
+
+    z1 = F.normalize(z1, dim=-1)
+    z2 = F.normalize(z2, dim=-1)
+
+    total_loss = 0.0
+    n_frames = 0
+
+    for b in range(B):
+        pm1 = padding_mask1[b]
+        pm2 = padding_mask2[b]
+        valid = ~pm1 & ~pm2
+        n = valid.sum().item()
+
+        if n < 2:
+            continue
+
+        e1 = z1[b][valid]
+        e2 = z2[b][valid]
+
+        features = torch.cat([e1, e2], dim=0)
+
+        sim = torch.matmul(features, features.T) / temperature
+        sim = sim - torch.eye(2 * n, device=sim.device) * 1e9
+
+        labels = torch.cat([torch.arange(n, 2 * n), torch.arange(0, n)]).to(features.device)
+
+        loss = F.cross_entropy(sim, labels, reduction="mean")
+        total_loss += loss
+        n_frames += 1
+
+    if n_frames == 0:
+        return torch.tensor(0.0, device=z1.device, requires_grad=True)
+
+    return total_loss / n_frames
+
+
+def embedding_consistency(z1, z2, padding_mask1, padding_mask2):
+    """Measure how consistent embeddings are across views (cosine similarity of matching pairs)."""
+    valid = ~padding_mask1 & ~padding_mask2
+    if valid.sum() == 0:
+        return 0.0
+
+    z1_n = F.normalize(z1, dim=-1)
+    z2_n = F.normalize(z2, dim=-1)
+
+    sim = (z1_n * z2_n).sum(dim=-1)
+    consistency = sim[valid].mean().item()
+    return consistency
 
 
 def main(config_path="config.yaml"):
@@ -39,7 +105,7 @@ def main(config_path="config.yaml"):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"Device: {device}")
 
-    outdir = Path("runs") / cfg.get("name", "ssl_bench")
+    outdir = Path("runs") / cfg.get("name", "ssl_contrastive")
     outdir.mkdir(parents=True, exist_ok=True)
 
     with open(outdir / "config.yaml", "w") as f:
@@ -61,10 +127,15 @@ def main(config_path="config.yaml"):
     train_loader = DataLoader(train_ds, batch_size=cfg["training"]["batch_size"], shuffle=True, collate_fn=collate_ssl)
     val_loader = DataLoader(val_ds, batch_size=cfg["training"]["batch_size"], shuffle=False, collate_fn=collate_ssl)
 
+    # Model
     feat_dim = 7
     enc_cfg = cfg.get("encoder", {})
-    model = AssociationEncoder(
-        feat_dim=feat_dim, coord_dim=cfg.get("ndim", 2),
+    ssl_cfg = cfg.get("ssl", {})
+    temperature = ssl_cfg.get("temperature", 0.05)
+
+    model = CellEmbedder(
+        feat_dim=feat_dim,
+        coord_dim=cfg.get("ndim", 2),
         d_model=enc_cfg.get("d_model", 128),
         nhead=enc_cfg.get("nhead", 4),
         num_layers=enc_cfg.get("num_layers", 4),
@@ -75,82 +146,84 @@ def main(config_path="config.yaml"):
 
     tcfg = cfg["training"]
     optimizer = AdamW(model.parameters(), lr=tcfg["lr"], weight_decay=tcfg["weight_decay"])
-    pos_weight = torch.tensor(tcfg.get("pos_weight", 10.0), device=device)
 
     # CSV log
     csv_path = outdir / "training_log.csv"
     with open(csv_path, "w", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["epoch", "train_loss", "train_acc", "train_f1", "val_loss", "val_acc", "val_f1", "val_prec", "val_rec", "time_s"])
+        w.writerow(["epoch", "train_loss", "train_consistency", "val_loss", "val_consistency", "time_s"])
 
     best_val_loss = float("inf")
-    train_times = []
+
     for epoch in range(1, tcfg["epochs"] + 1):
         t0 = time.perf_counter()
 
         # Train
         model.train()
-        train_losses, train_accs, train_f1s = [], [], []
+        train_losses, train_cons = [], []
         for batch in tqdm(train_loader, desc=f"Epoch {epoch}", leave=False):
-            cs, ct = batch["coords_src"].to(device), batch["coords_tgt"].to(device)
-            fs, ft = batch["features_src"].to(device), batch["features_tgt"].to(device)
-            a = batch["assoc_matrix"].to(device)
-            ps, pt = batch["padding_mask_src"].to(device), batch["padding_mask_tgt"].to(device)
+            if batch is None:
+                continue
+
+            c1 = batch["coords1"].to(device)
+            c2 = batch["coords2"].to(device)
+            f1 = batch["features1"].to(device)
+            f2 = batch["features2"].to(device)
+            pm1 = batch["padding_mask1"].to(device)
+            pm2 = batch["padding_mask2"].to(device)
 
             optimizer.zero_grad()
-            logits = model(cs, fs, ct, ft, ps, pt)
-            loss = F.binary_cross_entropy_with_logits(logits, a, pos_weight=pos_weight)
-            valid = ~(ps[:, :, None] | pt[:, None, :])
-            loss = (loss * valid.float()).sum() / valid.float().sum()
+
+            z1 = model(c1, f1, pm1)
+            z2 = model(c2, f2, pm2)
+
+            loss = nt_xent_loss(z1, z2, pm1, pm2, temperature)
             loss.backward()
-            nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.step()
 
             train_losses.append(loss.item())
-            acc, _, _, f1 = assoc_accuracy(logits.detach(), a)
-            train_accs.append(acc)
-            train_f1s.append(f1)
+            train_cons.append(embedding_consistency(z1.detach(), z2.detach(), pm1, pm2))
 
         # Val
         model.eval()
-        val_losses, val_accs, val_f1s, val_precs, val_recs = [], [], [], [], []
+        val_losses, val_cons = [], []
         with torch.no_grad():
             for batch in val_loader:
-                cs, ct = batch["coords_src"].to(device), batch["coords_tgt"].to(device)
-                fs, ft = batch["features_src"].to(device), batch["features_tgt"].to(device)
-                a = batch["assoc_matrix"].to(device)
-                ps, pt = batch["padding_mask_src"].to(device), batch["padding_mask_tgt"].to(device)
+                if batch is None:
+                    continue
+                c1 = batch["coords1"].to(device)
+                c2 = batch["coords2"].to(device)
+                f1 = batch["features1"].to(device)
+                f2 = batch["features2"].to(device)
+                pm1 = batch["padding_mask1"].to(device)
+                pm2 = batch["padding_mask2"].to(device)
 
-                logits = model(cs, fs, ct, ft, ps, pt)
-                loss = F.binary_cross_entropy_with_logits(logits, a, pos_weight=pos_weight)
-                valid = ~(ps[:, :, None] | pt[:, None, :])
-                loss = (loss * valid.float()).sum() / valid.float().sum()
-                acc, prec, rec, f1 = assoc_accuracy(logits, a)
+                z1 = model(c1, f1, pm1)
+                z2 = model(c2, f2, pm2)
+
+                loss = nt_xent_loss(z1, z2, pm1, pm2, temperature)
                 val_losses.append(loss.item())
-                val_accs.append(acc)
-                val_f1s.append(f1)
-                val_precs.append(prec)
-                val_recs.append(rec)
+                val_cons.append(embedding_consistency(z1, z2, pm1, pm2))
 
         epoch_time = time.perf_counter() - t0
-        train_times.append(epoch_time)
 
-        tloss, tacc, tf1 = np.mean(train_losses), np.mean(train_accs), np.mean(train_f1s)
-        vloss, vacc, vf1 = np.mean(val_losses), np.mean(val_accs), np.mean(val_f1s)
-        vprec, vrec = np.mean(val_precs), np.mean(val_recs)
+        tloss = np.mean(train_losses) if train_losses else 0
+        tcons = np.mean(train_cons) if train_cons else 0
+        vloss = np.mean(val_losses) if val_losses else 0
+        vcons = np.mean(val_cons) if val_cons else 0
 
         with open(csv_path, "a", newline="") as f:
-            csv.writer(f).writerow([epoch, f"{tloss:.6f}", f"{tacc:.4f}", f"{tf1:.4f}",
-                                     f"{vloss:.6f}", f"{vacc:.4f}", f"{vf1:.4f}",
-                                     f"{vprec:.4f}", f"{vrec:.4f}", f"{epoch_time:.1f}"])
+            csv.writer(f).writerow([epoch, f"{tloss:.6f}", f"{tcons:.4f}",
+                                     f"{vloss:.6f}", f"{vcons:.4f}", f"{epoch_time:.1f}"])
 
-        logger.info(f"Epoch {epoch}: train_loss={tloss:.4f} train_acc={tacc:.4f} "
-                     f"val_loss={vloss:.4f} val_acc={vacc:.4f} val_f1={vf1:.4f} [{epoch_time:.0f}s]")
+        logger.info(f"Epoch {epoch}: train_loss={tloss:.4f} train_cons={tcons:.4f} "
+                     f"val_loss={vloss:.4f} val_cons={vcons:.4f} [{epoch_time:.0f}s]")
 
         if vloss < best_val_loss:
             best_val_loss = vloss
             torch.save({"epoch": epoch, "model_state_dict": model.state_dict(),
-                        "val_loss": vloss, "val_acc": vacc},
+                        "val_loss": vloss, "val_consistency": vcons},
                        outdir / "best_model.pt")
             logger.info(f"  Best model saved (epoch {epoch})")
 
