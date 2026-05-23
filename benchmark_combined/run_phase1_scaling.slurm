@@ -93,7 +93,7 @@ for L in Ls:
                 coords = torch.randn(N, 2, device=device, dtype=torch.float16)
                 dist = torch.cdist(coords, coords)
                 attn_mask = torch.zeros(N, N, device=device, dtype=torch.float16)
-                attn_mask[dist > 100] = -1e9
+                attn_mask[dist > 100] = -65504.0  # fp16 max negative, avoids overflow
 
                 torch.cuda.synchronize(); torch.cuda.reset_peak_memory_stats()
                 with torch.no_grad():
