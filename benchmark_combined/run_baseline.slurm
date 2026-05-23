@@ -24,6 +24,7 @@ unset PYTHONHOME
 eval "$(conda shell.bash hook)"
 TRK=/data/cat/ws/lest161c-cell_tracking/lest161c-ssl_cell_tracking-1778979601/trackastra
 ENV_DIR="$TRK/trackastra_env"
+CFG_DIR="$SLURM_SUBMIT_DIR/benchmark_combined"
 
 # --- Quick test mode: sbatch --export=TEST=1 run_baseline.slurm ---
 if [ "$TEST" = "1" ]; then
@@ -61,16 +62,4 @@ python -m pip install -e .
 mkdir -p logs
 
 python scripts/train.py \
-    --name baseline --ndim 2 --window 10 --epochs 100 --warmup_epochs 10 \
-    --detection_folders TRA \
-    --input_train /data/cat/ws/mawe985g-data/data/celltracking/vanvliet/rpsM /data/cat/ws/mawe985g-data/data/celltracking/vanvliet/recA /data/cat/ws/mawe985g-data/data/celltracking/vanvliet/pheA /data/cat/ws/mawe985g-data/data/celltracking/vanvliet/metA /data/cat/ws/mawe985g-data/data/celltracking/vanvliet/cib /data/cat/ws/mawe985g-data/data/celltracking/vanvliet/trpL \
-    --input_val /data/cat/ws/mawe985g-data/data/celltracking/vanvliet/rpsM /data/cat/ws/mawe985g-data/data/celltracking/vanvliet/recA /data/cat/ws/mawe985g-data/data/celltracking/vanvliet/pheA \
-    --outdir runs --distributed False \
-    --batch_size 48 --max_tokens 4096 \
-    --d_model 320 --num_encoder_layers 6 --num_decoder_layers 6 \
-    --pos_embed_per_dim 32 --feat_embed_per_dim 8 \
-    --dropout 0.01 --lr 1e-4 \
-    --features wrfeat --causal_norm quiet_softmax \
-    --attn_positional_bias rope --spatial_pos_cutoff 256 \
-    --delta_cutoff 2 --knn_neighbors -1 \
-    --mixedp True --num_workers 8 --seed 42 --augment 3
+    --config "$CFG_DIR/vanvliet_baseline.yaml"

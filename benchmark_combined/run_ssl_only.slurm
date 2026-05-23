@@ -24,6 +24,7 @@ unset PYTHONHOME
 eval "$(conda shell.bash hook)"
 TRK=/data/cat/ws/lest161c-cell_tracking/lest161c-ssl_cell_tracking-1778979601/trackastra
 ENV_DIR="$TRK/trackastra_env"
+CFG_DIR="$SLURM_SUBMIT_DIR/benchmark_combined"
 
 # --- Quick test mode ---
 if [ "$TEST" = "1" ]; then
@@ -61,5 +62,5 @@ python -m pip install -e .
 mkdir -p logs
 
 python scripts/train.py \
-    --config benchmark_combined/vanvliet_sparse_k16_ssl.yaml \
+    --config "$CFG_DIR/vanvliet_sparse_k16_ssl.yaml" \
     --ssl_pretrain True --ssl_only True --epochs 0
