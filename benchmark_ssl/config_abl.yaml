@@ -1,0 +1,16 @@
+name: dist_abl_no_elastic
+data_root: /data/cat/ws/mawe985g-data/data/celltracking/vanvliet
+conditions: [rpsM, recA, pheA, metA, cib, trpL]
+ndim: 2
+features: regionprops2
+distortions: [affine,jitter,dropout,photometric,feature_noise]
+affine: {degrees: 15, scale: [0.85, 1.15], shear: [0.1, 0.1]}
+elastic: {alpha: [10, 50], sigma: [5, 15]}
+jitter: {std: [2, 8], p_cell_jitter: 0.8}
+dropout: {p_drop: [0.05, 0.2]}
+photometric: {scale: [0.5, 2.0], shift: [-0.1, 0.1]}
+feature_noise: {std: [0.02, 0.15]}
+encoder: {d_model: 128, nhead: 4, num_layers: 4, dim_feedforward: 256, dropout: 0.1}
+ssl: {temperature: 0.05}
+training: {batch_size: 16, lr: 0.0003, weight_decay: 0.01, epochs: 20, val_split: 0.1, checkpoint_every: 10}
+seed: 42

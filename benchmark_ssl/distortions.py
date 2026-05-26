@@ -64,7 +64,7 @@ class AffineDistortion:
             (k, _transform_affine_feature(k, v, M))
             for k, v in features.items() if k != "pretrained_feats"
         )
-        return coords_t, feats_t
+        return coords_t, feats_t, labels
 
 
 class ElasticDistortion:
@@ -107,7 +107,7 @@ class ElasticDistortion:
                 feats_t[k] = v * noise
             else:
                 feats_t[k] = v.copy()
-        return coords_t, feats_t
+        return coords_t, feats_t, labels
 
 
 class JitterDistortion:
@@ -134,7 +134,7 @@ class JitterDistortion:
         feats_t = OrderedDict(
             (k, v.copy()) for k, v in features.items() if k != "pretrained_feats"
         )
-        return coords_t, feats_t
+        return coords_t, feats_t, labels
 
 
 class DropoutDistortion:
@@ -153,10 +153,11 @@ class DropoutDistortion:
         p_drop = self.rng.uniform(*self.p_drop_range)
         keep = self.rng.rand(n) > p_drop
         coords_t = coords[keep]
+        labels_t = labels[keep]
         feats_t = OrderedDict(
             (k, v[keep]) for k, v in features.items() if k != "pretrained_feats"
         )
-        return coords_t, feats_t
+        return coords_t, feats_t, labels_t
 
 
 class PhotometricDistortion:
@@ -178,7 +179,7 @@ class PhotometricDistortion:
                 feats_t[k] = v * scale + shift
             else:
                 feats_t[k] = v.copy()
-        return coords.copy(), feats_t
+        return coords.copy(), feats_t, labels
 
 
 class FeatureNoise:
@@ -204,7 +205,7 @@ class FeatureNoise:
             if feat_std > 1e-6:
                 noise = noise * (feat_std * 0.1)  # Scale noise to ~10% of feature std
             feats_t[k] = v + noise
-        return coords.copy(), feats_t
+        return coords.copy(), feats_t, labels
 
 
 class DistortionPipeline:
@@ -264,9 +265,7 @@ class DistortionPipeline:
         def _apply_view(coord, feat, lab):
             c, f, l = coord.copy(), {k: v.copy() for k, v in feat.items()}, lab.copy()
             for dist in self.distortions:
-                c, f = dist(c, f, l)
-                if isinstance(dist, DropoutDistortion):
-                    l = l[:len(c)]
+                c, f, l = dist(c, f, l)
             return c, f, l
 
         c1, f1, l1 = _apply_view(coords, features, labels)
