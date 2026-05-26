@@ -250,7 +250,12 @@ class DistortionPipeline:
         return cls(distortions, seed=config.get("seed"))
 
     def __call__(self, coords, features, labels):
-        """Generate two independent augmented views.
+        """Generate two independently augmented views.
+
+        All distortions are random except DropoutDistortion, which
+        uses shared RNG state across both views. This ensures cell
+        dropout is identical in both views, preserving label-sorted
+        positive-pair alignment in SSLDataset.
 
         Args:
             coords:   (N, ndim) — cell coordinates
@@ -258,17 +263,33 @@ class DistortionPipeline:
             labels:   (N,) — cell identity labels
 
         Returns:
-            coords1, feats1, labels1: view 1 (independently distorted)
-            coords2, feats2, labels2: view 2 (independently distorted)
+            coords1, feats1, labels1: view 1
+            coords2, feats2, labels2: view 2
         """
 
-        def _apply_view(coord, feat, lab):
+        def _apply_view(coord, feat, lab, dropout_states=None):
             c, f, l = coord.copy(), {k: v.copy() for k, v in feat.items()}, lab.copy()
-            for dist in self.distortions:
-                c, f, l = dist(c, f, l)
+            if dropout_states is not None:
+                for dist in self.distortions:
+                    if isinstance(dist, DropoutDistortion):
+                        dist.rng.__setstate__(dropout_states[id(dist)])
+                    c, f, l = dist(c, f, l)
+            else:
+                for dist in self.distortions:
+                    c, f, l = dist(c, f, l)
             return c, f, l
 
+        # Collect dropout RNG states from first view
+        dropout_states = {}
+        for dist in self.distortions:
+            if isinstance(dist, DropoutDistortion):
+                dropout_states[id(dist)] = dist.rng.__getstate__()
+
         c1, f1, l1 = _apply_view(coords, features, labels)
+        # Restore same dropout pattern for second view
+        for dist in self.distortions:
+            if isinstance(dist, DropoutDistortion):
+                dist.rng.__setstate__(dropout_states[id(dist)])
         c2, f2, l2 = _apply_view(coords, features, labels)
 
         return c1, f1, l1, c2, f2, l2
