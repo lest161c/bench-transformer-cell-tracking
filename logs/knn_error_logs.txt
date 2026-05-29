@@ -1,0 +1,39 @@
+INFO:trackastra.data.data:Compressing masks and assoc_matrix to save memory
+Traceback (most recent call last):
+  File "/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/scripts/train.py", line 1184, in <module>
+    vars = train(args)
+  File "/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/scripts/train.py", line 788, in train
+    preallocate_memory(
+  File "/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/trackastra/utils/utils.py", line 404, in preallocate_memory
+    loss = model_lightning._common_step(batch)["loss"]
+  File "/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/scripts/train.py", line 210, in _common_step
+    A_pred = self.model(coords, feats, padding_mask=padding_mask)
+  File "/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/trackastra_env/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1511, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/trackastra_env/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1520, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/trackastra/model/model.py", line 426, in forward
+    x = enc(x, coords=coords, padding_mask=padding_mask, knn_indices=knn_indices)
+  File "/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/trackastra_env/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1511, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/trackastra_env/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1520, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/trackastra/model/model.py", line 71, in forward
+    a = self.attn(
+  File "/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/trackastra_env/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1511, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/trackastra_env/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1520, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/trackastra/model/model_parts.py", line 314, in forward
+    y_reshaped = F.scaled_dot_product_attention(
+RuntimeError: CUDA error: invalid configuration argument
+CUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1.
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+
+
+real    1m18,237s
+user    0m31,374s
+sys     0m32,239s
+~
+~

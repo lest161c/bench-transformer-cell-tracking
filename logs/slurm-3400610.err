@@ -1,0 +1,577 @@
+
+
+==> WARNING: A newer version of conda exists. <==
+  current version: 23.1.0
+  latest version: 26.3.2
+
+Please update conda by running
+
+    $ conda update -n base -c conda-forge conda
+
+Or to minimize the number of packages updated during conda update use
+
+     conda install conda=26.3.2
+
+
+Using 16bit Automatic Mixed Precision (AMP)
+GPU available: True (cuda), used: True
+TPU available: False, using: 0 TPU cores
+💡 Tip: For seamless cloud logging and experiment tracking, try installing [litlogger](https://pypi.org/project/litlogger/) to enable LitLogger, which logs metrics and artifacts automatically to the Lightning Experiments platform.
+INFO:__main__:Starting SSL Pretraining on 5347 frames.
+💡 Tip: For seamless cloud uploads and versioning, try installing [litmodels](https://pypi.org/project/litmodels/) to enable LitModelCheckpoint, which syncs automatically with the Lightning model registry.
+LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES: [0]
+INFO:root:LRScheduler: relative lr factor 0.010
+/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/trackastra_env/lib/python3.10/site-packages/lightning/pytorch/utilities/model_summary/model_summary.py:242: Precision 16-mixed is not supported by the model summary.  Estimated model size in MB will not be accurate. Using 32 bits instead.
+SLURM auto-requeueing enabled. Setting signal handlers.
+/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/trackastra_env/lib/python3.10/site-packages/lightning/pytorch/trainer/connectors/data_connector.py:434: The 'val_dataloader' does not have many workers which may be a bottleneck. Consider increasing the value of the `num_workers` argument` to `num_workers=7` in the `DataLoader` to improve performance.
+INFO:trackastra.data.wrfeat:Extracting features from 3 frames.
+INFO:trackastra.data.wrfeat:Using single process for feature extraction
+Extracting features:   0%|          | 0/3 [00:00<?, ?it/s]Extracting features: 100%|██████████| 3/3 [00:00<00:00, 59.48it/s]
+Traceback (most recent call last):
+  File "/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/scripts/ssl_train.py", line 216, in <module>
+    train_ssl(args)
+  File "/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/scripts/ssl_train.py", line 206, in train_ssl
+    trainer.fit(
+  File "/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/trackastra_env/lib/python3.10/site-packages/lightning/pytorch/trainer/trainer.py", line 584, in fit
+    call._call_and_handle_interrupt(
+  File "/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/trackastra_env/lib/python3.10/site-packages/lightning/pytorch/trainer/call.py", line 49, in _call_and_handle_interrupt
+    return trainer_fn(*args, **kwargs)
+  File "/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/trackastra_env/lib/python3.10/site-packages/lightning/pytorch/trainer/trainer.py", line 630, in _fit_impl
+    self._run(model, ckpt_path=ckpt_path, weights_only=weights_only)
+  File "/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/trackastra_env/lib/python3.10/site-packages/lightning/pytorch/trainer/trainer.py", line 1079, in _run
+    results = self._run_stage()
+  File "/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/trackastra_env/lib/python3.10/site-packages/lightning/pytorch/trainer/trainer.py", line 1121, in _run_stage
+    self._run_sanity_check()
+  File "/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/trackastra_env/lib/python3.10/site-packages/lightning/pytorch/trainer/trainer.py", line 1150, in _run_sanity_check
+    val_loop.run()
+  File "/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/trackastra_env/lib/python3.10/site-packages/lightning/pytorch/loops/utilities.py", line 179, in _decorator
+    return loop_run(self, *args, **kwargs)
+  File "/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/trackastra_env/lib/python3.10/site-packages/lightning/pytorch/loops/evaluation_loop.py", line 139, in run
+    batch, batch_idx, dataloader_idx = next(data_fetcher)
+  File "/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/trackastra_env/lib/python3.10/site-packages/lightning/pytorch/loops/fetchers.py", line 134, in __next__
+    batch = super().__next__()
+  File "/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/trackastra_env/lib/python3.10/site-packages/lightning/pytorch/loops/fetchers.py", line 61, in __next__
+    batch = next(self.iterator)
+  File "/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/trackastra_env/lib/python3.10/site-packages/lightning/pytorch/utilities/combined_loader.py", line 341, in __next__
+    out = next(self._iterator)
+  File "/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/trackastra_env/lib/python3.10/site-packages/lightning/pytorch/utilities/combined_loader.py", line 142, in __next__
+    out = next(self.iterators[0])
+  File "/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/trackastra_env/lib/python3.10/site-packages/torch/utils/data/dataloader.py", line 741, in __next__
+    data = self._next_data()
+  File "/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/trackastra_env/lib/python3.10/site-packages/torch/utils/data/dataloader.py", line 801, in _next_data
+    data = self._dataset_fetcher.fetch(index)  # may raise StopIteration
+  File "/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/trackastra_env/lib/python3.10/site-packages/torch/utils/data/_utils/fetch.py", line 52, in fetch
+    data = self.dataset.__getitems__(possibly_batched_index)
+  File "/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/trackastra_env/lib/python3.10/site-packages/torch/utils/data/dataset.py", line 443, in __getitems__
+    return [self.dataset[self.indices[idx]] for idx in indices]
+  File "/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/trackastra_env/lib/python3.10/site-packages/torch/utils/data/dataset.py", line 443, in <listcomp>
+    return [self.dataset[self.indices[idx]] for idx in indices]
+  File "/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/trackastra/data/ssl_data.py", line 116, in __getitem__
+    imgs, masks = self._create_synthetic_window(img, mask)
+  File "/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/trackastra/data/ssl_data.py", line 101, in _create_synthetic_window
+    imgs = np.stack(imgs)
+  File "/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/trackastra_env/lib/python3.10/site-packages/numpy/core/shape_base.py", line 449, in stack
+    raise ValueError('all input arrays must have the same shape')
+ValueError: all input arrays must have the same shape
+
+real	3m29,021s
+user	0m9,496s
+sys	0m11,924s
+WARNING:__main__:Training from scratch, this is slow!
+
+INFO:root:Model has 6.9M parameters
+Using 16bit Automatic Mixed Precision (AMP)
+GPU available: True (cuda), used: True
+TPU available: False, using: 0 TPU cores
+💡 Tip: For seamless cloud logging and experiment tracking, try installing [litlogger](https://pypi.org/project/litlogger/) to enable LitLogger, which logs metrics and artifacts automatically to the Lightning Experiments platform.
+INFO:__main__:Resuming from None
+INFO:__main__:Using lightning datamodule
+Initializing distributed: GLOBAL_RANK: 0, MEMBER: 1/1
+----------------------------------------------------------------------------------------------------
+distributed_backend=nccl
+All distributed processes registered. Starting with 1 processes
+----------------------------------------------------------------------------------------------------
+
+INFO:trackastra.data.distributed:Loading TRAIN data
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/5af2982146f42d1e3a9f6ab66ad45008cf4ade3198f7668507dad21890564de4.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/f4a0ce87e2be1c6a2ab30a2d39378d605222fdae6e41d66707fd57b3d98f87d6.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/137a2531d526af4c9826c1a1fc3e273e59c941bd73fccceba49bf8f71dad433b.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/303ae468dbdfbbc39b0b78bd4122142593a2c315af59887a164655e9c2e22b03.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/cfb9133c7329c9696d838b5a95e9948b6d8d660013ab911b89c5eb1c70dc3a5d.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/4942e5a9e171f34d7e70dff09604a672f18f9237589b79dbf50c30cff59287c9.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/04807eb9597431e5adfa6d43e6fd88552a11791349849968fca6176afbab51a0.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/aa6a7965e2ea3446f68d4a2432b24fa5228f16f3f631a02f9f5d4306a01714a1.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/b6c52a8d7c3ccbfefd2f2b2b9fa1839502b13f0344f10d504d503f031171a226.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/347b46412e8211095805f813deaa0c893dab70aa1ab85cab9e1bf2b1099a53f9.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/f7429483037042c0c7cf0ceee6361fa8eec4d87e634f0eafa7637f2ce32e4895.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/4975da071814f212ba6f56838af9b42a89b31ddade09c64b78a8e5fbc45429ff.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/6211b06dbcb6a915db7c71d3203310604611ef6cbfcec87406567fbaa22dbc2a.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/84ed96e29aabdd4950f5b725a61889917449fc6dcb0a8404aa244c985199067c.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/b1f72f76665b6fb57de227cebd9f2482fc7376ef36dd3ba8f864cfdf09207165.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/1cabae267d35a266b4bbd14704ec8156ff4467a48bab8c6da026bd2f90a34532.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/9de529fe39312e3e5ad13cce239cfdcf2c2087f8ecc0b658c8c502240b97a8d5.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/5fc2bb592f3f256353c295ad10825f8c970b5c4e9eaca9484824a0ddf19e71d2.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/fc63c65dda240f5d49133b5da196ba2bcaf4a2b92e3b1793c4fbfdfc949b9147.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/cc95763dd702df5957a0aa052e04203cad3a8ec4bcd026e53b93be5a5e8041fd.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/739e0cdccd2f58dde529d9308cc0ab95ad0bc3bd6a14f7e833d3f30bcb3c2f93.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/609549808495ec29fc0149f5c0f97e72d54a2ae8a717468ca506d261e8a9c87d.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/1e643f01743c472a81dba4bf4931bda7460005da341d459830e98a8daeaf9bcf.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/8e48034cebcdcc6dc3052f675c44e07a836f207189c0cbd16dbd95c2b73ecb0e.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/99a1705a2411b1914036eb408452781716ae1aab2f171729d48dd487a79f1735.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/9ba6d36acf5e954e8157bf6b102200a3fa4a38dbf97f8e037c7e671f83886912.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/8f69151f0c7ae2b37b9a6f68010ab0424e46c8e886a7cdb0b561a850d327bb7d.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/1dabdd3d57ff235afa671b0777dde0bc1fc5643a8cc12b4ab6d305a7b1a355b2.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/d385d21e0163e8df243a29dd092ff9fdbca839a72bbfdd59182750e4615cd6d7.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/243d5e38c485da34e70a74fa397fa5f82ec49985afb60d8db4c32030fe5a1e55.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/c67a535305937e2ebdef4364570b1bc640eb4a1d9c06d8a758ec38d868ba61bf.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/29663c8a5cd6e27c53cc6c34628a737c41221104d276f42e6062b68f18271e52.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/640cca39f97c69c1a273a5f4afc520f72579a50bf8a391bff63ac96cd0de463c.pkl
+INFO:trackastra.data.distributed:Loaded 1393 TRAIN samples (in 0.9 s)
+
+
+INFO:trackastra.data.distributed:Loading VAL data
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/262d518de889c0ca62b715a16f009a52c290550ed3f2117cc38cf789b3c836b5.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/4d7bd2539f5b4bb79d5ac2929827e32cd29a05ce73cba3ce673e974ae4ffdc9d.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/830991a800a7890bcc930cdf552c0cfa6942026818dc28b3d65ffd59bb6d5374.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/8c70b08c0a6814e884e8e72176eeadadf4fd57e6f8bc750b3a7cb6bf68cd8448.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/93c5e52fd81fafab0721cba1a24b58fc2ac1a53155c27199a3f99d4354e79948.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/3dd434fe733b85be0957a37685eff0c0c1be30ba521386e6c8d942e5d7b22e5d.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/d9e1d1e046a247f3079efad11a9ca6e4d6b387142c96b1672cad71926820acdf.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/8de111c3a85dff8b6faed260ddcd5af6dda0c428cbb595d68d6e31b9afbdaaf5.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/c593ccfd78bee8ca2177be085bcce11968152a912f09550a01654ab74a81de8a.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/0270e32c1f62a86b7ec8dbcfaab1af4dfcf8c8958c1a3220d9aecb9a7f209ce9.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/befac6cd6186234ecc8304a9f47a6b26f1d0d57ecf116a4142f572f4d6a9f47d.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/eac68880f3f5a425d0b895cfa66f5f8da4eb9f9ec8087d04e145924c0b192daf.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/1c4f53da18f2148a4293bea453bdcc0c45d96294b9fc5fd4e313a815a85b8527.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/9f05e65136c04c2f9a1ec43782b5cda2e734dc3e42eeab3966c7e569664aa07c.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/c9c8690b97a48f490bae19a67f77b8fce884f86776252d26df512606b920e9f4.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/7cc6ce8baf769edd828bee224a195dd24190dc79350b6fe1cc26b1609646dd9b.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/efdf58826cf20f9560667e377ae3e7a6764a9fcfc95a9437bb558301a1b9e0cd.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/401db18d48a4eaed8822e9f32a7398979075720ddcf3146796301ba7549d428c.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/a3ca5b4235840381dbca081c0dd8112f6491cb3be4b5a9d0b95effc9b421b53d.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/1f40afd88a8a93ad3be17ef6e048a161b98b51dd8f29d96aaaa36ace196d90f2.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/123788b48274f1d6e0fef2137da5c6a106fbb7ea3647680d26a074641050a253.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/b51df67fcf6a724b9ee33f2937e7312f6307a4b30a27a02547149427062feccb.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/6ffb62a6f275b7c26559ee072627eb4208201557bf30945f470fbdebef71bfbd.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/24dad9dc35d958d6f69586cd865d69968e92228f7159a0765756125ca737d4f9.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/280e7cec3b7b207d0bf70db59ccef6f34cedb974a5f8f695acf2982b62d83623.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/ca88359e17366ed04c1b4c1d3da799442cda645d34074ad356baad6658558759.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/29b84a0c2b41ab563482215f94a9428fabe95ad9923cbc4c2da85b8316aeeacd.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/ed50a843a4646b40e8c8dd8b3d047290cd6aadb154fdeebb49d8f4d419c224a9.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/cd14deda9de8ea3eb3cdde4873f77285df51929c47a0e2042d2fa1cdabafeb54.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/ef95c144671145fae303f5f4b7b00d7e77fea16c792281dbc256ac3f7fd1d4a8.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/08ba38c9d2deb55b706ed8ee7ee9bcfdd7b614c43ef46b40fb496711925a9872.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/06da7ec78526b2571f17885efd1fe1c20cec677e9c52bc63b61925738ddba5bd.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/91e5d45e96cdb3ab9ac702f419af80addda12498fc7355317984cac350a0847f.pkl
+INFO:trackastra.data.distributed:Loaded 1393 VAL samples (in 0.9 s)
+
+
+INFO:trackastra.data.distributed:Loading TRAIN data
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/5af2982146f42d1e3a9f6ab66ad45008cf4ade3198f7668507dad21890564de4.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/f4a0ce87e2be1c6a2ab30a2d39378d605222fdae6e41d66707fd57b3d98f87d6.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/137a2531d526af4c9826c1a1fc3e273e59c941bd73fccceba49bf8f71dad433b.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/303ae468dbdfbbc39b0b78bd4122142593a2c315af59887a164655e9c2e22b03.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/cfb9133c7329c9696d838b5a95e9948b6d8d660013ab911b89c5eb1c70dc3a5d.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/4942e5a9e171f34d7e70dff09604a672f18f9237589b79dbf50c30cff59287c9.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/04807eb9597431e5adfa6d43e6fd88552a11791349849968fca6176afbab51a0.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/aa6a7965e2ea3446f68d4a2432b24fa5228f16f3f631a02f9f5d4306a01714a1.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/b6c52a8d7c3ccbfefd2f2b2b9fa1839502b13f0344f10d504d503f031171a226.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/347b46412e8211095805f813deaa0c893dab70aa1ab85cab9e1bf2b1099a53f9.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/f7429483037042c0c7cf0ceee6361fa8eec4d87e634f0eafa7637f2ce32e4895.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/4975da071814f212ba6f56838af9b42a89b31ddade09c64b78a8e5fbc45429ff.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/6211b06dbcb6a915db7c71d3203310604611ef6cbfcec87406567fbaa22dbc2a.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/84ed96e29aabdd4950f5b725a61889917449fc6dcb0a8404aa244c985199067c.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/b1f72f76665b6fb57de227cebd9f2482fc7376ef36dd3ba8f864cfdf09207165.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/1cabae267d35a266b4bbd14704ec8156ff4467a48bab8c6da026bd2f90a34532.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/9de529fe39312e3e5ad13cce239cfdcf2c2087f8ecc0b658c8c502240b97a8d5.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/5fc2bb592f3f256353c295ad10825f8c970b5c4e9eaca9484824a0ddf19e71d2.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/fc63c65dda240f5d49133b5da196ba2bcaf4a2b92e3b1793c4fbfdfc949b9147.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/cc95763dd702df5957a0aa052e04203cad3a8ec4bcd026e53b93be5a5e8041fd.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/739e0cdccd2f58dde529d9308cc0ab95ad0bc3bd6a14f7e833d3f30bcb3c2f93.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/609549808495ec29fc0149f5c0f97e72d54a2ae8a717468ca506d261e8a9c87d.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/1e643f01743c472a81dba4bf4931bda7460005da341d459830e98a8daeaf9bcf.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/8e48034cebcdcc6dc3052f675c44e07a836f207189c0cbd16dbd95c2b73ecb0e.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/99a1705a2411b1914036eb408452781716ae1aab2f171729d48dd487a79f1735.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/9ba6d36acf5e954e8157bf6b102200a3fa4a38dbf97f8e037c7e671f83886912.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/8f69151f0c7ae2b37b9a6f68010ab0424e46c8e886a7cdb0b561a850d327bb7d.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/1dabdd3d57ff235afa671b0777dde0bc1fc5643a8cc12b4ab6d305a7b1a355b2.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/d385d21e0163e8df243a29dd092ff9fdbca839a72bbfdd59182750e4615cd6d7.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/243d5e38c485da34e70a74fa397fa5f82ec49985afb60d8db4c32030fe5a1e55.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/c67a535305937e2ebdef4364570b1bc640eb4a1d9c06d8a758ec38d868ba61bf.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/29663c8a5cd6e27c53cc6c34628a737c41221104d276f42e6062b68f18271e52.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/640cca39f97c69c1a273a5f4afc520f72579a50bf8a391bff63ac96cd0de463c.pkl
+INFO:trackastra.data.distributed:Loaded 1393 TRAIN samples (in 0.5 s)
+
+
+INFO:trackastra.data.distributed:Loading VAL data
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/262d518de889c0ca62b715a16f009a52c290550ed3f2117cc38cf789b3c836b5.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/4d7bd2539f5b4bb79d5ac2929827e32cd29a05ce73cba3ce673e974ae4ffdc9d.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/830991a800a7890bcc930cdf552c0cfa6942026818dc28b3d65ffd59bb6d5374.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/8c70b08c0a6814e884e8e72176eeadadf4fd57e6f8bc750b3a7cb6bf68cd8448.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/93c5e52fd81fafab0721cba1a24b58fc2ac1a53155c27199a3f99d4354e79948.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/3dd434fe733b85be0957a37685eff0c0c1be30ba521386e6c8d942e5d7b22e5d.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/d9e1d1e046a247f3079efad11a9ca6e4d6b387142c96b1672cad71926820acdf.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/8de111c3a85dff8b6faed260ddcd5af6dda0c428cbb595d68d6e31b9afbdaaf5.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/c593ccfd78bee8ca2177be085bcce11968152a912f09550a01654ab74a81de8a.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/0270e32c1f62a86b7ec8dbcfaab1af4dfcf8c8958c1a3220d9aecb9a7f209ce9.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/befac6cd6186234ecc8304a9f47a6b26f1d0d57ecf116a4142f572f4d6a9f47d.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/eac68880f3f5a425d0b895cfa66f5f8da4eb9f9ec8087d04e145924c0b192daf.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/1c4f53da18f2148a4293bea453bdcc0c45d96294b9fc5fd4e313a815a85b8527.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/9f05e65136c04c2f9a1ec43782b5cda2e734dc3e42eeab3966c7e569664aa07c.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/c9c8690b97a48f490bae19a67f77b8fce884f86776252d26df512606b920e9f4.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/7cc6ce8baf769edd828bee224a195dd24190dc79350b6fe1cc26b1609646dd9b.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/efdf58826cf20f9560667e377ae3e7a6764a9fcfc95a9437bb558301a1b9e0cd.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/401db18d48a4eaed8822e9f32a7398979075720ddcf3146796301ba7549d428c.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/a3ca5b4235840381dbca081c0dd8112f6491cb3be4b5a9d0b95effc9b421b53d.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/1f40afd88a8a93ad3be17ef6e048a161b98b51dd8f29d96aaaa36ace196d90f2.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/123788b48274f1d6e0fef2137da5c6a106fbb7ea3647680d26a074641050a253.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/b51df67fcf6a724b9ee33f2937e7312f6307a4b30a27a02547149427062feccb.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/6ffb62a6f275b7c26559ee072627eb4208201557bf30945f470fbdebef71bfbd.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/24dad9dc35d958d6f69586cd865d69968e92228f7159a0765756125ca737d4f9.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/280e7cec3b7b207d0bf70db59ccef6f34cedb974a5f8f695acf2982b62d83623.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/ca88359e17366ed04c1b4c1d3da799442cda645d34074ad356baad6658558759.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/29b84a0c2b41ab563482215f94a9428fabe95ad9923cbc4c2da85b8316aeeacd.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/ed50a843a4646b40e8c8dd8b3d047290cd6aadb154fdeebb49d8f4d419c224a9.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/cd14deda9de8ea3eb3cdde4873f77285df51929c47a0e2042d2fa1cdabafeb54.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/ef95c144671145fae303f5f4b7b00d7e77fea16c792281dbc256ac3f7fd1d4a8.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/08ba38c9d2deb55b706ed8ee7ee9bcfdd7b614c43ef46b40fb496711925a9872.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/06da7ec78526b2571f17885efd1fe1c20cec677e9c52bc63b61925738ddba5bd.pkl
+INFO:trackastra.data.distributed:Loading cached dataset from .cache/91e5d45e96cdb3ab9ac702f419af80addda12498fc7355317984cac350a0847f.pkl
+INFO:trackastra.data.distributed:Loaded 1393 VAL samples (in 0.3 s)
+
+
+LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES: [0]
+INFO:root:LRScheduler: relative lr factor 0.010
+INFO:root:using logdir runs/baseline/2026-04-20_17-17-31_vanvliet_base
+/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/trackastra_env/lib/python3.10/site-packages/lightning/pytorch/utilities/model_summary/model_summary.py:242: Precision 16-mixed is not supported by the model summary.  Estimated model size in MB will not be accurate. Using 32 bits instead.
+SLURM auto-requeueing enabled. Setting signal handlers.
+/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/trackastra_env/lib/python3.10/site-packages/lightning/pytorch/trainer/connectors/data_connector.py:434: The 'val_dataloader' does not have many workers which may be a bottleneck. Consider increasing the value of the `num_workers` argument` to `num_workers=7` in the `DataLoader` to improve performance.
+/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/trackastra_env/lib/python3.10/site-packages/torch/autograd/graph.py:869: UserWarning: The AccumulateGrad node's stream does not match the stream of the node that produced the incoming gradient. This may incur unnecessary synchronization and break CUDA graph capture if the AccumulateGrad node's stream is the default stream. This mismatch is caused by an AccumulateGrad node created prior to the current iteration being kept alive. This can happen if the autograd graph is still being kept alive by tensors such as the loss, or if you are using DDP, which will stash a reference to the node. To resolve the mismatch, delete all references to the autograd graph or ensure that DDP initialization is performed under the same stream as subsequent forwards. If the mismatch is intentional, you can use torch.autograd.graph.set_warn_on_accumulate_grad_stream_mismatch(False) to suppress this warning. (Triggered internally at /pytorch/torch/csrc/autograd/input_buffer.cpp:240.)
+  return Variable._execution_engine.run_backward(  # Calls into the C++ engine to run the backward pass
+INFO:root:LRScheduler: relative lr factor 0.109
+INFO:root:Saved best model with val_loss=0.24226
+Metric val_loss improved. New best score: 0.242
+Epoch 0, global step 6250: 'val_loss' reached 0.24226 (best 0.24226), saving model to '/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/runs/baseline/2026-04-20_17-17-31_vanvliet_base/checkpoints/epoch=0-step=6250.ckpt' as top 1
+INFO:root:LRScheduler: relative lr factor 0.208
+INFO:root:Saved best model with val_loss=0.10999
+Metric val_loss improved by 0.132 >= min_delta = 0.0. New best score: 0.110
+Epoch 1, global step 12500: 'val_loss' reached 0.10999 (best 0.10999), saving model to '/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/runs/baseline/2026-04-20_17-17-31_vanvliet_base/checkpoints/epoch=1-step=12500.ckpt' as top 1
+INFO:root:LRScheduler: relative lr factor 0.307
+INFO:root:Saved best model with val_loss=0.06509
+Metric val_loss improved by 0.045 >= min_delta = 0.0. New best score: 0.065
+Epoch 2, global step 18750: 'val_loss' reached 0.06509 (best 0.06509), saving model to '/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/runs/baseline/2026-04-20_17-17-31_vanvliet_base/checkpoints/epoch=2-step=18750.ckpt' as top 1
+INFO:root:LRScheduler: relative lr factor 0.406
+INFO:root:Saved best model with val_loss=0.04276
+Metric val_loss improved by 0.022 >= min_delta = 0.0. New best score: 0.043
+Epoch 3, global step 25000: 'val_loss' reached 0.04276 (best 0.04276), saving model to '/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/runs/baseline/2026-04-20_17-17-31_vanvliet_base/checkpoints/epoch=3-step=25000.ckpt' as top 1
+INFO:root:LRScheduler: relative lr factor 0.505
+INFO:root:Saved best model with val_loss=0.03020
+Metric val_loss improved by 0.013 >= min_delta = 0.0. New best score: 0.030
+Epoch 4, global step 31250: 'val_loss' reached 0.03020 (best 0.03020), saving model to '/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/runs/baseline/2026-04-20_17-17-31_vanvliet_base/checkpoints/epoch=4-step=31250.ckpt' as top 1
+INFO:root:LRScheduler: relative lr factor 0.604
+INFO:root:Saved best model with val_loss=0.02360
+Metric val_loss improved by 0.007 >= min_delta = 0.0. New best score: 0.024
+Epoch 5, global step 37500: 'val_loss' reached 0.02360 (best 0.02360), saving model to '/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/runs/baseline/2026-04-20_17-17-31_vanvliet_base/checkpoints/epoch=5-step=37500.ckpt' as top 1
+INFO:root:LRScheduler: relative lr factor 0.703
+INFO:root:Saved best model with val_loss=0.02112
+Metric val_loss improved by 0.002 >= min_delta = 0.0. New best score: 0.021
+Epoch 6, global step 43750: 'val_loss' reached 0.02112 (best 0.02112), saving model to '/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/runs/baseline/2026-04-20_17-17-31_vanvliet_base/checkpoints/epoch=6-step=43750.ckpt' as top 1
+INFO:root:LRScheduler: relative lr factor 0.802
+INFO:root:Saved best model with val_loss=0.01527
+Metric val_loss improved by 0.006 >= min_delta = 0.0. New best score: 0.015
+Epoch 7, global step 50000: 'val_loss' reached 0.01527 (best 0.01527), saving model to '/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/runs/baseline/2026-04-20_17-17-31_vanvliet_base/checkpoints/epoch=7-step=50000.ckpt' as top 1
+INFO:root:LRScheduler: relative lr factor 0.901
+Epoch 8, global step 56250: 'val_loss' was not in top 1
+INFO:root:LRScheduler: relative lr factor 1.000
+INFO:root:Saved best model with val_loss=0.01269
+Metric val_loss improved by 0.003 >= min_delta = 0.0. New best score: 0.013
+Epoch 9, global step 62500: 'val_loss' reached 0.01269 (best 0.01269), saving model to '/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/runs/baseline/2026-04-20_17-17-31_vanvliet_base/checkpoints/epoch=9-step=62500.ckpt' as top 1
+INFO:root:LRScheduler: relative lr factor 1.000
+INFO:root:Saved best model with val_loss=0.01206
+Metric val_loss improved by 0.001 >= min_delta = 0.0. New best score: 0.012
+Epoch 10, global step 68750: 'val_loss' reached 0.01206 (best 0.01206), saving model to '/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/runs/baseline/2026-04-20_17-17-31_vanvliet_base/checkpoints/epoch=10-step=68750.ckpt' as top 1
+INFO:root:LRScheduler: relative lr factor 0.999
+Epoch 11, global step 75000: 'val_loss' was not in top 1
+INFO:root:LRScheduler: relative lr factor 0.997
+INFO:root:Saved best model with val_loss=0.01039
+Metric val_loss improved by 0.002 >= min_delta = 0.0. New best score: 0.010
+Epoch 12, global step 81250: 'val_loss' reached 0.01039 (best 0.01039), saving model to '/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/runs/baseline/2026-04-20_17-17-31_vanvliet_base/checkpoints/epoch=12-step=81250.ckpt' as top 1
+INFO:root:LRScheduler: relative lr factor 0.995
+INFO:root:Saved best model with val_loss=0.00939
+Metric val_loss improved by 0.001 >= min_delta = 0.0. New best score: 0.009
+Epoch 13, global step 87500: 'val_loss' reached 0.00939 (best 0.00939), saving model to '/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/runs/baseline/2026-04-20_17-17-31_vanvliet_base/checkpoints/epoch=13-step=87500.ckpt' as top 1
+INFO:root:LRScheduler: relative lr factor 0.993
+INFO:root:Saved best model with val_loss=0.00813
+Metric val_loss improved by 0.001 >= min_delta = 0.0. New best score: 0.008
+Epoch 14, global step 93750: 'val_loss' reached 0.00813 (best 0.00813), saving model to '/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/runs/baseline/2026-04-20_17-17-31_vanvliet_base/checkpoints/epoch=14-step=93750.ckpt' as top 1
+INFO:root:LRScheduler: relative lr factor 0.989
+INFO:root:Saved best model with val_loss=0.00674
+Metric val_loss improved by 0.001 >= min_delta = 0.0. New best score: 0.007
+Epoch 15, global step 100000: 'val_loss' reached 0.00674 (best 0.00674), saving model to '/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/runs/baseline/2026-04-20_17-17-31_vanvliet_base/checkpoints/epoch=15-step=100000.ckpt' as top 1
+INFO:root:LRScheduler: relative lr factor 0.985
+INFO:root:Saved best model with val_loss=0.00636
+Metric val_loss improved by 0.000 >= min_delta = 0.0. New best score: 0.006
+Epoch 16, global step 106250: 'val_loss' reached 0.00636 (best 0.00636), saving model to '/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/runs/baseline/2026-04-20_17-17-31_vanvliet_base/checkpoints/epoch=16-step=106250.ckpt' as top 1
+INFO:root:LRScheduler: relative lr factor 0.981
+Epoch 17, global step 112500: 'val_loss' was not in top 1
+INFO:root:LRScheduler: relative lr factor 0.976
+INFO:root:Saved best model with val_loss=0.00472
+Metric val_loss improved by 0.002 >= min_delta = 0.0. New best score: 0.005
+Epoch 18, global step 118750: 'val_loss' reached 0.00472 (best 0.00472), saving model to '/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/runs/baseline/2026-04-20_17-17-31_vanvliet_base/checkpoints/epoch=18-step=118750.ckpt' as top 1
+INFO:root:LRScheduler: relative lr factor 0.971
+INFO:root:Saved best model with val_loss=0.00438
+Metric val_loss improved by 0.000 >= min_delta = 0.0. New best score: 0.004
+Epoch 19, global step 125000: 'val_loss' reached 0.00438 (best 0.00438), saving model to '/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/runs/baseline/2026-04-20_17-17-31_vanvliet_base/checkpoints/epoch=19-step=125000.ckpt' as top 1
+INFO:root:LRScheduler: relative lr factor 0.964
+Epoch 20, global step 131250: 'val_loss' was not in top 1
+INFO:root:LRScheduler: relative lr factor 0.958
+Epoch 21, global step 137500: 'val_loss' was not in top 1
+INFO:root:LRScheduler: relative lr factor 0.951
+INFO:root:Saved best model with val_loss=0.00342
+Metric val_loss improved by 0.001 >= min_delta = 0.0. New best score: 0.003
+Epoch 22, global step 143750: 'val_loss' reached 0.00342 (best 0.00342), saving model to '/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/runs/baseline/2026-04-20_17-17-31_vanvliet_base/checkpoints/epoch=22-step=143750.ckpt' as top 1
+INFO:root:LRScheduler: relative lr factor 0.943
+Epoch 23, global step 150000: 'val_loss' was not in top 1
+INFO:root:LRScheduler: relative lr factor 0.935
+Epoch 24, global step 156250: 'val_loss' was not in top 1
+INFO:root:LRScheduler: relative lr factor 0.926
+INFO:root:Saved best model with val_loss=0.00303
+Metric val_loss improved by 0.000 >= min_delta = 0.0. New best score: 0.003
+Epoch 25, global step 162500: 'val_loss' reached 0.00303 (best 0.00303), saving model to '/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/runs/baseline/2026-04-20_17-17-31_vanvliet_base/checkpoints/epoch=25-step=162500.ckpt' as top 1
+INFO:root:LRScheduler: relative lr factor 0.916
+Epoch 26, global step 168750: 'val_loss' was not in top 1
+INFO:root:LRScheduler: relative lr factor 0.907
+INFO:root:Saved best model with val_loss=0.00272
+Metric val_loss improved by 0.000 >= min_delta = 0.0. New best score: 0.003
+Epoch 27, global step 175000: 'val_loss' reached 0.00272 (best 0.00272), saving model to '/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/runs/baseline/2026-04-20_17-17-31_vanvliet_base/checkpoints/epoch=27-step=175000.ckpt' as top 1
+INFO:root:LRScheduler: relative lr factor 0.896
+Epoch 28, global step 181250: 'val_loss' was not in top 1
+INFO:root:LRScheduler: relative lr factor 0.886
+Epoch 29, global step 187500: 'val_loss' was not in top 1
+INFO:root:LRScheduler: relative lr factor 0.874
+Epoch 30, global step 193750: 'val_loss' was not in top 1
+INFO:root:LRScheduler: relative lr factor 0.863
+Epoch 31, global step 200000: 'val_loss' was not in top 1
+INFO:root:LRScheduler: relative lr factor 0.851
+INFO:root:Saved best model with val_loss=0.00177
+Metric val_loss improved by 0.001 >= min_delta = 0.0. New best score: 0.002
+Epoch 32, global step 206250: 'val_loss' reached 0.00177 (best 0.00177), saving model to '/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/runs/baseline/2026-04-20_17-17-31_vanvliet_base/checkpoints/epoch=32-step=206250.ckpt' as top 1
+INFO:root:LRScheduler: relative lr factor 0.838
+Epoch 33, global step 212500: 'val_loss' was not in top 1
+INFO:root:LRScheduler: relative lr factor 0.825
+INFO:root:Saved best model with val_loss=0.00168
+Metric val_loss improved by 0.000 >= min_delta = 0.0. New best score: 0.002
+Epoch 34, global step 218750: 'val_loss' reached 0.00168 (best 0.00168), saving model to '/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/runs/baseline/2026-04-20_17-17-31_vanvliet_base/checkpoints/epoch=34-step=218750.ckpt' as top 1
+INFO:root:LRScheduler: relative lr factor 0.812
+INFO:root:Saved best model with val_loss=0.00151
+Metric val_loss improved by 0.000 >= min_delta = 0.0. New best score: 0.002
+Epoch 35, global step 225000: 'val_loss' reached 0.00151 (best 0.00151), saving model to '/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/runs/baseline/2026-04-20_17-17-31_vanvliet_base/checkpoints/epoch=35-step=225000.ckpt' as top 1
+INFO:root:LRScheduler: relative lr factor 0.798
+Epoch 36, global step 231250: 'val_loss' was not in top 1
+INFO:root:LRScheduler: relative lr factor 0.784
+INFO:root:Saved best model with val_loss=0.00148
+Metric val_loss improved by 0.000 >= min_delta = 0.0. New best score: 0.001
+Epoch 37, global step 237500: 'val_loss' reached 0.00148 (best 0.00148), saving model to '/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/runs/baseline/2026-04-20_17-17-31_vanvliet_base/checkpoints/epoch=37-step=237500.ckpt' as top 1
+INFO:root:LRScheduler: relative lr factor 0.770
+Epoch 38, global step 243750: 'val_loss' was not in top 1
+INFO:root:LRScheduler: relative lr factor 0.755
+Epoch 39, global step 250000: 'val_loss' was not in top 1
+INFO:root:LRScheduler: relative lr factor 0.740
+Epoch 40, global step 256250: 'val_loss' was not in top 1
+INFO:root:LRScheduler: relative lr factor 0.725
+INFO:root:Saved best model with val_loss=0.00119
+Metric val_loss improved by 0.000 >= min_delta = 0.0. New best score: 0.001
+Epoch 41, global step 262500: 'val_loss' reached 0.00119 (best 0.00119), saving model to '/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/runs/baseline/2026-04-20_17-17-31_vanvliet_base/checkpoints/epoch=41-step=262500.ckpt' as top 1
+INFO:root:LRScheduler: relative lr factor 0.709
+Epoch 42, global step 268750: 'val_loss' was not in top 1
+INFO:root:LRScheduler: relative lr factor 0.694
+Epoch 43, global step 275000: 'val_loss' was not in top 1
+INFO:root:LRScheduler: relative lr factor 0.678
+INFO:root:Saved best model with val_loss=0.00104
+Metric val_loss improved by 0.000 >= min_delta = 0.0. New best score: 0.001
+Epoch 44, global step 281250: 'val_loss' reached 0.00104 (best 0.00104), saving model to '/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/runs/baseline/2026-04-20_17-17-31_vanvliet_base/checkpoints/epoch=44-step=281250.ckpt' as top 1
+INFO:root:LRScheduler: relative lr factor 0.661
+INFO:root:Saved best model with val_loss=0.00092
+Metric val_loss improved by 0.000 >= min_delta = 0.0. New best score: 0.001
+Epoch 45, global step 287500: 'val_loss' reached 0.00092 (best 0.00092), saving model to '/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/runs/baseline/2026-04-20_17-17-31_vanvliet_base/checkpoints/epoch=45-step=287500.ckpt' as top 1
+INFO:root:LRScheduler: relative lr factor 0.645
+Epoch 46, global step 293750: 'val_loss' was not in top 1
+INFO:root:LRScheduler: relative lr factor 0.628
+INFO:root:Saved best model with val_loss=0.00077
+Metric val_loss improved by 0.000 >= min_delta = 0.0. New best score: 0.001
+Epoch 47, global step 300000: 'val_loss' reached 0.00077 (best 0.00077), saving model to '/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/runs/baseline/2026-04-20_17-17-31_vanvliet_base/checkpoints/epoch=47-step=300000.ckpt' as top 1
+INFO:root:LRScheduler: relative lr factor 0.612
+Epoch 48, global step 306250: 'val_loss' was not in top 1
+INFO:root:LRScheduler: relative lr factor 0.595
+Epoch 49, global step 312500: 'val_loss' was not in top 1
+INFO:root:LRScheduler: relative lr factor 0.578
+Epoch 50, global step 318750: 'val_loss' was not in top 1
+INFO:root:LRScheduler: relative lr factor 0.561
+INFO:root:Saved best model with val_loss=0.00068
+Metric val_loss improved by 0.000 >= min_delta = 0.0. New best score: 0.001
+Epoch 51, global step 325000: 'val_loss' reached 0.00068 (best 0.00068), saving model to '/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/runs/baseline/2026-04-20_17-17-31_vanvliet_base/checkpoints/epoch=51-step=325000.ckpt' as top 1
+INFO:root:LRScheduler: relative lr factor 0.544
+Epoch 52, global step 331250: 'val_loss' was not in top 1
+INFO:root:LRScheduler: relative lr factor 0.526
+INFO:root:Saved best model with val_loss=0.00060
+Metric val_loss improved by 0.000 >= min_delta = 0.0. New best score: 0.001
+Epoch 53, global step 337500: 'val_loss' reached 0.00060 (best 0.00060), saving model to '/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/runs/baseline/2026-04-20_17-17-31_vanvliet_base/checkpoints/epoch=53-step=337500.ckpt' as top 1
+INFO:root:LRScheduler: relative lr factor 0.509
+INFO:root:Saved best model with val_loss=0.00055
+Metric val_loss improved by 0.000 >= min_delta = 0.0. New best score: 0.001
+Epoch 54, global step 343750: 'val_loss' reached 0.00055 (best 0.00055), saving model to '/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/runs/baseline/2026-04-20_17-17-31_vanvliet_base/checkpoints/epoch=54-step=343750.ckpt' as top 1
+INFO:root:LRScheduler: relative lr factor 0.492
+INFO:root:Saved best model with val_loss=0.00047
+Metric val_loss improved by 0.000 >= min_delta = 0.0. New best score: 0.000
+Epoch 55, global step 350000: 'val_loss' reached 0.00047 (best 0.00047), saving model to '/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/runs/baseline/2026-04-20_17-17-31_vanvliet_base/checkpoints/epoch=55-step=350000.ckpt' as top 1
+INFO:root:LRScheduler: relative lr factor 0.475
+Epoch 56, global step 356250: 'val_loss' was not in top 1
+INFO:root:LRScheduler: relative lr factor 0.457
+Epoch 57, global step 362500: 'val_loss' was not in top 1
+INFO:root:LRScheduler: relative lr factor 0.440
+Epoch 58, global step 368750: 'val_loss' was not in top 1
+INFO:root:LRScheduler: relative lr factor 0.423
+INFO:root:Saved best model with val_loss=0.00042
+Metric val_loss improved by 0.000 >= min_delta = 0.0. New best score: 0.000
+Epoch 59, global step 375000: 'val_loss' reached 0.00042 (best 0.00042), saving model to '/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/runs/baseline/2026-04-20_17-17-31_vanvliet_base/checkpoints/epoch=59-step=375000.ckpt' as top 1
+INFO:root:LRScheduler: relative lr factor 0.406
+INFO:root:Saved best model with val_loss=0.00036
+Metric val_loss improved by 0.000 >= min_delta = 0.0. New best score: 0.000
+Epoch 60, global step 381250: 'val_loss' reached 0.00036 (best 0.00036), saving model to '/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/runs/baseline/2026-04-20_17-17-31_vanvliet_base/checkpoints/epoch=60-step=381250.ckpt' as top 1
+INFO:root:LRScheduler: relative lr factor 0.389
+Epoch 61, global step 387500: 'val_loss' was not in top 1
+INFO:root:LRScheduler: relative lr factor 0.373
+Epoch 62, global step 393750: 'val_loss' was not in top 1
+INFO:root:LRScheduler: relative lr factor 0.356
+Epoch 63, global step 400000: 'val_loss' was not in top 1
+INFO:root:LRScheduler: relative lr factor 0.340
+INFO:root:Saved best model with val_loss=0.00034
+Metric val_loss improved by 0.000 >= min_delta = 0.0. New best score: 0.000
+Epoch 64, global step 406250: 'val_loss' reached 0.00034 (best 0.00034), saving model to '/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/runs/baseline/2026-04-20_17-17-31_vanvliet_base/checkpoints/epoch=64-step=406250.ckpt' as top 1
+INFO:root:LRScheduler: relative lr factor 0.323
+INFO:root:Saved best model with val_loss=0.00027
+Metric val_loss improved by 0.000 >= min_delta = 0.0. New best score: 0.000
+Epoch 65, global step 412500: 'val_loss' reached 0.00027 (best 0.00027), saving model to '/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/runs/baseline/2026-04-20_17-17-31_vanvliet_base/checkpoints/epoch=65-step=412500.ckpt' as top 1
+INFO:root:LRScheduler: relative lr factor 0.307
+Epoch 66, global step 418750: 'val_loss' was not in top 1
+INFO:root:LRScheduler: relative lr factor 0.292
+Epoch 67, global step 425000: 'val_loss' was not in top 1
+INFO:root:LRScheduler: relative lr factor 0.276
+INFO:root:Saved best model with val_loss=0.00025
+Metric val_loss improved by 0.000 >= min_delta = 0.0. New best score: 0.000
+Epoch 68, global step 431250: 'val_loss' reached 0.00025 (best 0.00025), saving model to '/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/runs/baseline/2026-04-20_17-17-31_vanvliet_base/checkpoints/epoch=68-step=431250.ckpt' as top 1
+INFO:root:LRScheduler: relative lr factor 0.261
+INFO:root:Saved best model with val_loss=0.00020
+Metric val_loss improved by 0.000 >= min_delta = 0.0. New best score: 0.000
+Epoch 69, global step 437500: 'val_loss' reached 0.00020 (best 0.00020), saving model to '/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/runs/baseline/2026-04-20_17-17-31_vanvliet_base/checkpoints/epoch=69-step=437500.ckpt' as top 1
+INFO:root:LRScheduler: relative lr factor 0.246
+INFO:root:Saved best model with val_loss=0.00018
+Metric val_loss improved by 0.000 >= min_delta = 0.0. New best score: 0.000
+Epoch 70, global step 443750: 'val_loss' reached 0.00018 (best 0.00018), saving model to '/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/runs/baseline/2026-04-20_17-17-31_vanvliet_base/checkpoints/epoch=70-step=443750.ckpt' as top 1
+INFO:root:LRScheduler: relative lr factor 0.231
+Epoch 71, global step 450000: 'val_loss' was not in top 1
+INFO:root:LRScheduler: relative lr factor 0.217
+Epoch 72, global step 456250: 'val_loss' was not in top 1
+INFO:root:LRScheduler: relative lr factor 0.203
+INFO:root:Saved best model with val_loss=0.00017
+Metric val_loss improved by 0.000 >= min_delta = 0.0. New best score: 0.000
+Epoch 73, global step 462500: 'val_loss' reached 0.00017 (best 0.00017), saving model to '/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/runs/baseline/2026-04-20_17-17-31_vanvliet_base/checkpoints/epoch=73-step=462500.ckpt' as top 1
+INFO:root:LRScheduler: relative lr factor 0.189
+INFO:root:Saved best model with val_loss=0.00015
+Metric val_loss improved by 0.000 >= min_delta = 0.0. New best score: 0.000
+Epoch 74, global step 468750: 'val_loss' reached 0.00015 (best 0.00015), saving model to '/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/runs/baseline/2026-04-20_17-17-31_vanvliet_base/checkpoints/epoch=74-step=468750.ckpt' as top 1
+INFO:root:LRScheduler: relative lr factor 0.176
+Epoch 75, global step 475000: 'val_loss' was not in top 1
+INFO:root:LRScheduler: relative lr factor 0.163
+INFO:root:Saved best model with val_loss=0.00014
+Metric val_loss improved by 0.000 >= min_delta = 0.0. New best score: 0.000
+Epoch 76, global step 481250: 'val_loss' reached 0.00014 (best 0.00014), saving model to '/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/runs/baseline/2026-04-20_17-17-31_vanvliet_base/checkpoints/epoch=76-step=481250.ckpt' as top 1
+INFO:root:LRScheduler: relative lr factor 0.150
+INFO:root:Saved best model with val_loss=0.00013
+Metric val_loss improved by 0.000 >= min_delta = 0.0. New best score: 0.000
+Epoch 77, global step 487500: 'val_loss' reached 0.00013 (best 0.00013), saving model to '/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/runs/baseline/2026-04-20_17-17-31_vanvliet_base/checkpoints/epoch=77-step=487500.ckpt' as top 1
+INFO:root:LRScheduler: relative lr factor 0.138
+INFO:root:Saved best model with val_loss=0.00012
+Metric val_loss improved by 0.000 >= min_delta = 0.0. New best score: 0.000
+Epoch 78, global step 493750: 'val_loss' reached 0.00012 (best 0.00012), saving model to '/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/runs/baseline/2026-04-20_17-17-31_vanvliet_base/checkpoints/epoch=78-step=493750.ckpt' as top 1
+INFO:root:LRScheduler: relative lr factor 0.127
+Epoch 79, global step 500000: 'val_loss' was not in top 1
+INFO:root:LRScheduler: relative lr factor 0.115
+INFO:root:Saved best model with val_loss=0.00012
+Metric val_loss improved by 0.000 >= min_delta = 0.0. New best score: 0.000
+Epoch 80, global step 506250: 'val_loss' reached 0.00012 (best 0.00012), saving model to '/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/runs/baseline/2026-04-20_17-17-31_vanvliet_base/checkpoints/epoch=80-step=506250.ckpt' as top 1
+INFO:root:LRScheduler: relative lr factor 0.105
+INFO:root:Saved best model with val_loss=0.00011
+Metric val_loss improved by 0.000 >= min_delta = 0.0. New best score: 0.000
+Epoch 81, global step 512500: 'val_loss' reached 0.00011 (best 0.00011), saving model to '/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/runs/baseline/2026-04-20_17-17-31_vanvliet_base/checkpoints/epoch=81-step=512500.ckpt' as top 1
+INFO:root:LRScheduler: relative lr factor 0.094
+INFO:root:Saved best model with val_loss=0.00010
+Metric val_loss improved by 0.000 >= min_delta = 0.0. New best score: 0.000
+Epoch 82, global step 518750: 'val_loss' reached 0.00010 (best 0.00010), saving model to '/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/runs/baseline/2026-04-20_17-17-31_vanvliet_base/checkpoints/epoch=82-step=518750.ckpt' as top 1
+INFO:root:LRScheduler: relative lr factor 0.085
+INFO:root:Saved best model with val_loss=0.00010
+Metric val_loss improved by 0.000 >= min_delta = 0.0. New best score: 0.000
+Epoch 83, global step 525000: 'val_loss' reached 0.00010 (best 0.00010), saving model to '/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/runs/baseline/2026-04-20_17-17-31_vanvliet_base/checkpoints/epoch=83-step=525000.ckpt' as top 1
+INFO:root:LRScheduler: relative lr factor 0.075
+Epoch 84, global step 531250: 'val_loss' was not in top 1
+INFO:root:LRScheduler: relative lr factor 0.066
+Epoch 85, global step 537500: 'val_loss' was not in top 1
+INFO:root:LRScheduler: relative lr factor 0.058
+INFO:root:Saved best model with val_loss=0.00009
+Metric val_loss improved by 0.000 >= min_delta = 0.0. New best score: 0.000
+Epoch 86, global step 543750: 'val_loss' reached 0.00009 (best 0.00009), saving model to '/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/runs/baseline/2026-04-20_17-17-31_vanvliet_base/checkpoints/epoch=86-step=543750.ckpt' as top 1
+INFO:root:LRScheduler: relative lr factor 0.050
+Epoch 87, global step 550000: 'val_loss' was not in top 1
+INFO:root:LRScheduler: relative lr factor 0.043
+Epoch 88, global step 556250: 'val_loss' was not in top 1
+INFO:root:LRScheduler: relative lr factor 0.037
+Epoch 89, global step 562500: 'val_loss' was not in top 1
+INFO:root:LRScheduler: relative lr factor 0.030
+INFO:root:Saved best model with val_loss=0.00008
+Metric val_loss improved by 0.000 >= min_delta = 0.0. New best score: 0.000
+Epoch 90, global step 568750: 'val_loss' reached 0.00008 (best 0.00008), saving model to '/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/runs/baseline/2026-04-20_17-17-31_vanvliet_base/checkpoints/epoch=90-step=568750.ckpt' as top 1
+INFO:root:LRScheduler: relative lr factor 0.025
+INFO:root:Saved best model with val_loss=0.00008
+Metric val_loss improved by 0.000 >= min_delta = 0.0. New best score: 0.000
+Epoch 91, global step 575000: 'val_loss' reached 0.00008 (best 0.00008), saving model to '/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/runs/baseline/2026-04-20_17-17-31_vanvliet_base/checkpoints/epoch=91-step=575000.ckpt' as top 1
+INFO:root:LRScheduler: relative lr factor 0.020
+Epoch 92, global step 581250: 'val_loss' was not in top 1
+INFO:root:LRScheduler: relative lr factor 0.016
+INFO:root:Saved best model with val_loss=0.00008
+Metric val_loss improved by 0.000 >= min_delta = 0.0. New best score: 0.000
+Epoch 93, global step 587500: 'val_loss' reached 0.00008 (best 0.00008), saving model to '/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/runs/baseline/2026-04-20_17-17-31_vanvliet_base/checkpoints/epoch=93-step=587500.ckpt' as top 1
+INFO:root:LRScheduler: relative lr factor 0.012
+INFO:root:Saved best model with val_loss=0.00008
+Metric val_loss improved by 0.000 >= min_delta = 0.0. New best score: 0.000
+Epoch 94, global step 593750: 'val_loss' reached 0.00008 (best 0.00008), saving model to '/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/runs/baseline/2026-04-20_17-17-31_vanvliet_base/checkpoints/epoch=94-step=593750.ckpt' as top 1
+INFO:root:LRScheduler: relative lr factor 0.008
+INFO:root:Saved best model with val_loss=0.00008
+Metric val_loss improved by 0.000 >= min_delta = 0.0. New best score: 0.000
+Epoch 95, global step 600000: 'val_loss' reached 0.00008 (best 0.00008), saving model to '/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/runs/baseline/2026-04-20_17-17-31_vanvliet_base/checkpoints/epoch=95-step=600000.ckpt' as top 1
+INFO:root:LRScheduler: relative lr factor 0.006
+Epoch 96, global step 606250: 'val_loss' was not in top 1
+INFO:root:LRScheduler: relative lr factor 0.004
+INFO:root:Saved best model with val_loss=0.00007
+Metric val_loss improved by 0.000 >= min_delta = 0.0. New best score: 0.000
+Epoch 97, global step 612500: 'val_loss' reached 0.00007 (best 0.00007), saving model to '/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/runs/baseline/2026-04-20_17-17-31_vanvliet_base/checkpoints/epoch=97-step=612500.ckpt' as top 1
+INFO:root:LRScheduler: relative lr factor 0.002
+Epoch 98, global step 618750: 'val_loss' was not in top 1
+INFO:root:LRScheduler: relative lr factor 0.001
+Epoch 99, global step 625000: 'val_loss' was not in top 1
+`Trainer.fit` stopped: `max_epochs=100` reached.
+
+real	1057m14,911s
+user	1123m9,319s
+sys	447m58,575s
+Traceback (most recent call last):
+  File "/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/scripts/train.py", line 1182, in <module>
+    vars = train(args)
+  File "/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/scripts/train.py", line 891, in train
+    model = TrackingTransformer.from_folder(fpath, args=args)
+  File "/data/cat/ws/lest161c-ssl_cell_tracking/trackastra/trackastra/model/model.py", line 491, in from_folder
+    config = yaml.load(open(folder / "config.yaml"), Loader=yaml.FullLoader)
+FileNotFoundError: [Errno 2] No such file or directory: 'runs/ssl_pretrain/ssl_deepcell/config.yaml'
+
+real	2m23,489s
+user	0m7,880s
+sys	0m7,725s

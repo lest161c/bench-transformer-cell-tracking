@@ -1,0 +1,6 @@
+- the initially proposed speedup due to sparse gather attention could not be verified during the training
+- this might be due to a lack of identical training configuration -> SPARSE K16 has higher samples per epoch -> epoch therefore runs longer as more samples are processed
+- as K16 is only faster if more of the VRAM can be used values like batch_size and max_tokens need to be higher compared to the baseline
+- this will however influence the epochs/min metric, favouring the baseline
+- meassuring the steps/min is a reasonable indicator for training speed aswell the overall convergence time
+- if training converges in fewer epochs but the epochs are bigger and take longer to compute we did not demonstrate any performance/convergence gains

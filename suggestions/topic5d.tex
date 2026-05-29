@@ -1,0 +1,65 @@
+\documentclass{article}
+\usepackage{geometry}
+\geometry{a4paper, margin=1in}
+\usepackage{hyperref}
+\hypersetup{colorlinks=true, urlcolor=blue, citecolor=blue}
+
+\title{Proposal D: Self-Supervised Cell Trajectory Representations\\for Unsupervised Morphogenesis Analysis}
+\author{Candidate Name}
+\date{Suggested Supervisors: Prof.\ Dr.\ Martin Weigert, Dr.\ Pavel Tomancak}
+
+\begin{document}
+\maketitle
+
+\section*{Motivation}
+
+When Trackastra~\cite{trackastra} tracks cells through a time-lapse recording, it produces \textbf{cell trajectories}: sequences of positions, shapes, and image appearances for each cell across time. In embryogenesis, these trajectories encode cell fates (which cells become which tissue), migration patterns (how cells rearrange during gastrulation), and proliferation dynamics (when and where cells divide). Currently, analysing these trajectories requires either manual annotation of cell types or hand-crafted feature engineering (speed, directionality, division rate).
+
+This project asks: \emph{can we learn meaningful representations of cell trajectories directly from the tracking output, without any biological labels?} The approach is to treat each tracked cell's image sequence as a ``sentence'' and learn embeddings via self-supervised objectives on these temporal sequences---analogous to how word2vec or BERT learn word representations from text without labels.
+
+\section*{Approach}
+
+\begin{enumerate}
+	\item \textbf{Tracking with Trackastra.} Apply Trackastra (pretrained \texttt{general\_2d} or \texttt{ctc} model) to time-lapse recordings from the SLICE-1 dataset~\cite{slice1} (50 \textit{Tribolium} embryos) or Cell Tracking Challenge sequences. Extract per-cell trajectories: for each tracked cell, collect the sequence of image crops, centroid positions, and mask shapes across its lifetime.
+
+	\item \textbf{Per-frame cell encoding.} Encode each cell crop at each timepoint using a CNN or ViT backbone (optionally TAP-pretrained~\cite{tap}) to produce a per-frame feature vector $\mathbf{z}_t^{(i)}$ for cell $i$ at time $t$. This gives each trajectory a sequence of embeddings.
+
+	\item \textbf{Self-supervised trajectory representation learning.} Train a temporal encoder (transformer or RNN) on cell trajectory sequences using SSL objectives:
+	      \begin{itemize}
+		      \item \textbf{Masked trajectory modelling}: mask random timepoints in a trajectory and predict the missing embeddings from context (analogous to BERT's masked language modelling).
+		      \item \textbf{Contrastive trajectory learning}: augmented views of the same trajectory (temporal jittering, subsampling) are positive pairs; trajectories from different cells are negatives.
+		      \item \textbf{Next-step prediction}: given trajectory up to time $t$, predict the embedding at $t{+}1$.
+	      \end{itemize}
+	      The output is a single trajectory-level embedding $\mathbf{h}^{(i)}$ per cell that summarises its entire developmental history.
+
+	\item \textbf{Unsupervised morphogenesis analysis.} Cluster trajectory embeddings (UMAP + HDBSCAN or spectral clustering) to discover:
+	      \begin{itemize}
+		      \item Cell types or fates (do clusters correspond to known tissue types?)
+		      \item Migration behaviours (do different clusters map to distinct spatial regions?)
+		      \item Proliferation patterns (do dividing vs.\ non-dividing cells form distinct clusters?)
+	      \end{itemize}
+	      Validate against known \textit{Tribolium} developmental biology: the mesoderm invaginates, the germband extends, the amnion and serosa form distinct cell sheets.
+
+	\item \textbf{Cross-embryo comparison.} SLICE-1 contains 5 transgenic lines with triplicates. Embed trajectories from different embryos into the same space and test whether the representation is consistent across specimens and invariant to the fluorescent marker used.
+\end{enumerate}
+
+\section*{Why This Works as a One-Semester Project}
+
+\begin{itemize}
+	\item \textbf{Trackastra provides tracks out of the box}: pretrained models are pip-installable. The tracking step is not a research problem---it is a preprocessing step.
+	\item \textbf{The SSL methods are standard}: masked modelling, contrastive learning, and next-step prediction are mature techniques. The novelty is the application to cell trajectory data.
+	\item \textbf{Biological validation is well-defined}: \textit{Tribolium} developmental stages and tissue fates are extensively documented. Cluster quality can be assessed against known biology without requiring manual annotation of the test data.
+	\item \textbf{Modular architecture}: each component (tracking $\to$ encoding $\to$ trajectory SSL $\to$ clustering) is independently testable. If one SSL objective fails, others can be substituted.
+\end{itemize}
+
+\section*{Expected Contribution}
+
+A self-supervised pipeline that goes from raw embryo time-lapse video to \textbf{unsupervised cell fate maps}: per-cell trajectory embeddings that cluster by biological function without any labels. This is the morphogenesis analogue of what scRNA-seq trajectory analysis (Monocle, scVelo) achieves for gene expression---but operating entirely in image space and requiring no manual annotation.
+
+\begin{thebibliography}{9}
+	\bibitem{trackastra} B.~Gallusser and M.~Weigert. ``Trackastra: Transformer-based cell tracking for live-cell microscopy.'' \textit{ECCV}, 2024.
+	\bibitem{tap} B.~Gallusser, M.~Stieber, and M.~Weigert. ``Self-supervised dense representation learning for live-cell microscopy with time arrow prediction.'' \textit{MICCAI}, 2023.
+	\bibitem{slice1} F.~Strobl et al. ``SLICE-1: A comprehensive light-sheet imaging dataset of \textit{Tribolium castaneum} embryogenesis.'' \textit{Scientific Data}, Dec 2025.
+\end{thebibliography}
+
+\end{document}

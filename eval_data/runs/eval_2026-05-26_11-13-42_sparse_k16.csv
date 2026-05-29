@@ -1,0 +1,2 @@
+model,edge_accuracy,bce_loss,n_batches,total_pairs
+2026-05-26_11-13-42_sparse_k16,0.997669,0.005994,193,38460800

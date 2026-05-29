@@ -1,0 +1,32 @@
+\documentclass{article}
+\usepackage{geometry}
+\geometry{a4paper, margin=1in}
+\title{ML Research Proposal: Self-Supervised Representation Learning for Morphogenetic Trajectory Discovery from Light-Sheet Microscopy}
+\author{Candidate Name}
+\date{Suggested Supervisors: Prof. Dr. Martin Weigert, Dr. Pavel Tomancak}
+
+\begin{document}
+\maketitle
+
+\section*{Abstract}
+Modern light-sheet microscopy captures embryonic development at cellular resolution across hours or days, producing terabyte-scale 4D (3D+time) datasets that far exceed the capacity for manual annotation. While single-cell genomics has mature unsupervised methods for reconstructing developmental trajectories from gene expression data (e.g., Monocle, scVelo, Waddington-OT), no equivalent exists for learning morphogenetic trajectories directly from imaging data. This project aims to bridge that gap by developing a \textbf{self-supervised representation learning pipeline} that discovers developmental states and reconstructs morphogenetic trajectories from unlabeled light-sheet time-lapse data, entirely end-to-end in Python/PyTorch.
+
+We will use the publicly available \textit{Tribolium castaneum} embryogenesis dataset (Fluo-N3DL-TRIC, Cell Tracking Challenge; contributed by the Tomancak group at MPI-CBG) as our primary data source. The approach combines two complementary self-supervised signals: (1) \textbf{spatial representations} extracted from a frozen DINOv2 vision foundation model or a Masked Autoencoder (MAE) fine-tuned on microscopy data, providing rich per-frame feature embeddings without any labels; and (2) \textbf{temporal self-supervision} via Time Arrow Prediction (TAP) \cite{tap}, a method developed by the Weigert group that learns biologically meaningful features by predicting whether consecutive frames are in correct or reversed temporal order. A lightweight encoder combines these signals to produce a per-frame latent embedding of developmental state.
+
+Once the latent space is learned, we apply \textbf{trajectory inference methods} adapted from the single-cell genomics literature---specifically optimal transport (Waddington-OT \cite{wot}) or diffusion maps---to reconstruct continuous morphogenetic trajectories through the learned embedding space. The resulting trajectories can be validated against known \textit{Tribolium} developmental staging and the sparse tracking annotations available in the dataset. The final deliverable is an open-source, end-to-end pipeline: from raw light-sheet video to a latent developmental trajectory with unsupervised stage discovery, requiring no manual annotation.
+
+\section*{Related Work}
+\begin{itemize}
+	\item \textbf{Time Arrow Prediction (TAP):} A self-supervised pretext task that learns dense image representations from unlabeled live-cell video by predicting temporal order. Demonstrated to capture biologically meaningful events (e.g., cell division) without any labels, outperforming supervised baselines in low-annotation regimes (Gallusser, Stieber \& Weigert, 2023) \cite{tap}.
+	\item \textbf{DINOv2 / Vision Foundation Models:} Self-supervised vision transformers pre-trained on large-scale natural image data. DINOv2 features transfer effectively to biomedical imaging tasks and provide strong spatial representations at zero annotation cost (Oquab et al., 2024). Masked Autoencoders (MAE) offer an alternative self-supervised paradigm that can be fine-tuned on domain-specific microscopy data.
+	\item \textbf{Waddington-OT / Developmental Trajectory Inference:} Optimal-transport-based framework for reconstructing developmental trajectories from snapshot single-cell RNA-seq data without requiring lineage tracing (Schiebinger et al., Cell, 2019) \cite{wot}. Provides the conceptual and algorithmic template that this project adapts from gene-expression space to image-embedding space.
+	\item \textbf{Tribolium Light-Sheet Data \& Mastodon:} Large-scale light-sheet recordings of \textit{Tribolium castaneum} embryogenesis contributed by the Tomancak group to the Cell Tracking Challenge (Fluo-N3DL-TRIC, $\sim$40\,GB cartographic projection). The Mastodon tracking platform, also from the Tomancak group, already integrates Trackastra (Weigert group) and StarDist as plugins, confirming an active collaboration between both groups \cite{trackastra}.
+\end{itemize}
+
+\begin{thebibliography}{9}
+	\bibitem{tap} B.~Gallusser, M.~Stieber, and M.~Weigert. ``Self-supervised dense representation learning for live-cell microscopy with time arrow prediction.'' \textit{MICCAI}, 2023. Code: \texttt{github.com/weigertlab/tarrow}.
+	\bibitem{wot} G.~Schiebinger et al. ``Optimal-transport analysis of single-cell gene expression identifies developmental trajectories in reprogramming.'' \textit{Cell}, 176(4):928--943, 2019.
+	\bibitem{trackastra} B.~Gallusser and M.~Weigert. ``Trackastra: Transformer-based cell tracking for live-cell microscopy.'' \textit{ECCV}, 2024. Code: \texttt{github.com/weigertlab/trackastra}.
+\end{thebibliography}
+
+\end{document}
