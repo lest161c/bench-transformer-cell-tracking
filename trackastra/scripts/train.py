@@ -775,7 +775,7 @@ def train(args):
             attn_positional_bias_n_spatial=args.attn_positional_bias_n_spatial,
             attn_dist_mode=args.attn_dist_mode,
             causal_norm=args.causal_norm,
-            flash_attn=bool(args.flash_attn),
+            knn_size=args.knn_size,
         )
 
         dummy_model_lightning = WrappedLightningModule(
@@ -925,7 +925,7 @@ def train(args):
             attn_positional_bias_n_spatial=args.attn_positional_bias_n_spatial,
             attn_dist_mode=args.attn_dist_mode,
             causal_norm=args.causal_norm,
-            flash_attn=bool(args.flash_attn),
+            knn_size=args.knn_size,
         )
 
     model_lightning = WrappedLightningModule(
@@ -985,6 +985,7 @@ def train(args):
             )
             ssl_opt = torch.optim.AdamW(model_lightning.parameters(), lr=args.lr)
             model_lightning.train()
+            ssl_loss_epoch1 = None
             for epoch in range(1, args.ssl_epochs + 1):
                 t0 = default_timer(); losses = []
                 for batch in tqdm(ssl_loader, desc=f"SSL Epoch {epoch}", leave=False):
@@ -994,7 +995,16 @@ def train(args):
                     out["loss"].backward()
                     torch.nn.utils.clip_grad_norm_(model_lightning.parameters(), 1.0)
                     ssl_opt.step(); losses.append(out["loss"].item())
-                logger.info(f"  SSL Epoch {epoch}: loss={np.mean(losses):.4f} [{default_timer()-t0:.0f}s]")
+                avg_loss = np.mean(losses)
+                if epoch == 1:
+                    ssl_loss_epoch1 = avg_loss
+                logger.info(f"  SSL Epoch {epoch}: loss={avg_loss:.4f} [{default_timer()-t0:.0f}s]")
+                if epoch == 3 and ssl_loss_epoch1 is not None and avg_loss < ssl_loss_epoch1 * 0.1:
+                    logger.warning(
+                        f"  SSL loss dropped >10x in 3 epochs "
+                        f"({ssl_loss_epoch1:.4f} → {avg_loss:.4f}). "
+                        f"Possible memorization of inverse distortions."
+                    )
             model.save(logdir / "ssl_pretrained")
             logger.info(f"SSL model saved to {ssl_path}")
         if args.ssl_only:
@@ -1141,7 +1151,7 @@ def parse_train_args():
     )
     parser.add_argument("--attn_positional_bias_n_spatial", type=int, default=16)
     parser.add_argument("--attn_dist_mode", default="v0")
-    parser.add_argument("--flash_attn", type=int, default=1)
+    parser.add_argument("--knn_size", type=int, default=16)
 
 
     parser.add_argument("--augment", type=int, default=3)
