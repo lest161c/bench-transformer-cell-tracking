@@ -437,15 +437,12 @@ class GatherSparseAttention(nn.Module):
         return y
 
 
-class KNNMaskSparseAttention(nn.Module):
-    """KNN-sparse attention via NxN mask (not gather, not cdist).
+class CachedDistAttention(nn.Module):
+    """Spatial-cutoff attention with pre-computed 2D pairwise distances.
 
-    Uses F.scaled_dot_product_attention with a KNN-derived attn_mask.
-    Keeps q,k,v at the native (B, nH, N, Dh) shape.
-    Mask built via scatter_ (O(NK)), not cdist (O(N²)).
-    3–8× faster than the original cdist+masked_fill pipeline.
-
-    Accepts the same interface as GatherSparseAttention / RelativePositionalAttention.
+    Identical semantics to RelativePositionalAttention but avoids per-layer
+    cdist: the 2D distance matrix is computed once in TrackingTransformer.forward()
+    and shared across all L layers. 3D cdist for distance decay is still per-layer.
     """
 
     def __init__(
@@ -460,7 +457,7 @@ class KNNMaskSparseAttention(nn.Module):
         dropout: float = 0.0,
         mode: Literal["bias", "rope", "none"] = "none",
         attn_dist_mode: str = "v0",
-        knn_neighbors: int = 16,
+        knn_neighbors: int = -1,
     ):
         super().__init__()
         assert embed_dim % n_head == 0
@@ -471,8 +468,9 @@ class KNNMaskSparseAttention(nn.Module):
         self.n_head = n_head
         self.embed_dim = embed_dim
         self.dropout = dropout
+        self.cutoff_spatial = cutoff_spatial
+        self.attn_dist_mode = attn_dist_mode
         self._mode = mode
-        self.knn_neighbors = knn_neighbors
 
         if mode == "bias":
             self.pos_bias = RelativePositionalBias(
@@ -503,14 +501,14 @@ class KNNMaskSparseAttention(nn.Module):
         coords: torch.Tensor = None,
         padding_mask: torch.Tensor = None,
         knn_indices: torch.Tensor = None,
+        dist_2d: torch.Tensor = None,
     ):
         B, N, D = query.shape
         if N == 0:
             return torch.zeros(B, 0, D, device=query.device, dtype=query.dtype)
-
         nH = self.n_head
         Dh = D // nH
-        K = self.knn_neighbors
+        attn_ignore_val = -1e3
 
         q = self.q_pro(query).view(B, N, nH, Dh).transpose(1, 2)
         k = self.k_pro(key).view(B, N, nH, Dh).transpose(1, 2)
@@ -519,17 +517,35 @@ class KNNMaskSparseAttention(nn.Module):
         if coords is not None and self._mode == "rope":
             q, k = self.rot_pos_enc(q, k, coords)
 
-        # Build KNN mask: -inf for non-neighbors, 0 for K nearest
-        if knn_indices is not None and N >= K:
-            src = knn_indices.unsqueeze(1).expand(B, nH, N, K)
-            mask = torch.full((B, nH, N, N), float("-inf"),
-                              device=q.device, dtype=q.dtype)
-            mask.scatter_(3, src, 0.0)
+        # Spatial cutoff from pre-computed 2D distances (or compute if not cached)
+        if dist_2d is not None:
+            spatial_mask = (dist_2d > self.cutoff_spatial).unsqueeze(1).expand(-1, nH, -1, -1)
         else:
-            mask = None
+            yx = coords[..., 1:]
+            spatial_dist = torch.cdist(yx, yx)
+            spatial_mask = (spatial_dist > self.cutoff_spatial).unsqueeze(1)
 
-        if self._mode == "bias" and coords is not None and mask is not None:
-            mask = mask + self.pos_bias(coords, knn_indices)
+        # Build mask: -inf for cells outside cutoff, 0 otherwise
+        mask = torch.zeros(B, nH, N, N, device=q.device, dtype=q.dtype)
+        mask.masked_fill_(spatial_mask, attn_ignore_val)
+
+        # Positional bias
+        if coords is not None and self._mode == "bias":
+            mask = mask + self.pos_bias(coords)
+
+        # Distance decay (v0 uses 3D cdist, v1 uses spatial_dist)
+        if coords is not None:
+            if self.attn_dist_mode == "v0":
+                dist_3d = torch.cdist(coords, coords, p=2)
+                mask = mask + torch.exp(-0.1 * dist_3d.unsqueeze(1))
+            elif self.attn_dist_mode == "v1" and dist_2d is not None:
+                mask = mask + torch.exp(-5 * dist_2d.unsqueeze(1) / self.cutoff_spatial)
+
+        if padding_mask is not None:
+            ignore_mask = torch.logical_or(
+                padding_mask.unsqueeze(1), padding_mask.unsqueeze(2)
+            ).unsqueeze(1)
+            mask.masked_fill_(ignore_mask, attn_ignore_val)
 
         y = F.scaled_dot_product_attention(
             q, k, v, attn_mask=mask,

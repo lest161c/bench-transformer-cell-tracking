@@ -16,9 +16,8 @@ from trackastra.utils import blockwise_causal_norm
 
 from .model_parts import (
     FeedForward,
-    KNNMaskSparseAttention,
+    CachedDistAttention,
     PositionalEncoding,
-    RelativePositionalAttention,
 )
 
 logger = logging.getLogger(__name__)
@@ -65,6 +64,7 @@ class EncoderLayer(nn.Module):
         coords: torch.Tensor,
         padding_mask: torch.Tensor = None,
         knn_indices: torch.Tensor = None,
+        dist_2d: torch.Tensor = None,
     ):
         x = self.norm1(x)
 
@@ -75,7 +75,7 @@ class EncoderLayer(nn.Module):
             x,
             coords=coords if self.positional_bias else None,
             padding_mask=padding_mask,
-            knn_indices=knn_indices,
+            dist_2d=dist_2d,
         )
 
         x = x + a
@@ -128,6 +128,7 @@ class DecoderLayer(nn.Module):
         coords: torch.Tensor,
         padding_mask: torch.Tensor = None,
         knn_indices: torch.Tensor = None,
+        dist_2d: torch.Tensor = None,
     ):
         x = self.norm1(x)
         y = self.norm2(y)
@@ -139,7 +140,7 @@ class DecoderLayer(nn.Module):
             y,
             coords=coords if self.positional_bias else None,
             padding_mask=padding_mask,
-            knn_indices=knn_indices,
+            dist_2d=dist_2d,
         )
 
         x = x + a
@@ -301,7 +302,6 @@ class TrackingTransformer(torch.nn.Module):
             "none", "linear", "softmax", "quiet_softmax"
         ] = "quiet_softmax",
         attn_dist_mode: str = "v0",
-        knn_size: int = 16,
     ):
         super().__init__()
 
@@ -321,7 +321,6 @@ class TrackingTransformer(torch.nn.Module):
             feat_embed_per_dim=feat_embed_per_dim,
             causal_norm=causal_norm,
             attn_dist_mode=attn_dist_mode,
-            knn_size=knn_size,
         )
 
         self.proj = nn.Linear(
@@ -329,7 +328,7 @@ class TrackingTransformer(torch.nn.Module):
         )
         self.norm = nn.LayerNorm(d_model)
 
-        attn_factory = lambda: KNNMaskSparseAttention(
+        attn_factory = lambda: CachedDistAttention(
             coord_dim,
             d_model,
             nhead,
@@ -338,7 +337,6 @@ class TrackingTransformer(torch.nn.Module):
             dropout=dropout,
             mode=attn_positional_bias,
             attn_dist_mode=attn_dist_mode,
-            knn_neighbors=knn_size,
         )
 
         self.encoder = nn.ModuleList([
@@ -416,25 +414,16 @@ class TrackingTransformer(torch.nn.Module):
         features = self.norm(features)
 
         x = features
-        
-        knn = self.config.get("knn_size", 16)
-        if knn_indices is None and _N >= knn:
-            yx = coords[..., 1:]
-            Bc, Nc = yx.shape[:2]
-            knn_indices = torch.empty(Bc, Nc, knn, dtype=torch.long, device=coords.device)
-            for b in range(Bc):
-                dist = torch.cdist(yx[b].float(), yx[b].float())
-                if padding_mask is not None:
-                    dist.masked_fill_(padding_mask[b].unsqueeze(1), float('inf'))
-                _, knn_indices[b] = torch.topk(dist, k=knn, dim=-1, largest=False)
+
+        dist_2d = torch.cdist(coords[..., 1:].float(), coords[..., 1:].float())
 
         for enc in self.encoder:
-            x = enc(x, coords=coords, padding_mask=padding_mask, knn_indices=knn_indices)
+            x = enc(x, coords=coords, padding_mask=padding_mask, dist_2d=dist_2d)
 
         y = features
         # decoder w cross attention
         for dec in self.decoder:
-            y = dec(y, x, coords=coords, padding_mask=padding_mask, knn_indices=knn_indices)
+            y = dec(y, x, coords=coords, padding_mask=padding_mask, dist_2d=dist_2d)
             # y = dec(y, y, coords=coords, padding_mask=padding_mask)
 
         x = self.head_x(x)
@@ -478,19 +467,10 @@ class TrackingTransformer(torch.nn.Module):
 
         x = features
 
-        knn = self.config.get("knn_size", 16)
-        if knn_indices is None and _N >= knn:
-            yx = coords[..., 1:]
-            Bc, Nc = yx.shape[:2]
-            knn_indices = torch.empty(Bc, Nc, knn, dtype=torch.long, device=coords.device)
-            for b in range(Bc):
-                dist = torch.cdist(yx[b].float(), yx[b].float())
-                if padding_mask is not None:
-                    dist.masked_fill_(padding_mask[b].unsqueeze(1), float('inf'))
-                _, knn_indices[b] = torch.topk(dist, k=knn, dim=-1, largest=False)
+        dist_2d = torch.cdist(coords[..., 1:].float(), coords[..., 1:].float())
 
         for enc in self.encoder:
-            x = enc(x, coords=coords, padding_mask=padding_mask, knn_indices=knn_indices)
+            x = enc(x, coords=coords, padding_mask=padding_mask, dist_2d=dist_2d)
 
         x = self.head_x(x)
         return x
