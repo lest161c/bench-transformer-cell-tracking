@@ -1,0 +1,14 @@
+trackastra_env/
+__pycache__/
+*.pyc
+data/
+checkpoints/
+wandb/
+*.egg-info/
+.DS_Store
+*.so
+profiler_out/
+benchmark_sparse_results.csv
+benchmark_small_n_results.csv
+benchmark_mask_vs_gather.csv
+**/benchmark_sparse.html
