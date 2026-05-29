@@ -18,6 +18,7 @@ from .model_parts import (
     FeedForward,
     DenseFlashAttention,
     PositionalEncoding,
+    RelativePositionalAttention,
 )
 
 logger = logging.getLogger(__name__)
@@ -300,7 +301,7 @@ class TrackingTransformer(torch.nn.Module):
             "none", "linear", "softmax", "quiet_softmax"
         ] = "quiet_softmax",
         attn_dist_mode: str = "v0",
-        knn_neighbors: int = -1,  # no-op, kept for backward compat
+        flash_attn: bool = True,
     ):
         super().__init__()
 
@@ -320,6 +321,7 @@ class TrackingTransformer(torch.nn.Module):
             feat_embed_per_dim=feat_embed_per_dim,
             causal_norm=causal_norm,
             attn_dist_mode=attn_dist_mode,
+            flash_attn=flash_attn,
         )
 
         self.proj = nn.Linear(
@@ -327,12 +329,26 @@ class TrackingTransformer(torch.nn.Module):
         )
         self.norm = nn.LayerNorm(d_model)
 
-        attn_factory = lambda: DenseFlashAttention(
-            coord_dim,
-            d_model,
-            nhead,
-            dropout=dropout,
-        )
+        if flash_attn:
+            attn_factory = lambda: DenseFlashAttention(
+                coord_dim,
+                d_model,
+                nhead,
+                dropout=dropout,
+            )
+        else:
+            attn_factory = lambda: RelativePositionalAttention(
+                coord_dim,
+                d_model,
+                nhead,
+                cutoff_spatial=spatial_pos_cutoff,
+                n_spatial=attn_positional_bias_n_spatial,
+                cutoff_temporal=window,
+                n_temporal=window,
+                dropout=dropout,
+                mode=attn_positional_bias,
+                attn_dist_mode=attn_dist_mode,
+            )
 
         self.encoder = nn.ModuleList([
             EncoderLayer(

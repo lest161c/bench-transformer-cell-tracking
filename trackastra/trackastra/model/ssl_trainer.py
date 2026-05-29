@@ -22,7 +22,7 @@ Trains encoder + feature projection only. Saves encoder weights for downstream.
 
 Usage:
     python -m trackastra.model.ssl_trainer --config config.yaml
-    python -m trackastra.model.ssl_trainer --knn_neighbors 16 --ssl_epochs 20
+    python -m trackastra.model.ssl_trainer --flash_attn 0 --ssl_epochs 20
 """
 import os, sys, logging, time, yaml, argparse
 from pathlib import Path
@@ -361,7 +361,7 @@ def parse_args():
     p.add_argument("--conditions", type=str, default="rpsM,recA,pheA,metA,cib,trpL")
     p.add_argument("--ndim", type=int, default=2)
     p.add_argument("--features", type=str, default="regionprops2")
-    p.add_argument("--knn_neighbors", type=int, default=16)
+    p.add_argument("--flash_attn", type=int, default=1)
     p.add_argument("--d_model", type=int, default=320)
     p.add_argument("--nhead", type=int, default=4)
     p.add_argument("--num_encoder_layers", type=int, default=6)
@@ -429,9 +429,9 @@ if __name__ == "__main__":
         pos_embed_per_dim=args.pos_embed_per_dim,
         feat_embed_per_dim=args.feat_embed_per_dim,
         window=args.window,
-        knn_neighbors=args.knn_neighbors,
+        flash_attn=bool(args.flash_attn),
     ).to(device)
 
-    logger.info(f"Model: {sum(p.numel() for p in model.parameters()):,} params, K={args.knn_neighbors}")
+    logger.info(f"Model: {sum(p.numel() for p in model.parameters()):,} params, flash_attn={bool(args.flash_attn)}")
 
     train_ssl(cfg, model, device)

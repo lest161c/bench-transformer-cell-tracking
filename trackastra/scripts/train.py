@@ -775,7 +775,7 @@ def train(args):
             attn_positional_bias_n_spatial=args.attn_positional_bias_n_spatial,
             attn_dist_mode=args.attn_dist_mode,
             causal_norm=args.causal_norm,
-
+            flash_attn=bool(args.flash_attn),
         )
 
         dummy_model_lightning = WrappedLightningModule(
@@ -925,7 +925,7 @@ def train(args):
             attn_positional_bias_n_spatial=args.attn_positional_bias_n_spatial,
             attn_dist_mode=args.attn_dist_mode,
             causal_norm=args.causal_norm,
-
+            flash_attn=bool(args.flash_attn),
         )
 
     model_lightning = WrappedLightningModule(
@@ -1141,6 +1141,7 @@ def parse_train_args():
     )
     parser.add_argument("--attn_positional_bias_n_spatial", type=int, default=16)
     parser.add_argument("--attn_dist_mode", default="v0")
+    parser.add_argument("--flash_attn", type=int, default=1)
 
 
     parser.add_argument("--augment", type=int, default=3)
