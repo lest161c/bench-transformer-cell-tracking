@@ -169,7 +169,7 @@ Key observations:
 
 **Conclusion: KNN gather attention is slower than unmasked dense FlashAttention at all measured N on this hardware (A500, Ampere).** However, unmasked dense attention drops the spatial cutoff — a structural component defined in Trackastra Eq. 3 (`M_ij = -∞ if ||p_i-p_j|| > d_max`). Removing it is architecturally incorrect without empirical validation.
 
-**Correct solution:** `KNNMaskSparseAttention` preserves the spatial cutoff via an N×N scatter mask (O(NK), not O(N²) cdist), runs at 2.5–3.1× faster than the original `dense_masked` at all N, and keeps the exact same KNN spatial semantics. This is the attention layer integrated into Trackastra on the `flash-attention` branch.
+**Final solution (no KNN):** The bottleneck was never the attention mechanism — it was computing `cdist` per layer. The fix is trivial: compute the 2D pairwise distance matrix **once** in `TrackingTransformer.forward()` and pass it to all L attention layers. This is `CachedDistAttention` on branch `cached-dist-attn` — identical semantics to the original `RelativePositionalAttention`, just amortized cdist. No KNN, no scatter mask, no FlashAttention — just moving one operation out of the inner loop.
 
 ---
 
