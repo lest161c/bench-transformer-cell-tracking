@@ -13,4 +13,3 @@ benchmark_small_n_results.csv
 benchmark_mask_vs_gather.csv
 **/benchmark_sparse.html
 report/
-report-tracking/
