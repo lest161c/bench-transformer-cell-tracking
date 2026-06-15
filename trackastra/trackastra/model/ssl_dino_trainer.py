@@ -19,6 +19,7 @@ import torch
 import torch.nn.functional as F
 from torch.optim import AdamW
 from tqdm import tqdm
+import wandb
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
@@ -272,6 +273,9 @@ def train_ssl(cfg, model, device):
     opt = AdamW(model.parameters(), lr=lr, weight_decay=ssl_cfg.get("weight_decay", 0.01))
     best_val = float("inf")
 
+    run_name = cfg.get("name", "ssl_dino_pretrain")
+    wandb.init(project="trackastra-ssl-dino", name=run_name, config=cfg)
+
     for epoch in range(1, epochs + 1):
         t0 = time.perf_counter()
         model.train()
@@ -334,6 +338,15 @@ def train_ssl(cfg, model, device):
             f"DINO-SSL Epoch {epoch:>3}: train_loss={tl:.4f} train_cons={tc:.4f} "
             f"val_loss={vl:.4f} val_cons={vc:.4f} inter_sim={ics:.4f} [{dt:.0f}s]"
         )
+        wandb.log({
+            "epoch": epoch,
+            "train/loss": tl,
+            "train/consistency": tc,
+            "val/loss": vl,
+            "val/consistency": vc,
+            "monitor/inter_cell_sim": ics,
+            "time_per_epoch_s": dt,
+        })
 
         if ics > 0.8:
             logger.warning(f"⚠ COLLAPSE WARNING: inter_sim={ics:.4f} > 0.8")
@@ -343,6 +356,8 @@ def train_ssl(cfg, model, device):
 
     outdir = Path(cfg.get("outdir", "runs/ssl_dino_pretrain"))
     model.save(outdir)
+    wandb.log({"best_val_loss": best_val})
+    wandb.finish()
     logger.info(f"Saved to {outdir}")
     logger.info(f"SSL DINO pretraining done. Best val_loss={best_val:.4f}")
     return best_val
