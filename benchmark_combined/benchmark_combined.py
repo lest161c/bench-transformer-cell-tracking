@@ -16,6 +16,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import wandb
 from torch.optim import AdamW
 from tqdm import tqdm
 
@@ -229,9 +230,14 @@ def init_from_ssl(model, ssl_state_dict):
 # Main benchmark
 # ============================================================
 
-def run(config_path=None, n_epochs=15):
+def run(config_path=None, n_epochs=15, use_wandb=False):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"Device: {device}")
+
+    if use_wandb:
+        wandb.init(project="cell-tracking", name=f"combined_{n_epochs}ep", config=dict(
+            n_epochs=n_epochs, model_d=128, nhead=4, nlayers=4, device=str(device),
+        ))
 
     # Data
     frames = load_experiment_frames(str(ROOT / "data/vanvliet"), conditions=["rpsM", "recA", "pheA"])
@@ -334,11 +340,38 @@ def run(config_path=None, n_epochs=15):
 
             logger.info(f"  Epoch {epoch:2d}: tl={tloss:.4f} vl={vloss:.4f} acc={vacc:.4f} [{et:.1f}s]")
 
+            if use_wandb:
+                wandb.log({
+                    f"{variant_name}/train_loss": tloss,
+                    f"{variant_name}/val_loss": vloss,
+                    f"{variant_name}/train_acc": tacc,
+                    f"{variant_name}/val_acc": vacc,
+                    f"{variant_name}/epoch_time": et,
+                    "epoch": epoch,
+                })
+
         all_results[variant_name] = results
 
     logger.info(f"\n{'='*60}\nResults: {csv_path}")
+
+    if use_wandb:
+        rows = []
+        for variant_name, res in all_results.items():
+            r = res[-1]
+            rows.append([variant_name, r["e"], r["tl"], r["vl"], r["ta"], r["va"], r["t"]])
+        wandb.log({"final_summary": wandb.Table(
+            columns=["variant", "epoch", "train_loss", "val_loss", "train_acc", "val_acc", "time_s"],
+            data=rows,
+        )})
+        wandb.finish()
+
     return all_results
 
 
 if __name__ == "__main__":
-    run()
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--wandb", action="store_true", help="Enable wandb logging")
+    parser.add_argument("--epochs", type=int, default=15)
+    args = parser.parse_args()
+    run(n_epochs=args.epochs, use_wandb=args.wandb)

@@ -12,6 +12,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import wandb
 from torch.optim import AdamW
 from tqdm import tqdm
 
@@ -180,11 +181,16 @@ def measure_timing(model, batch, device, warmup=3, repeat=10):
 # Main
 # ============================================================
 
-def run():
+def run(use_wandb=False):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"Device: {device}")
     if torch.cuda.is_available():
         logger.info(f"GPU: {torch.cuda.get_device_name(0)}, Mem: {torch.cuda.get_device_properties(0).total_memory/1e9:.1f}GB")
+
+    if use_wandb:
+        wandb.init(project="cell-tracking", name="ablation_full", config=dict(
+            N_vals="128,256,512,1024", L_vals="1,4", device=str(device),
+        ))
 
     ssl_ckpt = ROOT / "benchmark_ssl" / "runs" / "ssl_v1" / "best_model.pt"
     ssl_state = None
@@ -238,6 +244,10 @@ def run():
 
                     status = "ok"
                     logger.info(f"  {attn_name} L={L} N={N:<5}: {t*1000:.1f}ms/step  {mem:.0f}MB  loss={tl:.4f}")
+                    if use_wandb:
+                        wandb.log({f"speed/{attn_name}_L{L}_N{N}/time_ms": t * 1000,
+                                   f"speed/{attn_name}_L{L}_N{N}/mem_mb": mem,
+                                   f"speed/{attn_name}_L{L}_N{N}/loss": tl})
                 except RuntimeError as e:
                     msg = str(e).lower()
                     if "out of memory" in msg or ("cuda" in msg and "memory" in msg):
@@ -338,12 +348,23 @@ def run():
                         logger.info(f"    Ep {epoch:2d}: tl={tl:.4f} vl={vl:.4f} [{et*1000:.0f}ms]" if status == "ok"
                                     else f"    Ep {epoch:2d}: {status}")
 
+                    if use_wandb and status == "ok":
+                        wandb.log({f"converge/{tag}/train_loss": tl,
+                                   f"converge/{tag}/val_loss": vl,
+                                   f"converge/{tag}/train_acc": ta,
+                                   f"converge/{tag}/val_acc": va,
+                                   f"converge/{tag}/epoch_time": et,
+                                   "epoch": epoch})
+
                     if status == "oom":
                         break
 
                 del model; gc.collect(); torch.cuda.empty_cache()
 
     logger.info(f"\nDone. Results: {csv_path}")
+    if use_wandb:
+        wandb.log({"results_csv": str(csv_path)})
+        wandb.finish()
     
     # Summary
     logger.info("\n" + "="*60 + "\nKEY SPEEDUP NUMBERS\n" + "="*60)
@@ -371,4 +392,8 @@ def run():
 
 
 if __name__ == "__main__":
-    run()
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--wandb", action="store_true")
+    args = parser.parse_args()
+    run(use_wandb=args.wandb)

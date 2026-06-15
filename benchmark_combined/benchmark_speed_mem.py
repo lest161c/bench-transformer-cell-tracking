@@ -4,6 +4,7 @@ import csv, logging, sys, time, gc
 from pathlib import Path
 import numpy as np
 import torch, torch.nn as nn, torch.nn.functional as F
+import wandb
 
 logging.basicConfig(level=logging.INFO,format="%(asctime)s %(levelname)s %(message)s")
 logger=logging.getLogger(__name__)
@@ -71,9 +72,14 @@ class BenchModel(nn.Module):
         B,N1,D=se.shape;N2=te.shape[1]
         return self.hd(torch.cat([se[:,:,None].expand(-1,-1,N2,-1),te[:,None].expand(-1,N1,-1,-1)],-1)).squeeze(-1)
 
-def bench():
+def bench(use_wandb=False):
     device=torch.device("cuda")
     logger.info(f"GPU: {torch.cuda.get_device_name(0)}")
+
+    if use_wandb:
+        wandb.init(project="cell-tracking", name="speed_mem", config=dict(
+            Ns="128,256,512", Ks="0,4,8,16,32", device=str(device),
+        ))
 
     csv_path=ROOT/"benchmark_combined"/"results"/"speed_mem.csv"
     csv_path.parent.mkdir(parents=True,exist_ok=True)
@@ -119,6 +125,8 @@ def bench():
                 mem=(torch.cuda.max_memory_allocated()-mb)/1024**2
                 status="ok"
                 logger.info(f"  {tag} N={N}: {t:.0f}ms {mem:.0f}MB")
+                if use_wandb:
+                    wandb.log({f"{tag}/N{N}/time_ms": t, f"{tag}/N{N}/mem_mb": mem})
             except RuntimeError as e:
                 t,mem=-1,-1;status="oom"
                 logger.info(f"  {tag} N={N}: OOM")
@@ -127,5 +135,13 @@ def bench():
             del model;gc.collect();torch.cuda.empty_cache()
 
     logger.info(f"Done: {csv_path}")
+    if use_wandb:
+        wandb.log({"results_csv": str(csv_path)})
+        wandb.finish()
 
-if __name__=="__main__":bench()
+if __name__=="__main__":
+    import argparse
+    p=argparse.ArgumentParser()
+    p.add_argument("--wandb",action="store_true")
+    a=p.parse_args()
+    bench(use_wandb=a.wandb)

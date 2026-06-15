@@ -17,6 +17,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import wandb
 from torch.optim import AdamW
 from tqdm import tqdm
 
@@ -278,9 +279,14 @@ def load_real_pairs(frames, max_pairs=200):
 # Training
 # ============================================================
 
-def run():
+def run(use_wandb=False):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"Device: {device}")
+
+    if use_wandb:
+        wandb.init(project="cell-tracking", name="ssl_realdata", config=dict(
+            K_vals="0,4,8,16,32", fractions="10%,50%,100%", n_epochs=10, device=str(device),
+        ))
 
     SSL_PATH = ROOT / "benchmark_ssl" / "runs" / "ssl_v1" / "best_model.pt"
     ssl_state = torch.load(SSL_PATH, map_location="cpu", weights_only=False)["model_state_dict"]
@@ -366,6 +372,16 @@ def run():
                         if epoch == 1 or epoch % 5 == 0:
                             logger.info(f"  {tag} Ep{epoch:2d}: tl={tl:.4f} vl={vl:.4f} [{et:.1f}s]")
 
+                        if use_wandb:
+                            wandb.log({
+                                f"{tag}/train_loss": tl,
+                                f"{tag}/val_loss": vl,
+                                f"{tag}/train_acc": ta,
+                                f"{tag}/val_acc": va,
+                                f"{tag}/epoch_time": et,
+                                "epoch": epoch,
+                            })
+
                 except RuntimeError as e:
                     logger.info(f"  {tag}: FAILED ({e})")
                 finally:
@@ -374,6 +390,16 @@ def run():
                     torch.cuda.empty_cache()
 
     logger.info(f"\nDone. Results: {csv_path}")
+
+    if use_wandb:
+        rows = []
+        for (k, init, frac), (vl, va) in sorted(finals.items()):
+            rows.append([k, init, frac, vl, va])
+        wandb.log({"ssl_realdata_final": wandb.Table(
+            columns=["K", "init", "frac", "val_loss", "val_acc"],
+            data=rows,
+        )})
+        wandb.finish()
 
     # Summary
     logger.info("\n" + "="*60)
@@ -403,4 +429,8 @@ def run():
 
 
 if __name__ == "__main__":
-    run()
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--wandb", action="store_true")
+    args = parser.parse_args()
+    run(use_wandb=args.wandb)

@@ -7,6 +7,7 @@ import csv, logging, sys, time, gc, math
 from pathlib import Path
 import numpy as np
 import torch, torch.nn as nn, torch.nn.functional as F
+import wandb
 from torch.optim import AdamW
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -109,9 +110,14 @@ def load_pairs(frames, max_pairs=200):
     return pairs
 
 # === Run ===
-def run():
+def run(use_wandb=False):
     device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"Device: {device}")
+
+    if use_wandb:
+        wandb.init(project="cell-tracking", name="downstream_matched", config=dict(
+            K_vals="0,4,8,16,32", fractions="10%,50%,100%", n_epochs=10, device=str(device),
+        ))
 
     frames=load_experiment_frames(str(ROOT/"data/vanvliet"),conditions=["rpsM","recA","pheA"])
     np.random.seed(42); np.random.shuffle(frames)
@@ -175,11 +181,28 @@ def run():
                             csv.writer(f).writerow([K,iname,flabel,ep,f"{tl:.6f}",f"{vl:.6f}",f"{ta:.4f}",f"{va:.4f}",f"{et:.2f}"])
                         if ep in[1,5,10]:
                             logger.info(f"  {tag}+{iname}@{flabel} Ep{ep}: tl={tl:.4f} vl={vl:.4f} [{et:.1f}s]")
+                        if use_wandb:
+                            wandb.log({
+                                f"{tag}+{iname}@{flabel}/train_loss": tl,
+                                f"{tag}+{iname}@{flabel}/val_loss": vl,
+                                f"{tag}+{iname}@{flabel}/train_acc": ta,
+                                f"{tag}+{iname}@{flabel}/val_acc": va,
+                                f"{tag}+{iname}@{flabel}/epoch_time": et,
+                                "epoch": ep,
+                            })
                 except Exception as e:
                     logger.info(f"  {tag}+{iname}@{flabel}: FAILED {e}")
                 finally:
                     del model; gc.collect(); torch.cuda.empty_cache()
     
     logger.info(f"\nDone: {csv_path}")
+    if use_wandb:
+        wandb.log({"results_csv": csv_path})
+        wandb.finish()
 
-if __name__=="__main__": run()
+if __name__=="__main__":
+    import argparse
+    p=argparse.ArgumentParser()
+    p.add_argument("--wandb",action="store_true")
+    a=p.parse_args()
+    run(use_wandb=a.wandb)

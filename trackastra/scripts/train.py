@@ -494,21 +494,15 @@ class WrappedLightningModule(pl.LightningModule):
                         )
 
             elif isinstance(self.logger, WandbLogger):
-                pass
-                # wandb.log(
-                #     {
-                #         "images/assoc_matrix": wandb.Image(
-                #             np.moveaxis(over.detach().cpu().numpy(), 0, -1), mode="RGB"
-                #         ),
-                #         "images/loss": wandb.Image(
-                #             loss_before_reduce.unsqueeze(2).detach().cpu().numpy()
-                #         ),
-                #         "images/loss_mask": wandb.Image(
-                #             out["mask"][sample].unsqueeze(2).detach().cpu().numpy()
-                #         ),
-                #     },
-                #     step=self.current_epoch,
-                # )
+                self.logger.log_image("assoc_matrix", [wandb.Image(
+                    np.moveaxis(over.detach().cpu().numpy(), 0, -1), mode="RGB"
+                )])
+                self.logger.log_image("loss", [wandb.Image(
+                    loss_before_reduce.unsqueeze(2).detach().cpu().numpy()
+                )])
+                self.logger.log_image("loss_mask", [wandb.Image(
+                    out["mask"][sample].unsqueeze(2).detach().cpu().numpy()
+                )])
             elif self.logger is None:
                 pass
             else:
@@ -619,6 +613,8 @@ class MyModelCheckpoint(pl.pytorch.callbacks.Callback):
 
     def on_validation_end(self, trainer, pl_module):
         if trainer.is_global_zero and not trainer.sanity_checking:
+            if self._monitor not in trainer.logged_metrics:
+                return
             value = trainer.logged_metrics[self._monitor]
             if value < self._best:
                 self._best = value
@@ -676,7 +672,10 @@ def find_val_batch(loader_val, n_gpus):
 
 @rank_zero_only
 def _init_wandb(project, name, config):
-    _ = wandb.init(project=project, name=name, config=config)
+    if wandb.run is None:
+        wandb.init(project=project, name=name, config=config)
+    else:
+        wandb.config.update(config)
 
 
 def train(args):
@@ -823,6 +822,7 @@ def train(args):
         crop_size=args.crop_size,
         compress=args.compress,
         use_gt=args.use_gt,
+        slice_pct=(0.0, args.train_fraction),
     )
     sampler_kwargs = dict(
         batch_size=args.batch_size,
@@ -885,6 +885,7 @@ def train(args):
             patience=args.epochs // 6,
             mode="min",
             verbose=True,
+            check_on_train_epoch_end=False,
         )
     )
 
@@ -983,7 +984,6 @@ def train(args):
             )
             ssl_opt = torch.optim.AdamW(model_lightning.parameters(), lr=args.lr)
             model_lightning.train()
-            ssl_loss_epoch1 = None
             for epoch in range(1, args.ssl_epochs + 1):
                 t0 = default_timer(); losses = []
                 for batch in tqdm(ssl_loader, desc=f"SSL Epoch {epoch}", leave=False):
@@ -993,16 +993,9 @@ def train(args):
                     out["loss"].backward()
                     torch.nn.utils.clip_grad_norm_(model_lightning.parameters(), 1.0)
                     ssl_opt.step(); losses.append(out["loss"].item())
-                avg_loss = np.mean(losses)
-                if epoch == 1:
-                    ssl_loss_epoch1 = avg_loss
-                logger.info(f"  SSL Epoch {epoch}: loss={avg_loss:.4f} [{default_timer()-t0:.0f}s]")
-                if epoch == 3 and ssl_loss_epoch1 is not None and avg_loss < ssl_loss_epoch1 * 0.1:
-                    logger.warning(
-                        f"  SSL loss dropped >10x in 3 epochs "
-                        f"({ssl_loss_epoch1:.4f} → {avg_loss:.4f}). "
-                        f"Possible memorization of inverse distortions."
-                    )
+                logger.info(f"  SSL Epoch {epoch}: loss={np.mean(losses):.4f} [{default_timer()-t0:.0f}s]")
+                if isinstance(train_logger, WandbLogger):
+                    train_logger.log_metrics({"ssl_loss": np.mean(losses), "ssl_epoch": epoch})
             model.save(logdir / "ssl_pretrained")
             logger.info(f"SSL model saved to {ssl_path}")
         if args.ssl_only:
@@ -1125,6 +1118,7 @@ def parse_train_args():
         ),
     )
     parser.add_argument("--input_train", type=str, nargs="+")
+    parser.add_argument("--train_fraction", type=float, default=1.0, help="Fraction of training data to use (e.g. 0.1 for 10%%)")
     parser.add_argument("--input_val", type=str, nargs="*")
     parser.add_argument("--downscale_temporal", type=int, default=1)
     parser.add_argument("--downscale_spatial", type=int, default=1)
@@ -1149,7 +1143,29 @@ def parse_train_args():
     )
     parser.add_argument("--attn_positional_bias_n_spatial", type=int, default=16)
     parser.add_argument("--attn_dist_mode", default="v0")
-
+    parser.add_argument("--knn_neighbors", type=int, default=-1)
+    parser.add_argument("--mixedp", type=str2bool, default=True)
+    parser.add_argument("--dry", action="store_true")
+    parser.add_argument("--profile", action="store_true")
+    parser.add_argument(
+        "--features",
+        type=str,
+        choices=[
+            "none",
+            "regionprops",
+            "regionprops2",
+            "patch",
+            "patch_regionprops",
+            "wrfeat",
+        ],
+        default="wrfeat",
+    )
+    parser.add_argument(
+        "--causal_norm",
+        type=str,
+        choices=["none", "linear", "softmax", "quiet_softmax"],
+        default="quiet_softmax",
+    )
 
     parser.add_argument("--augment", type=int, default=3)
     parser.add_argument("--tracking_frequency", type=int, default=-1)
