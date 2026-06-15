@@ -1,0 +1,58 @@
+# DINO-based contrastive SSL pretraining config
+# Uses frozen DINOv2 visual backbone + TrackingTransformer encoder + NT-Xent loss
+# Reference: ASCENT (Han & Lu 2025)
+
+name: ssl_dino_pretrain
+
+# Data
+data_root: /data/cat/ws/mawe985g-data/data/celltracking/vanvliet
+conditions: [rpsM, recA, pheA, metA, cib, trpL]
+ndim: 2
+
+# Model
+d_model: 320
+nhead: 4
+num_encoder_layers: 6
+num_decoder_layers: 6
+dropout: 0.01
+window: 10
+pos_embed_per_dim: 32
+feat_embed_per_dim: 8
+knn_neighbors: 16
+use_dino: true
+
+# Distortion families (applied to coordinates, patches extracted at warped coords)
+distortions: [affine, elastic, jitter, dropout, photometric, feature_noise]
+
+affine:
+  degrees: 15
+  scale: [0.85, 1.15]
+  shear: [0.1, 0.1]
+
+elastic:
+  alpha: [10, 50]
+  sigma: [5, 15]
+
+jitter:
+  std: [2, 8]
+  p_cell_jitter: 0.8
+
+dropout:
+  p_drop: [0.05, 0.2]
+
+photometric:
+  scale: [0.5, 2.0]
+  shift: [-0.1, 0.1]
+
+feature_noise:
+  std: [0.02, 0.15]
+
+# SSL training
+ssl:
+  epochs: 20
+  lr: 3e-4
+  temperature: 0.05
+  batch_size: 4
+  val_split: 0.1
+
+seed: 42
