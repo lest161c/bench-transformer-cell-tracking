@@ -10,7 +10,6 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=90G
 
-export PIP_REQUIRE_VIRTUALENV=false
 export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
 export MKL_NUM_THREADS=$SLURM_CPUS_PER_TASK
 export NCCL_DEBUG=WARN
@@ -18,6 +17,7 @@ export CUBLAS_WORKSPACE_CONFIG=:4096:8
 export PYTHONNOUSERSITE=1
 unset PYTHONPATH
 unset PYTHONHOME
+export UV_LINK_MODE=copy
 
 TRK=/data/cat/ws/lest161c-cell_tracking/lest161c-ssl_cell_tracking-1778979601/trackastra
 ENV_DIR="$TRK/.venv"
@@ -27,16 +27,14 @@ CFG_DIR="$SLURM_SUBMIT_DIR/configs"
 if [ "$TEST" = "1" ]; then
     echo "=== TEST MODE: env setup only ==="
     . "$ENV_DIR/bin/activate"
-    python -m pip install setuptools
-    python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
-    python -m pip install lightning pandas scikit-image tifffile edt tqdm configargparse wandb tensorboard dask joblib scikit-learn
+    uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+    uv pip install wandb scikit-learn
     cd "$TRK"
     git pull origin cached-dist-attn
-    python -m pip install -e .
+    uv pip install -e .
     python -c "
 import trackastra; from trackastra.model import TrackingTransformer; print('trackastra OK');
 import torch; print('CUDA:', torch.cuda.is_available());
-from trackastra.model.dino_encoder import DINOBackbone; print('DINO:', DINOBackbone.load());
 import torch.hub; m = torch.hub.load('facebookresearch/dinov2', 'dinov2_vits14'); print('DINOv2 loaded');
 "
     echo "=== TEST PASSED ==="
@@ -45,12 +43,11 @@ fi
 
 # --- Normal mode ---
 . "$ENV_DIR/bin/activate"
-python -m pip install --upgrade --force-reinstall setuptools
-python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
-python -m pip install lightning pandas scikit-image tifffile edt tqdm configargparse wandb tensorboard dask joblib scikit-learn
+uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+uv pip install wandb scikit-learn
 cd "$TRK"
 git pull origin cached-dist-attn
-python -m pip install -e .
+uv pip install -e .
 mkdir -p logs
 
 # --- SSL DINO pretraining ---
