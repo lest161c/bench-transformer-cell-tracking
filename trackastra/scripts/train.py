@@ -14,6 +14,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from timeit import default_timer
 
+from collections import OrderedDict
+
 import configargparse
 import git
 import lightning as pl
@@ -249,8 +251,9 @@ class WrappedLightningModule(pl.LightningModule):
                             timepoints=timepoints.detach().cpu().numpy(),
                         )
 
-                # Keep the non-softmaxed loss for numerical stability
-                loss = 0.01 * loss + self.criterion_softmax(A_pred_soft, A)
+                # Keep the non-softmaxed loss for numerical stability;
+                # clamp to [0,1] to prevent BCELoss CUDA assertion on fp16 overflow
+                loss = 0.01 * loss + self.criterion_softmax(A_pred_soft.clamp(0, 1), A)
 
         # Reweighting does not need gradients
         with torch.no_grad():
@@ -925,7 +928,22 @@ def train(args):
             attn_positional_bias_n_spatial=args.attn_positional_bias_n_spatial,
             attn_dist_mode=args.attn_dist_mode,
             causal_norm=args.causal_norm,
+            knn_neighbors=args.knn_neighbors,
         )
+
+    if args.init_encoder is not None:
+        ckpt = torch.load(Path(args.init_encoder) / "model.pt", map_location="cpu", weights_only=True)
+        encoder_state = OrderedDict(
+            (k, v) for k, v in (ckpt.get("state_dict", ckpt).items())
+            if k.startswith("encoder.") or k.startswith("model.encoder.")
+        )
+        encoder_state = OrderedDict(
+            (k[6:] if k.startswith("model.") else k, v) for k, v in encoder_state.items()
+        )
+        missing, unexpected = model.load_state_dict(encoder_state, strict=False)
+        logging.info(f"Loaded encoder from {args.init_encoder}: {len(encoder_state)} keys")
+        if missing:
+            logging.info(f"Missing keys (random init): {[k for k in missing if not k.startswith('decoder')][:10]}...")
 
     model_lightning = WrappedLightningModule(
         model=model,
@@ -1079,6 +1097,10 @@ def parse_train_args():
         type=str,
         default=None,
         help="load this model at start (e.g. to continue training)",
+    )
+    parser.add_argument(
+        "--init_encoder", type=str, default=None,
+        help="Path to SSL checkpoint folder. Loads only encoder state_dict into a freshly constructed model."
     )
     parser.add_argument(
         "--div_upweight", type=float, default=2

@@ -17,8 +17,6 @@ export NCCL_DEBUG=WARN
 export CUBLAS_WORKSPACE_CONFIG=:4096:8
 export PYTHONNOUSERSITE=1
 unset PYTHONPATH
-export WANDB_DISABLED=true
-export WANDB_MODE=disabled
 unset PYTHONHOME
 
 TRK=/data/cat/ws/lest161c-cell_tracking/lest161c-ssl_cell_tracking-1778979601/trackastra
@@ -41,10 +39,7 @@ fi
 
 # --- Normal mode ---
 . "$ENV_DIR/bin/activate"
-python -m pip install --upgrade --force-reinstall setuptools
 python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
-export WANDB_DISABLED=true
-export WANDB_MODE=disabled
 python -m pip install lightning pandas scikit-image tifffile edt tqdm configargparse wandb tensorboard dask joblib
 cd "$TRK"
 git pull origin feature/sparse-attention-gather
@@ -64,4 +59,6 @@ python scripts/train.py \
     --features wrfeat --causal_norm quiet_softmax \
     --attn_positional_bias rope --spatial_pos_cutoff 256 \
     --delta_cutoff 2 --knn_neighbors 16 \
+    --init_encoder runs/ssl_dino_pretrain \
+    --logger wandb --wandb_project trackastra \
     --mixedp True --num_workers 8 --seed 42 --augment 3
