@@ -101,7 +101,7 @@ h1{font-size:2.1em;color:#fff;text-align:center;margin-bottom:4px}
   <div class="metric mb"><div class="val">88%</div><div class="lbl">Memory reduction<br>soft decay vs hard mask</div></div>
   <div class="metric mo"><div class="val">82%</div><div class="lbl">cdist share of<br>attention wall-time</div></div>
   <div class="metric mr"><div class="val">0.89</div><div class="lbl">Inter-cell sim<br>SSL collapse (regionprops)</div></div>
-  <div class="metric mg"><div class="val">0.292</div><div class="lbl">DINOv2 SSL gap<br>(6.2× regionprops)</div></div>
+  <div class="metric mg"><div class="val">0.292</div><div class="lbl">DINOv2 SSL gap<br>(DINOv3 pending)</div></div>
   <div class="metric my"><div class="val">1.24×</div><div class="lbl">Pipeline training<br>speedup (norm+FFN ckpt)</div></div>
 </div>
 
@@ -253,7 +253,7 @@ h1{font-size:2.1em;color:#fff;text-align:center;margin-bottom:4px}
   <h3>Full Sweep: N=128 → N=8192</h3>
   <div class="chart-wrap" style="max-height:340px"><canvas id="chAttnMs"></canvas></div>
   <p class="card-note"><strong>dense_flash is faster than ALL sparse methods at EVERY N.</strong> Architecturally invalid (no spatial cutoff). <strong>For spatial-cutoff methods:</strong> mask-KNN K=16 wins at N≤2048 (0.12–1.48 ms). gather-KNN K=16 wins at N≥4096 (9.5–19.0 ms, FlashAttn-compatible).</p>
-  <p class="card-note" style="margin-top:4px;font-size:.76em"><strong>Crossover (mask ↔ gather):</strong> K=4 at N≈4,900 · K=16 at N≈7,300. Computed from benchmark data: mask O(N²) vs gather O(N·K). Below crossover → mask-KNN faster. Above → gather-KNN faster + less memory.</p>
+  <p class="card-note" style="margin-top:4px;font-size:.76em"><strong>Crossover (mask ↔ gather):</strong> K=4 at N≈4,900 · K=16 at N≈7,300. <strong>Soft decay (proposed):</strong> 0.22ms at N=256 — 3.6× vs hard mask, FlashAttn-compatible, cos_sim &gt; 0.9999. Phase 2 TRA pending.</p>
 </div>
 </div>
 
@@ -393,7 +393,7 @@ h1{font-size:2.1em;color:#fff;text-align:center;margin-bottom:4px}
 <div class="card" style="grid-column:1/-1">
   <h3>Embedding Collapse: Regionprops vs DINOv2</h3>
   <img src="benchmark_attn/collapse_vis.png" style="width:100%;border-radius:6px">
-  <p class="card-note" style="margin-top:8px"><strong>Left:</strong> Regionprops (7D) — all cells collapse to near-identical embeddings (cos sim 0.89). Gap = 0.04. <strong>Right:</strong> DINOv2 (384D) — within-strain structure visible, gap = 0.29. Effective rank 108 vs 3. SSL architecture confirmed correct (synthetic verification), failure is purely a feature-quality problem.</p>
+  <p class="card-note" style="margin-top:8px"><strong>Left:</strong> Regionprops (7D) — all cells collapse to near-identical embeddings (intra-cell sim=0.93, inter-cell sim=0.89). Gap = 0.04. <strong>Right:</strong> DINOv2 (384D) — within-strain structure visible, intra=0.39, inter=0.10, gap = 0.29. Effective rank 108 vs 3. <strong>DINOv3:</strong> code ready (dino_encoder.py), access granted, comparison pending.</p>
 </div>
 </div>
 
@@ -413,13 +413,16 @@ h1{font-size:2.1em;color:#fff;text-align:center;margin-bottom:4px}
   <h3>DINOv2 SSL: Signal Analysis</h3>
   <table>
     <tr><th>Metric</th><th>Regionprops (7D)</th><th>DINOv2 (384D)</th><th>Ratio</th></tr>
-    <tr><td>Raw feature gap</td><td>0.047</td><td>0.292</td><td style="color:#4ade80">6.2×</td></tr>
+    <tr><td colspan="5" style="padding:8px;background:#101520;font-weight:600;color:#8899aa;font-size:.74em">Intra-cell vs Inter-cell Cosine Similarity (benchmark_attn/cosine_histogram.py)</td></tr>
+    <tr><td>Regionprops (7D)</td><td>0.93</td><td>0.89</td><td>0.04</td><td style="color:#ef4444">Collapse</td></tr>
+    <tr><td>DINOv2 (384D)</td><td>0.39</td><td>0.10</td><td>0.29</td><td style="color:#4ade80">Separable</td></tr>
+    <tr><td>DINOv3 (384D) — pending</td><td>TBD</td><td>TBD</td><td>TBD</td><td style="color:#f59e0b">Code ready</td></tr>
     <tr><td>Effective rank</td><td>3</td><td>108</td><td style="color:#4ade80">36×</td></tr>
     <tr><td>Micro-SSL val gap</td><td>—</td><td>0.48→0.58</td><td style="color:#4ade80">+0.095</td></tr>
     <tr><td>Micro-SSL hard pipeline</td><td>—</td><td>0.04→0.36</td><td style="color:#4ade80">+0.32</td></tr>
     <tr><td>Post-training inter-sim</td><td>0.89 (collapse)</td><td>0.044</td><td style="color:#4ade80">No collapse</td></tr>
   </table>
-  <p class="card-note">DINO robust to small shifts but sensitive to rotation — exactly the invariance SSL must learn. Mask-derived features (&lt;25D) fundamentally insufficient for bacterial microscopy SSL.</p>
+  <p class="card-note">DINO robust to small shifts but sensitive to rotation — exactly the invariance SSL must learn. <strong>DINOv3:</strong> code infrastructure ready (dino_encoder.py support for version='v3'), access granted, comparison with v2 pending on Capella. Intra-cell similarity distributions now available alongside inter-cell in benchmark_attn/cosine_histogram.py.</p>
 </div>
 </div>
 
