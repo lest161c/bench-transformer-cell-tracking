@@ -246,141 +246,21 @@ h1{font-size:2.1em;color:#fff;text-align:center;margin-bottom:4px}
 
 <!-- ===== 1. ATTENTION MECHANISM BENCHMARKS ===== -->
 <div class="section reveal"><h2>1. Attention Mechanism Benchmarks</h2></div>
-<p class="section-sub">Standalone harness, synthetic Q/K/V, fp16. A500 data from <code>benchmark_full.py</code> (d=256, nhead=4, GPU measured). Analytical estimates from <code>benchmark_knn_methods.py</code> (d=320, nhead=8, calibrated to labbook).</p>
+<p class="section-sub">All data GPU measured on A500, d=256, nhead=4, fp16 via <code>benchmark_full.py</code>. No analytical estimates — only real measurements.</p>
 
 <div class="grid reveal">
-<div class="card">
-  <h3>GPU Measured (A500, d=256, nhead=4)</h3>
-  <div class="chart-wrap" style="max-height:300px"><canvas id="chAttnGpu"></canvas></div>
-  <p class="card-note">Real GPU data from <code>benchmark_full.py</code>. dense_flash = fastest overall but NO spatial cutoff (invalid). mask-KNN K=16 = best spatial-cutoff method at N≤2048.</p>
-</div>
-<div class="card">
-  <h3>Analytical (d=320, nhead=8, Trackastra config)</h3>
-  <div class="chart-wrap" style="max-height:300px"><canvas id="chAttnAna"></canvas></div>
-  <p class="card-note">Calibrated to labbook benchmarks. <strong>mask-KNN K=16</strong> = best valid at N≤350. <strong>Soft decay</strong> = faster at all N (FlashAttn, Phase 1 verified). gather-KNN = per-token overhead (slow at N&lt;2000). MiniMax = slowest.</p>
-</div>
-</div>
-
-<div class="grid reveal">
-<div class="card">
-  <h3>K-Scaling: mask-KNN (scatter) — all K</h3>
-  <div class="chart-wrap" style="max-height:280px"><canvas id="chMaskK"></canvas></div>
-  <p class="card-note">K has minimal impact on mask-KNN time (same N×N SDPA, scatter is O(NK)). Main cost is the masked SDPA, not the scatter. K=4..128 all within 10% at N=256.</p>
-</div>
-<div class="card">
-  <h3>K-Scaling: gather-KNN — all K</h3>
-  <div class="chart-wrap" style="max-height:280px"><canvas id="chGatherK"></canvas></div>
-  <p class="card-note">Gather time grows linearly with K (O(N·K)). Per-token overhead ~23µs/token dominates at all N. Larger K → more gather copies + larger SDPA on 1×K.</p>
+<div class="card" style="grid-column:1/-1">
+  <h3>Forward Time vs N — All Methods (A500, GPU measured)</h3>
+  <div class="chart-wrap" style="max-height:380px"><canvas id="chAttnGpu"></canvas></div>
+  <p class="card-note"><strong>dense_flash is fastest but NO spatial cutoff (invalid).</strong> For methods enforcing spatial cutoff: <strong>mask-KNN K=16</strong> wins at N≤2048 (0.12–1.48 ms). <strong>gather-KNN K=16</strong> wins at N≥4096 (9.5–19.0 ms). Crossover: mask↔gather at N≈4,900 (K=4), N≈7,300 (K=16).</p>
 </div>
 </div>
 
 <div class="grid reveal">
 <div class="card" style="grid-column:1/-1">
-  <h3>Comprehensive Method × K Comparison (analytical, d=320, nhead=8, calibrated to labbook)</h3>
-  <p class="card-note" style="margin-bottom:8px;color:#f59e0b">All times analytical estimates. GPU verification on Capella pending. CachedDistAttn = correct baseline (enforces spatial cutoff). dense_flash = invalid (NO cutoff). mask-KNN K=16 = current best valid method.</p>
-  <table style="font-size:.72em">
-    <tr><th rowspan="2">Method</th><th rowspan="2">K</th><th colspan="3">Time (ms)</th><th rowspan="2">Spatial cutoff?</th><th rowspan="2">FlashAttn?</th></tr>
-    <tr><th>N=128</th><th>N=256</th><th>N=512</th></tr>
-    <tr style="background:#0a2810"><td><strong>mask-KNN (best valid)</strong></td><td><strong>16</strong></td><td><strong>0.067</strong></td><td><strong>0.262</strong></td><td><strong>2.10</strong></td><td><span class="v vp">YES</span></td><td>cuDNN</td></tr>
-    <tr><td>mask-KNN</td><td>4</td><td>0.065</td><td>0.259</td><td>2.09</td><td><span class="v vp">YES</span></td><td>cuDNN</td></tr>
-    <tr><td>mask-KNN</td><td>64</td><td>0.073</td><td>0.274</td><td>2.14</td><td><span class="v vp">YES</span></td><td>cuDNN</td></tr>
-    <tr><td>mask-KNN</td><td>128</td><td>—</td><td>0.291</td><td>2.18</td><td><span class="v vp">YES</span></td><td>cuDNN</td></tr>
-    <tr><td>gather-KNN</td><td>4</td><td>1.49</td><td>2.97</td><td>5.95</td><td><span class="v vp">YES</span></td><td>FlashAttn (1×K)</td></tr>
-    <tr><td>gather-KNN</td><td>16</td><td>1.95</td><td>3.90</td><td>7.79</td><td><span class="v vp">YES</span></td><td>FlashAttn (1×K)</td></tr>
-    <tr><td>gather-KNN</td><td>64</td><td>3.79</td><td>7.58</td><td>15.0</td><td><span class="v vp">YES</span></td><td>FlashAttn (1×K)</td></tr>
-    <tr><td>gather-KNN</td><td>128</td><td>—</td><td>12.5</td><td>24.7</td><td><span class="v vp">YES</span></td><td>FlashAttn (1×K)</td></tr>
-    <tr><td>MiniMax (block Bk=128)</td><td>—</td><td>5.43</td><td>15.0</td><td>47.0</td><td><span class="v vp">YES</span></td><td>matmul</td></tr>
-    <tr><td>CachedDist (baseline)</td><td>—</td><td>0.20</td><td>0.80</td><td>3.20</td><td><span class="v vp">YES</span></td><td>cuDNN</td></tr>
-    <tr style="background:#0a2810"><td><strong>Soft decay (proposed)</strong></td><td>—</td><td><strong>0.06</strong></td><td><strong>0.22</strong></td><td><strong>0.88</strong></td><td><span class="v vp">YES (soft)</span></td><td><span class="v vp">YES</span></td></tr>
-    <tr style="opacity:.5"><td>dense_flash (no cutoff)</td><td>—</td><td>0.05</td><td>0.20</td><td>0.80</td><td><span class="v vf">NO</span></td><td><span class="v vp">YES</span></td></tr>
-  </table>
-  <p class="card-note" style="margin-top:6px"><strong>mask-KNN K=16</strong> is the fastest valid method at N≤350. <strong>Soft decay</strong> is faster at all N (FlashAttn) but Phase 2 TRA verification pending. <strong>gather-KNN</strong> has per-token overhead (~23µs) — never beats mask at N&lt;2000. <strong>MiniMax</strong> is slowest (block indexing ×2 gather cost). All analytical — GPU verification on Capella pending.</p>
-</div>
-</div>
-
-<div class="grid reveal">
-<div class="card" style="grid-column:1/-1">
-  <h3>Peak Memory vs N</h3>
-  <div class="chart-wrap" style="max-height:320px"><canvas id="chMem"></canvas></div>
-  <p class="card-note">mask-KNN / dense_masked: <strong>O(N²)</strong> — N×N mask dominates. gather-KNN / dense_flash: <strong>O(N·K)</strong> or <strong>O(N)</strong>. At N=8192: mask-KNN = 532 MB vs gather-KNN K=16 = 204 MB — <strong>2.6× difference</strong>.</p>
-</div>
-</div>
-</div>
-
-<div class="grid reveal">
-<div class="card">
-  <h3>Forward Time (ms) — A500, d=256, nhead=4, fp16</h3>
-  <table>
-    <tr><th>Method</th><th>N=128</th><th>N=512</th><th>N=2048</th><th>N=4096</th><th>N=8192</th><th>Enforces d_max?</th></tr>
-    <tr style="background:#0a2810">
-      <td><strong>mask-KNN K=16</strong></td><td>0.13</td><td>0.15</td><td>1.48</td><td>5.35</td><td>26.1</td><td><span class="v vp">YES</span></td>
-    </tr>
-    <tr>
-      <td>dense_masked (baseline)</td><td>0.28</td><td>0.33</td><td>4.92</td><td>19.3</td><td>79.9</td><td><span class="v vp">YES</span></td>
-    </tr>
-    <tr>
-      <td>gather-KNN K=16</td><td>0.34</td><td>1.21</td><td>4.96</td><td>9.54</td><td>19.0</td><td><span class="v vp">YES</span></td>
-    </tr>
-    <tr>
-      <td>gather-KNN K=4</td><td>0.25</td><td>0.81</td><td>3.14</td><td>6.26</td><td>12.2</td><td><span class="v vp">YES</span></td>
-    </tr>
-    <tr style="opacity:.55">
-      <td>dense_flash (architecturally invalid)</td><td>0.10</td><td>0.08</td><td>0.46</td><td>1.39</td><td>4.90</td><td><span class="v vf">NO</span></td>
-    </tr>
-    <tr style="opacity:.55">
-      <td>NSA</td><td>2.30</td><td>3.06</td><td>12.0</td><td>26.0</td><td>61.5</td><td><span class="v vw">Partial</span></td>
-    </tr>
-  </table>
-  <p class="card-note">All from <code>benchmark_full.py</code>, 2026-06-17. <strong>mask-KNN K=16 wins at N≤2048</strong> (2.2× over baseline at N=256). <strong>gather-KNN K=16 wins at N≥4096</strong> (19.0 vs 26.1 ms at N=8192).</p>
-</div>
-</div>
-
-<div class="grid reveal">
-<div class="card">
-  <h3>GatherSparseAttention Bottleneck Profile (N=256, A500)</h3>
-  <div class="chart-wrap" style="max-height:280px"><canvas id="chGatherProf"></canvas></div>
-  <p class="card-note">Source: <code>labbook/2026-05-29_gather_sparse_bottleneck.md</code></p>
-</div>
-
-<div class="card">
-  <h3>Method Speed Ranking (N=256, A500, d=256, fp16)</h3>
-  <table>
-    <tr><th>Method</th><th>Forward (ms)</th><th>vs dense_masked</th><th>Enforces d_max?</th></tr>
-    <tr><td>dense_masked</td><td>0.27</td><td>1.00×</td><td><span class="v vp">YES</span></td></tr>
-    <tr><td style="color:#4ade80">dense_flash (no mask)</td><td style="color:#4ade80">0.10</td><td style="color:#4ade80">2.7×</td><td><span class="v vf">NO</span></td></tr>
-    <tr><td style="color:#4ade80">mask-KNN K=16</td><td style="color:#4ade80">0.12</td><td style="color:#4ade80">2.2×</td><td><span class="v vp">YES</span></td></tr>
-    <tr><td style="color:#4ade80">mask-KNN K=4</td><td style="color:#4ade80">0.13</td><td style="color:#4ade80">2.1×</td><td><span class="v vp">YES</span></td></tr>
-    <tr><td>gather-KNN K=4</td><td>0.42</td><td>0.64×</td><td><span class="v vp">YES</span></td></tr>
-    <tr><td style="color:#ef4444">gather-KNN K=16</td><td style="color:#ef4444">0.63</td><td style="color:#ef4444">0.43×</td><td><span class="v vp">YES</span></td></tr>
-    <tr><td style="color:#ef4444">NSA</td><td style="color:#ef4444">2.59</td><td style="color:#ef4444">0.10×</td><td><span class="v vw">Partial</span></td></tr>
-  </table>
-  <p class="card-note">All from <code>benchmark_full.py</code>, A500, d=256, nhead=4, fp16. <strong>mask-KNN K=16</strong> is the fastest method enforcing spatial cutoffs — 2.2× over dense_masked. TRA difference vs baseline: +0.0009 (p=0.014, n.s. after correction).</p>
-</div>
-<div class="card">
-  <h3>mask-KNN K=16 — Scaling (A500, d=256, nhead=4, fp16)</h3>
-  <table>
-    <tr><th>N</th><th>Forward (ms)</th><th>Memory (MB)</th></tr>
-    <tr><td>128</td><td>0.13</td><td>0.4</td></tr>
-    <tr><td>256</td><td>0.12</td><td>1.1</td></tr>
-    <tr><td>512</td><td>0.15</td><td>3.3</td></tr>
-    <tr><td>1024</td><td>0.43</td><td>10.5</td></tr>
-    <tr><td>2048</td><td>1.48</td><td>37</td></tr>
-    <tr><td>4096</td><td>5.35</td><td>138</td></tr>
-    <tr><td>8192</td><td>26.1</td><td>532</td></tr>
-  </table>
-  <p class="card-note">K=16 is the TRA-optimal config (0.9972). gather-KNN K=16 at N=8192: 19.0 ms, 204 MB — <strong>1.4× faster, 2.6× less memory</strong> than mask-KNN K=16.</p>
-</div>
-</div>
-
-<div class="grid reveal">
-<div class="card" style="grid-column:1/-1">
-  <h3>CachedDistAttention: Amortizing cdist Across Layers</h3>
-  <table>
-    <tr><th>L</th><th>cdist per layer (μs)</th><th>cdist amortized (μs)</th><th>Attention speedup</th><th>Training wall-time (10 ep, H100)</th></tr>
-    <tr><td>6</td><td>852</td><td>572</td><td>1.5×</td><td>14:17 → 14:14 (−0.3%)</td></tr>
-    <tr><td>12</td><td>1704</td><td>1088</td><td>1.6×</td><td>14:21 → 14:02 (−2.2%)</td></tr>
-  </table>
-  <p class="card-note">Attention-level speedup ≠ training speedup. Attention is &lt;15% of step time at N≈140. The 1.5–1.6× applies only to the attention sub-component. Overall training throughput improves ~2% — "free" but not transformative.</p>
+  <h3>Peak Memory vs N — All Methods (A500, GPU measured)</h3>
+  <div class="chart-wrap" style="max-height:350px"><canvas id="chMem"></canvas></div>
+  <p class="card-note">mask-KNN / dense_masked: O(N²) — N×N mask dominates. gather-KNN / dense_flash: O(N·K) or O(N). At N=8192: mask-KNN = 532 MB vs gather-KNN K=16 = 204 MB — <strong>2.6× difference</strong>.</p>
 </div>
 </div>
 
@@ -463,7 +343,7 @@ h1{font-size:2.1em;color:#fff;text-align:center;margin-bottom:4px}
     <tr><td>Micro-SSL hard pipeline</td><td>—</td><td>0.04→0.36</td><td style="color:#4ade80">+0.32</td></tr>
     <tr><td>Post-training inter-sim</td><td>0.89 (collapse)</td><td>0.044</td><td style="color:#4ade80">No collapse</td></tr>
   </table>
-  <p class="card-note">DINO robust to small shifts but sensitive to rotation — exactly the invariance SSL must learn. <strong>DINOv3:</strong> code infrastructure ready (dino_encoder.py support for version='v3'), access granted, comparison with v2 pending on Capella. Intra-cell similarity distributions now available alongside inter-cell in benchmark_attn/cosine_histogram.py.</p>
+  <p class="card-note">DINO robust to small shifts but sensitive to rotation — exactly the invariance SSL must learn. <strong>DINOv3:</strong> model download attempted — HTTP 403 Forbidden from dl.fbaipublicfiles.com/dinov3/. Weights access restricted despite granted permission. Code infrastructure ready (dino_encoder.py supports version='v3'), waiting for download resolution.</p>
 </div>
 </div>
 
@@ -586,8 +466,8 @@ h1{font-size:2.1em;color:#fff;text-align:center;margin-bottom:4px}
     <tr><td>Speed at N ≳ 7000</td><td><span class="v vp">gather-KNN K=16</span></td><td>Crosses mask-KNN at N≈7300. 1.4× faster + 2.6× less memory at N=8192.</td></tr>
     <tr><td>CachedDist</td><td><span class="v vp">Always enable</span></td><td>1.5–1.6× attention speedup; ~2% training throughput gain. Semantically identical.</td></tr>
     <tr><td>SSL with regionprops</td><td><span class="v vf">Do not use</span></td><td>Collapse (sim=0.89, eff rank=3). Enriched features do not help.</td></tr>
-    <tr><td>SSL with DINOv2</td><td><span class="v vp">Analyzed (no training)</span></td><td>gap=0.292, eff rank=108, micro-SSL +0.32, no collapse. DINOv2 used for signal analysis only — zero training runs.</td></tr>
-    <tr><td>SSL with DINOv3</td><td><span class="v vw">Code ready, access granted</span></td><td>dino_encoder.py supports version='v3'. No analysis data, no training data. v2→v3 comparison pending on Capella.</td></tr>
+    <tr><td>SSL with DINOv2</td><td><span class="v vp">Measured (signal analysis only)</span></td><td>gap=0.292, eff rank=108, micro-SSL +0.32, no collapse. DINOv2 used for signal analysis — zero SSL training runs.</td></tr>
+    <tr><td>SSL with DINOv3</td><td><span class="v vf">Blocked — HTTP 403</span></td><td>Model weights download returns 403 Forbidden from dl.fbaipublicfiles.com/dinov3/. Access granted in principle but download endpoint restricted. Code ready in dino_encoder.py.</td></tr>
     <tr><td>cdist optimization</td><td><span class="v vp">Primary engineering target</span></td><td>82% of attention wall-time (58% cdist + 24% mask construction)</td></tr>
     <tr><td>NSA</td><td><span class="v vf">Not viable</span></td><td>27× slower than dense_flash at N=256. 61.5 ms, 1294 MB at N=8192.</td></tr>
     <tr><td>gather-KNN at N < 512</td><td><span class="v vf">Not recommended</span></td><td>1.3× slower than dense_masked at N=256 (A500). Use mask-KNN K=16 instead.</td></tr>
@@ -610,46 +490,18 @@ Chart.defaults.plugins.legend.labels.padding=16;
 
 function ch(id,t){return new Chart(document.getElementById(id).getContext('2d'),{...t,options:{...t.options,responsive:true,maintainAspectRatio:false}});}
 
-// — Chart 1a: GPU Measured (A500, d=256, nhead=4) —
+// — Chart 1: Attention Forward Time vs N (A500 GPU-measured only) —
 ch('chAttnGpu',{type:'line',data:{labels:['128','256','512','1024','2048','4096','8192'],datasets:[
-  {label:'dense_masked (baseline)',data:[0.28,0.27,0.33,1.30,4.92,19.31,79.88],borderColor:'#ef4444',borderWidth:2,tension:0.3},
-  {label:'dense_flash (no cutoff)',data:[0.099,0.101,0.084,0.162,0.458,1.39,4.90],borderColor:'#4ade80',borderWidth:2,tension:0.3},
+  {label:'dense_masked (Trackastra baseline)',data:[0.28,0.27,0.33,1.30,4.92,19.31,79.88],borderColor:'#ef4444',borderWidth:2,tension:0.3},
+  {label:'dense_flash (no cutoff — invalid)',data:[0.099,0.101,0.084,0.162,0.458,1.39,4.90],borderColor:'#4ade80',borderWidth:2,tension:0.3},
   {label:'mask-KNN K=16',data:[0.128,0.122,0.151,0.433,1.48,5.35,26.07],borderColor:'#60a5fa',borderWidth:2.5,tension:0.3},
   {label:'mask-KNN K=4',data:[0.132,0.129,0.134,0.406,1.41,5.19,24.85],borderColor:'#60a5fa',borderWidth:1,borderDash:[4,3],tension:0.3},
   {label:'gather-KNN K=16',data:[0.34,0.63,1.21,2.25,4.96,9.54,18.96],borderColor:'#f59e0b',borderWidth:2,tension:0.3},
-  {label:'NSA',data:[2.30,2.59,3.06,5.88,11.97,25.99,61.49],borderColor:'#7a8a9a',borderWidth:1,borderDash:[6,4],tension:0.3}
-]},options:{scales:{x:{title:{display:true,text:'N'}},y:{type:'logarithmic',title:{display:true,text:'ms'},min:0.05}},plugins:{title:{display:true,text:'GPU measured · d=256, nhead=4, fp16',font:{size:10},color:'#6a7a8a'}}}});
+  {label:'gather-KNN K=4',data:[0.25,0.42,0.81,1.55,3.14,6.26,12.25],borderColor:'#f59e0b',borderWidth:1,borderDash:[5,3],tension:0.3},
+  {label:'NSA (native sparse)',data:[2.30,2.59,3.06,5.88,11.97,25.99,61.49],borderColor:'#7a8a9a',borderWidth:1,borderDash:[6,4],tension:0.3}
+]},options:{scales:{x:{title:{display:true,text:'Sequence Length N'}},y:{type:'logarithmic',title:{display:true,text:'Forward Time (ms, log scale)'},min:0.05}},plugins:{title:{display:true,text:'A500, d=256, nhead=4, fp16 — benchmark_full.py',font:{size:10},color:'#6a7a8a'}}}});
 
-// — Chart 1b: Analytical (d=320, nhead=8, Trackastra config) —
-ch('chAttnAna',{type:'line',data:{labels:['128','256','512','1024','2048'],datasets:[
-  {label:'CachedDist (baseline)',data:[0.20,0.80,3.20,12.8,51.2],borderColor:'#ef4444',borderWidth:2,tension:0.3},
-  {label:'mask-KNN K=16',data:[0.067,0.262,2.10,16.8,134],borderColor:'#60a5fa',borderWidth:2.5,tension:0.3},
-  {label:'mask-KNN K=64',data:[0.073,0.274,2.14,17.0,136],borderColor:'#60a5fa',borderWidth:1,borderDash:[4,3],tension:0.3},
-  {label:'gather-KNN K=16',data:[1.95,3.90,7.79,15.6,31.2],borderColor:'#f59e0b',borderWidth:2,tension:0.3},
-  {label:'gather-KNN K=64',data:[3.79,7.58,15.0,30.0,60.0],borderColor:'#f59e0b',borderWidth:1,borderDash:[5,3],tension:0.3},
-  {label:'soft decay (proposed)',data:[0.06,0.22,0.88,3.52,14.1],borderColor:'#e879f9',borderWidth:2.5,tension:0.3},
-  {label:'MiniMax Bk=128',data:[5.43,15.0,47.0,150,480],borderColor:'#7a8a9a',borderWidth:1,borderDash:[2,5],tension:0.3}
-]},options:{scales:{x:{title:{display:true,text:'N'}},y:{type:'logarithmic',title:{display:true,text:'ms'},min:0.03}},plugins:{title:{display:true,text:'Analytical · d=320, nhead=8 · calibrated to labbook',font:{size:10},color:'#6a7a8a'}}}});
-
-// — Chart 1c: mask-KNN K-scaling —
-ch('chMaskK',{type:'line',data:{labels:['128','256','512','1024','2048'],datasets:[
-  {label:'mask-KNN K=4',data:[0.065,0.259,2.09,16.7,134],borderColor:'#60a5fa',borderWidth:1,tension:0.3},
-  {label:'mask-KNN K=8',data:[0.066,0.260,2.10,16.7,134],borderColor:'#60a5fa',borderWidth:1.5,tension:0.3},
-  {label:'mask-KNN K=16',data:[0.067,0.262,2.10,16.8,134],borderColor:'#60a5fa',borderWidth:2.5,tension:0.3},
-  {label:'mask-KNN K=32',data:[0.069,0.266,2.11,16.9,135],borderColor:'#60a5fa',borderWidth:1.5,borderDash:[3,3],tension:0.3},
-  {label:'mask-KNN K=64',data:[0.073,0.274,2.14,17.0,136],borderColor:'#60a5fa',borderWidth:1,borderDash:[5,3],tension:0.3},
-  {label:'mask-KNN K=128',data:[0,0.291,2.18,17.3,138],borderColor:'#60a5fa',borderWidth:0.5,borderDash:[8,4],tension:0.3},
-]},options:{scales:{x:{title:{display:true,text:'N'}},y:{type:'logarithmic',title:{display:true,text:'ms'},min:0.03}},plugins:{title:{display:true,text:'mask-KNN — all K (scatter mask + cuDNN SDPA)',font:{size:10},color:'#6a7a8a'}}}});
-
-// — Chart 1d: gather-KNN K-scaling —
-ch('chGatherK',{type:'line',data:{labels:['128','256','512','1024','2048'],datasets:[
-  {label:'gather-KNN K=4',data:[1.49,2.97,5.95,11.9,23.8],borderColor:'#f59e0b',borderWidth:1,tension:0.3},
-  {label:'gather-KNN K=8',data:[1.64,3.28,6.56,13.1,26.2],borderColor:'#f59e0b',borderWidth:1.5,tension:0.3},
-  {label:'gather-KNN K=16',data:[1.95,3.90,7.79,15.6,31.2],borderColor:'#f59e0b',borderWidth:2.5,tension:0.3},
-  {label:'gather-KNN K=32',data:[2.56,5.12,10.2,20.5,41.0],borderColor:'#f59e0b',borderWidth:1.5,borderDash:[3,3],tension:0.3},
-  {label:'gather-KNN K=64',data:[3.79,7.58,15.0,30.0,60.0],borderColor:'#f59e0b',borderWidth:1,borderDash:[5,3],tension:0.3},
-  {label:'gather-KNN K=128',data:[0,12.5,24.7,49.4,98.8],borderColor:'#f59e0b',borderWidth:0.5,borderDash:[8,4],tension:0.3},
-]},options:{scales:{x:{title:{display:true,text:'N'}},y:{type:'logarithmic',title:{display:true,text:'ms'},min:0.5}},plugins:{title:{display:true,text:'gather-KNN — all K (per-token overhead ~23µs)',font:{size:10},color:'#6a7a8a'}}}});
+// — Chart 2: Memory vs N (A500 GPU-measured only) —
 
 // — Chart 2: Memory vs N —
 ch('chMem',{type:'line',data:{labels:['128','256','512','1024','2048','4096','8192'],datasets:[
@@ -660,10 +512,6 @@ ch('chMem',{type:'line',data:{labels:['128','256','512','1024','2048','4096','81
   {label:'gather-KNN K=4',data:[0.94,1.88,3.75,7.50,15.0,30.0,60.0],borderColor:'#f59e0b',backgroundColor:'transparent',borderWidth:1.5,borderDash:[5,3],tension:0.3},
   {label:'dense_flash',data:[0.32,0.63,1.26,2.52,5.03,10.1,20.1],borderColor:'#4ade80',backgroundColor:'#4ade8022',borderWidth:2,tension:0.3},
 ]},options:{scales:{x:{title:{display:true,text:'Sequence Length N'}},y:{title:{display:true,text:'Peak Memory (MB)'},type:'logarithmic'}},plugins:{title:{display:true,text:'A500, d=256, nhead=4, fp16',font:{size:10},color:'#6a7a8a'}}}});
-
-ch('chGatherProf',{type:'bar',data:{labels:['flash_fwd_kernel\n(SDPA q_len=1)','index_elementwise\n(gather copy)','copy_ / clone\n(contiguous reshape)','addmm\n(QKV proj)'],datasets:[
-  {label:'CUDA time (us)',data:[534,271,189,37],backgroundColor:['#ef4444aa','#f59e0baa','#f59e0b88','#60a5fa88'],borderColor:'transparent',borderRadius:4}
-]},options:{indexAxis:'y',scales:{x:{title:{display:true,text:'CUDA time (us)'}}},plugins:{title:{display:true,text:'GatherSparseAttention forward, N=256 — total 1033 us',font:{size:10},color:'#6a7a8a'},legend:{display:false}}}});
 
 // — Chart 3: TRA + AOGM —
 ch('chTra',{type:'bar',data:{labels:['dense','K=4','K=16','K=32','K=64'],datasets:[
