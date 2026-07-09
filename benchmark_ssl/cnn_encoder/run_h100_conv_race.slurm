@@ -17,8 +17,8 @@ export NCCL_DEBUG=WARN
 export CUBLAS_WORKSPACE_CONFIG=:4096:8
 export PYTHONNOUSERSITE=1
 unset PYTHONPATH
-export WANDB_DISABLED=true
-export WANDB_MODE=disabled
+#export WANDB_DISABLED=true
+#export WANDB_MODE=disabled
 unset PYTHONHOME
 
 TRK=/data/cat/ws/lest161c-cell_tracking/lest161c-ssl_cell_tracking-1778979601/trackastra
@@ -45,8 +45,8 @@ fi
 . "$ENV_DIR/bin/activate"
 python -m pip install --upgrade --force-reinstall setuptools
 python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
-export WANDB_DISABLED=true
-export WANDB_MODE=disabled
+#export WANDB_DISABLED=true
+#export WANDB_MODE=disabled
 python -m pip install lightning pandas scikit-image tifffile edt tqdm configargparse wandb tensorboard dask joblib
 cd "$BENCH"
 git fetch origin cached-dist-attn && git checkout cached-dist-attn && git pull origin cached-dist-attn
@@ -57,4 +57,4 @@ python benchmark_ssl/cnn_encoder/h100_convergence.py \
     --checkpoint benchmark_ssl/cnn_encoder/probe/cnn_ntxent_large.pt \
     --scale large \
     --epochs 500 \
-    --no-wandb
+    #--no-wandb
