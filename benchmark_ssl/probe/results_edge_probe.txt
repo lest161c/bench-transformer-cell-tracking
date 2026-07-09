@@ -1,0 +1,28 @@
+Edge Probing Benchmark Results
+==========================================================================================
+Regionprops 7D       All edges       Linear   0.5523809523809524 0.2174025974025974 0.44000000000000006 0.20166666666666666
+Regionprops 7D       All edges       MLP      0.5        0.0        0.0        0.0       
+Regionprops 7D       Divisions       Linear   0.8945925925925925 0.0        0.0        0.0       
+Regionprops 7D       Divisions       MLP      0.9        0.0        0.0        0.0       
+Hu Moments 20D       All edges       Linear   0.488154761904762 0.08214285714285714 0.09166666666666666 0.075     
+Hu Moments 20D       All edges       MLP      0.5148809523809523 0.06666666666666667 0.1        0.05      
+Hu Moments 20D       Divisions       Linear   0.9        0.0        0.0        0.0       
+Hu Moments 20D       Divisions       MLP      0.84375    0.0        0.0        0.0       
+Both 27D             All edges       Linear   0.5619047619047619 0.24047619047619045 0.31666666666666665 0.2       
+Both 27D             All edges       MLP      0.5        0.0        0.0        0.0       
+Both 27D             Divisions       Linear   0.8600694444444444 0.0        0.0        0.0       
+Both 27D             Divisions       MLP      0.9        0.0        0.0        0.0       
+
+==========================================================================================
+VERDICT
+==========================================================================================
+
+All edges: Hu moments WORSE than Regionprops 7D (Δ=-0.0375)
+Division edges: Hu moments similar to Regionprops 7D (Δ=0.0000)
+
+Both features HELP over Hu alone for ALL edges (Δ=+0.0470)
+Both features don't change much over Hu alone for DIVISIONS (Δ=0.0000)
+
+Recommendation: depends on edge type — Both for ALL edges (0.5619), 7D for DIVISIONS (0.9000)
+
+==========================================================================================

@@ -1,0 +1,18 @@
+[project]
+name = "benchmark_ssl"
+version = "0.1.0"
+description = "SSL pretraining for transformer-based cell tracking via geometric distortion"
+requires-python = ">=3.11"
+dependencies = [
+  "torch>=2.0",
+  "numpy",
+  "scipy",
+  "scikit-image",
+  "tifffile",
+  "matplotlib",
+  "seaborn",
+  "pandas",
+  "pyyaml",
+  "scikit-learn",
+  "tqdm",
+]
