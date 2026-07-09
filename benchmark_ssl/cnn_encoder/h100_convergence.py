@@ -59,21 +59,23 @@ class ScaledCNN(nn.Module):
     """ConvNet for 64×64 grayscale patches. Output: 128-dim embedding."""
     def __init__(self, scale="medium", out_dim=CNN_FEAT_DIM):
         super().__init__()
+        PATCH_SIZE = 64
         if scale == "small":
             ch = [8, 16, 32]
         elif scale == "medium":
             ch = [16, 32, 64]
-        else:
-            ch = [32, 64, 128]
+        else:  # large
+            ch = [32, 64, 128, 256]
         layers = []
         in_ch = 1
         for c in ch:
             layers += [nn.Conv2d(in_ch, c, 3, padding=1), nn.ReLU(), nn.MaxPool2d(2)]
             in_ch = c
         self.conv = nn.Sequential(*layers)
+        spatial = PATCH_SIZE // (2 ** len(ch))
         self.fc = nn.Sequential(
             nn.Flatten(),
-            nn.Linear(ch[-1] * 8 * 8, 256),
+            nn.Linear(ch[-1] * spatial * spatial, 256),
             nn.ReLU(),
             nn.Linear(256, out_dim),
         )
