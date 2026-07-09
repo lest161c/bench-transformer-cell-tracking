@@ -53,7 +53,7 @@ git fetch origin cached-dist-attn && git checkout cached-dist-attn && git pull o
 mkdir -p logs benchmark_ssl/cnn_encoder/logs
 
 python benchmark_ssl/cnn_encoder/h100_convergence.py \
-    --data-root /data/cat/ws/mawe985g-data/data/celltracking/vanvliet \
+    --data-root ../data/vanvliet \
     --checkpoint benchmark_ssl/cnn_encoder/probe/cnn_ntxent_large.pt \
     --scale large \
     --epochs 500 \
