@@ -92,9 +92,9 @@ class CNNPatchExtractor:
     Args:
         checkpoint_path: path to NT-Xent pretrained ScaledCNN checkpoint.
     """
-    def __init__(self, checkpoint_path):
+    def __init__(self, checkpoint_path, scale="medium"):
         self.cpu = torch.device("cpu")
-        self.model = ScaledCNN(scale="medium", out_dim=CNN_FEAT_DIM)
+        self.model = ScaledCNN(scale=scale, out_dim=CNN_FEAT_DIM)
         ckpt = torch.load(checkpoint_path, map_location=self.cpu)
         self.model.load_state_dict(ckpt["model_state_dict"])
         self.model.eval()
@@ -611,6 +611,9 @@ def main():
     parser.add_argument("--checkpoint", type=str,
                         default="probe/cnn_ntxent.pt",
                         help="Path to NT-Xent pretrained CNN")
+    parser.add_argument("--scale", choices=["small", "medium", "large"],
+                        default="medium",
+                        help="CNN architecture scale matching checkpoint")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--no-wandb", action="store_true",
                         help="Disable W&B logging")
@@ -641,7 +644,7 @@ def main():
 
     # ─── 1. Load frozen CNN extractor ──────────────────────────────────────
     logger.info("[1/5] Loading frozen CNN extractor (CPU)...")
-    cnn_extractor = CNNPatchExtractor(args.checkpoint)
+    cnn_extractor = CNNPatchExtractor(args.checkpoint, scale=args.scale)
 
     # ─── 2. Scan pairs ─────────────────────────────────────────────────────
     logger.info("[2/5] Scanning consecutive frame pairs...")
