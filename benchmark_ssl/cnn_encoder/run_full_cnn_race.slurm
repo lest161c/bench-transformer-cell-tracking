@@ -35,22 +35,10 @@ mkdir -p logs
 CFG_DIR="$BENCH/configs"
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# RUN 1: Baseline (7D only)
+# RUN: CNN feature injection — compare against existing baseline (TRA=0.997)
 # ═══════════════════════════════════════════════════════════════════════════════
-echo ""
 echo "═══════════════════════════════════════════════════════════════════════════"
-echo "  RUN 1: Baseline (7D regionprops only) — $(date)"
-echo "═══════════════════════════════════════════════════════════════════════════"
-python scripts/train.py --config "$CFG_DIR/vanvliet_baseline.yaml" --epochs 500
-BASELINE_EXIT=$?
-echo "  Baseline exited with code $BASELINE_EXIT at $(date)"
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# RUN 2: CNN
-# ═══════════════════════════════════════════════════════════════════════════════
-echo ""
-echo "═══════════════════════════════════════════════════════════════════════════"
-echo "  RUN 2: CNN feature injection — $(date)"
+echo "  CNN feature injection — $(date)"
 echo "═══════════════════════════════════════════════════════════════════════════"
 python scripts/train.py --config "$CFG_DIR/vanvliet_baseline_cnn.yaml" --epochs 500
 CNN_EXIT=$?
@@ -61,7 +49,5 @@ echo "  CNN exited with code $CNN_EXIT at $(date)"
 # ═══════════════════════════════════════════════════════════════════════════════
 echo ""
 echo "═══════════════════════════════════════════════════════════════════════════"
-echo "  RACE COMPLETE"
-echo "  Baseline exit code: $BASELINE_EXIT"
-echo "  CNN       exit code: $CNN_EXIT"
+echo "  CNN exit code: $CNN_EXIT (compare vs baseline TRA=0.997 at epoch 372)"
 echo "═══════════════════════════════════════════════════════════════════════════"
