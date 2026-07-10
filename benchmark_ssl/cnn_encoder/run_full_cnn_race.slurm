@@ -27,9 +27,12 @@ ENV_DIR="$TRK/.venv"
 python -m pip install --upgrade --force-reinstall setuptools
 python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
 python -m pip install lightning pandas scikit-image tifffile edt tqdm configargparse wandb tensorboard dask joblib
-cd "$BENCH"
+cd "$TRK"
 git fetch origin cached-dist-attn && git checkout cached-dist-attn && git pull origin cached-dist-attn
-mkdir -p logs benchmark_ssl/cnn_encoder/logs
+python -m pip install -e .
+mkdir -p logs
+
+CFG_DIR="$BENCH/configs"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # RUN 1: Baseline (7D only)
@@ -38,7 +41,7 @@ echo ""
 echo "═══════════════════════════════════════════════════════════════════════════"
 echo "  RUN 1: Baseline (7D regionprops only) — $(date)"
 echo "═══════════════════════════════════════════════════════════════════════════"
-python scripts/train.py --config configs/vanvliet_baseline.yaml --epochs 500
+python scripts/train.py --config "$CFG_DIR/vanvliet_baseline.yaml" --epochs 500
 BASELINE_EXIT=$?
 echo "  Baseline exited with code $BASELINE_EXIT at $(date)"
 
@@ -49,7 +52,7 @@ echo ""
 echo "═══════════════════════════════════════════════════════════════════════════"
 echo "  RUN 2: CNN feature injection — $(date)"
 echo "═══════════════════════════════════════════════════════════════════════════"
-python scripts/train.py --config configs/vanvliet_baseline_cnn.yaml --epochs 500
+python scripts/train.py --config "$CFG_DIR/vanvliet_baseline_cnn.yaml" --epochs 500
 CNN_EXIT=$?
 echo "  CNN exited with code $CNN_EXIT at $(date)"
 
