@@ -21,7 +21,6 @@ from tqdm import tqdm
 
 from trackastra.data import wrfeat
 from trackastra.data._check_ctc import _check_ctc, _get_node_attributes
-from trackastra.model.dino_encoder import extract_patches as _extract_patches_dino
 
 # Lazy import of augmentations (training-only dependencies)
 # from trackastra.data.augmentations import AugmentationPipeline, RandomCrop, default_augmenter
@@ -1158,6 +1157,7 @@ class CTCData(Dataset):
 
     def _getitem_wrfeat(self, n: int, return_dense=None):
         # if not set, use default
+        from trackastra.model.dino_encoder import extract_patches as _extract_patches_dino
 
         if return_dense is None:
             return_dense = self.return_dense
@@ -1233,7 +1233,7 @@ class CTCData(Dataset):
             for t in np.unique(_cnn_save_timepoints):
                 t_mask = _cnn_save_timepoints == t
                 t_coords = _cnn_save_coords[t_mask]
-                t_img = img[t] if img.ndim == 3 else img
+                t_img = img[t] if len(img.shape) == 3 else img
                 patch_list.append(
 
                     _extract_patches_dino(t_img, t_coords, patch_size=64)
