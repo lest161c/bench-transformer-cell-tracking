@@ -30,7 +30,7 @@ num_workers: 8
 seed: 42
 
 use_cnn: true
-cnn_checkpoint: benchmark_ssl/cnn_encoder/probe/cnn_ntxent_large.pt
+cnn_checkpoint: /data/cat/ws/lest161c-cell_tracking/lest161c-ssl_cell_tracking-1778979601/bench-transformer-cell-tracking/benchmark_ssl/cnn_encoder/probe/cnn_ntxent_large.pt
 
 input_train:
   - /data/cat/ws/mawe985g-data/data/celltracking/vanvliet/cib/140409-03
