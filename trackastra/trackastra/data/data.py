@@ -138,6 +138,7 @@ class CTCData(Dataset):
         return_dense: bool = False,
         compress: bool = False,
         use_cnn: bool = False,
+        cnn_feat_dropout: float = 0.0,
         **kwargs,
     ) -> None:
         """_summary_.
@@ -184,6 +185,7 @@ class CTCData(Dataset):
         self.ndim = ndim
         self.features = features
         self.use_cnn = use_cnn
+        self.cnn_feat_dropout = cnn_feat_dropout
 
         if features not in ("none", "wrfeat") and features not in _PROPERTIES[ndim]:
             raise ValueError(
@@ -1169,13 +1171,16 @@ class CTCData(Dataset):
         img = track["img"]
         mask = track["mask"]
         timepoints = track["timepoints"]
-        # track["t1"]
+        t1 = track["t1"]  # window start frame index
         feat = track["wrfeat"]
 
         if return_dense and isinstance(mask, _CompressedArray):
             mask = mask.decompress()
         if return_dense and isinstance(img, _CompressedArray):
             img = img.decompress()
+        # Only convert to array if not _CompressedArray (avoids 0-d object array)
+        if not isinstance(img, _CompressedArray):
+            img = np.asarray(img)
         if isinstance(assoc_matrix, _CompressedArray):
             assoc_matrix = assoc_matrix.decompress()
 
@@ -1193,10 +1198,11 @@ class CTCData(Dataset):
             else:
                 logger.debug("Skipping cropping")
 
-        # Save pre-augmentation coords for CNN patch extraction
+        # Save pre-augmentation coords for CNN patch extraction.
+        # timepoints are absolute frame indices; convert to relative for img indexing.
         if self.use_cnn:
             _cnn_save_coords = feat.coords.copy()
-            _cnn_save_timepoints = feat.timepoints.copy()
+            _cnn_save_timepoints = (feat.timepoints - t1).copy()
 
         if self.augmenter is not None:
             feat = self.augmenter(feat)
@@ -1228,18 +1234,38 @@ class CTCData(Dataset):
 
         # Extract CNN patches from raw image at pre-augmentation centroids
         if self.use_cnn:
+            # DataLoader workers may receive _CompressedArray instead of numpy.
+            # Handle both the _CompressedArray case and the case where
+            # np.asarray() at line 1179 turned it into a 0-d object array.
+            if isinstance(img, _CompressedArray):
+                img = img.decompress()
+            if isinstance(img, np.ndarray) and img.ndim == 0:
+                # np.asarray() on _CompressedArray produces 0-d object array;
+                # extract the _CompressedArray and decompress it.
+                item = img.item()
+                if isinstance(item, _CompressedArray):
+                    img = item.decompress()
+                else:
+                    # Last resort: promote to at least 3-D
+                    img = np.atleast_3d(np.asarray(item))
+            if not isinstance(img, np.ndarray):
+                img = np.asarray(img)
             # img shape: (T, H, W) for 2D
             patch_list = []
             for t in np.unique(_cnn_save_timepoints):
                 t_mask = _cnn_save_timepoints == t
                 t_coords = _cnn_save_coords[t_mask]
-                t_img = img[t] if len(img.shape) == 3 else img
+                t_img = img[t]
                 patch_list.append(
-
                     _extract_patches_dino(t_img, t_coords, patch_size=64)
                 )
             patches_cnn = np.concatenate(patch_list, axis=0)  # (N, 64, 64)
             patches_cnn = patches_cnn[:, None, :, :]          # (N, 1, 64, 64)
+            # Feature dropout: randomly zero out CNN features
+            if getattr(self, 'cnn_feat_dropout', 0.0) > 0:
+                import random as _random
+                if _random.random() < self.cnn_feat_dropout:
+                    patches_cnn = np.zeros_like(patches_cnn)
         else:
             patches_cnn = None
 
