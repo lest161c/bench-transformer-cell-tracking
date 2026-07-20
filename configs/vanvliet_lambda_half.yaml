@@ -1,4 +1,5 @@
 name: vanvliet_lambda_half
+logger: wandb
 epochs: 500
 warmup_epochs: 5
 augment: 3

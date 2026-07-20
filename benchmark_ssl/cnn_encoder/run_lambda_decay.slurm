@@ -16,6 +16,11 @@ export MKL_NUM_THREADS=$SLURM_CPUS_PER_TASK
 export NCCL_DEBUG=WARN
 export CUBLAS_WORKSPACE_CONFIG=:4096:8
 export PYTHONNOUSERSITE=1
+
+# W&B: scalar metrics only (no images, histograms, or console logs)
+export WANDB_LIGHT=true
+export WANDB_CONSOLE=off
+export WANDB_WATCH=false
 unset PYTHONPATH
 unset PYTHONHOME
 
