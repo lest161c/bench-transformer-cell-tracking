@@ -13,3 +13,33 @@ benchmark_small_n_results.csv
 benchmark_mask_vs_gather.csv
 **/benchmark_sparse.html
 report/
+
+# Secrets
+.env
+*.pem
+
+# Virtual environments
+.venv/
+labbook/.venv/
+
+# Model weights
+*.pth
+*.pt
+*.ckpt
+
+# Logs and generated
+*.log
+*.tif
+*.tiff
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*~
+
+# Personal notes
+HANDOVER.md
+IMPLEMENT.md
+meeting_*.txt
+remark.tx
