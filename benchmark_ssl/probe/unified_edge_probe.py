@@ -11,6 +11,8 @@ Feature types:
   cnn_frozen — ScaledCNN with NT-Xent checkpoint         [128 dim]
   cnn_e2e   — ScaledCNN trained jointly with probe       [128 dim]
   dino      — DINOv2 (dinov2_vits14, frozen)             [384 dim]
+  hoct19    — HOCT-style 12D (2D-adapted from 19D): centroid(2),
+              eq_diam, intensity(4), inertia(4), border  [12 dim]
 
 Probe architectures (tested for each feature type):
   Linear: nn.Linear(2*feat_dim, 1)
@@ -46,6 +48,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from sklearn.metrics import balanced_accuracy_score, f1_score, precision_score, recall_score
+from scipy.ndimage import distance_transform_edt
 from skimage.measure import regionprops_table, regionprops as sk_regionprops
 from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
 from tifffile import imread
@@ -252,6 +255,90 @@ def extract_regionprops_7d(mask, img):
 
     feats_combined = np.concatenate(list(features.values()), axis=-1).astype(np.float32)
     return coords, labels, feats_combined
+
+
+# ── HOCT 19D (adapted to 2D → 12D) ───────────────────────────────────────────
+
+def _compute_border_dist(mask):
+    """Per-cell distance to nearest field-of-view edge (vectorized).
+
+    Creates a binary edge map and computes Euclidean distance transform,
+    then uses regionprops intensity_min to get the minimum distance per cell.
+
+    Returns array of distances (one per region).
+    """
+    ndim = mask.ndim
+    edge_mask = np.zeros(mask.shape, dtype=bool)
+    for axis in range(ndim):
+        sl = [slice(None)] * ndim
+        sl[axis] = 0
+        edge_mask[tuple(sl)] = True
+        sl[axis] = -1
+        edge_mask[tuple(sl)] = True
+
+    # Distance from every pixel to nearest image border
+    dist_to_border = distance_transform_edt(~edge_mask)
+    # For each region, the minimum distance to border (vectorized via regionprops)
+    return np.array([
+        r.intensity_min
+        for r in sk_regionprops(mask, intensity_image=dist_to_border)
+    ], dtype=np.float32)
+
+
+def extract_hoct19(mask, img):
+    """
+    12D HOCT-style features for 2D (adapted from HOCT paper 19D for 3D):
+
+      Position (2): y, x centroid
+      Size (1): equivalent_diameter_area
+      Intensity (4): min, max, mean, std
+      Inertia (4): 2×2 inertia tensor flattened
+      Border (1): min distance to nearest FoV edge (pixels)
+    Total: 12
+
+    Returns (coords, labels, features) or (None, None, None).
+    """
+    ndim = mask.ndim
+    props = ("equivalent_diameter_area", "intensity_min", "intensity_max",
+             "intensity_mean", "intensity_std", "inertia_tensor")
+    df = pd.DataFrame(
+        regionprops_table(mask, intensity_image=img,
+                          properties=("label", "centroid", *props))
+    )
+    if len(df) == 0:
+        return None, None, None
+
+    coords = df[[f"centroid-{i}" for i in range(ndim)]].values.astype(np.float32)
+    labels = df["label"].values.astype(np.int32)
+
+    # 1. Position (2): y, x centroid
+    position = df[["centroid-0", "centroid-1"]].values.astype(np.float32)
+
+    # 2. Size (1): equivalent_diameter_area
+    eq_diam = df["equivalent_diameter_area"].values.astype(np.float32)[:, None]
+
+    # 3. Intensity (4): min, max, mean, std
+    intensity = np.column_stack([
+        df["intensity_min"].values,
+        df["intensity_max"].values,
+        df["intensity_mean"].values,
+        df["intensity_std"].values,
+    ]).astype(np.float32)
+
+    # 4. Inertia (4 for 2D): 2×2 tensor flattened
+    inertias = np.stack(
+        [np.column_stack([df[f"inertia_tensor-{i}-{j}"] for j in range(ndim)])
+         for i in range(ndim)], axis=-1
+    ).reshape(len(df), -1).astype(np.float32)
+
+    # 5. Border (1): min distance to nearest FoV edge
+    border_dists = _compute_border_dist(mask)[:, None]
+
+    features = np.concatenate(
+        [position, eq_diam, intensity, inertias, border_dists], axis=-1
+    ).astype(np.float32)
+
+    return coords, labels, features
 
 
 # ── ScaledCNN (same arch as cnn_ssl.py) ──────────────────────────────────────
@@ -691,6 +778,24 @@ def build_frame_pairs(pairs, max_pairs, feature_type, checkpoint_path=None):
             labels_t_use = labels_t[[l in lt_map for l in labels_t]]
             labels_n_use = labels_n[[l in ln_map for l in labels_n]]
 
+        elif feature_type == 'hoct19':
+            # HOCT 12D (adapted from 19D)
+            _, labels_h_t, feats_t = extract_hoct19(mask_t, imgt)
+            _, labels_h_n, feats_n = extract_hoct19(mask_n, imgn)
+            if feats_t is None or feats_n is None:
+                continue
+            # Align by label
+            lt_map = {l: i for i, l in enumerate(labels_h_t)}
+            ln_map = {l: i for i, l in enumerate(labels_h_n)}
+            idx_t = [lt_map[l] for l in labels_t if l in lt_map]
+            idx_n = [ln_map[l] for l in labels_n if l in ln_map]
+            if len(idx_t) < 2 or len(idx_n) < 2:
+                continue
+            feats_t = torch.from_numpy(feats_t[idx_t]).float()
+            feats_n = torch.from_numpy(feats_n[idx_n]).float()
+            labels_t_use = labels_t[[l in lt_map for l in labels_t]]
+            labels_n_use = labels_n[[l in ln_map for l in labels_n]]
+
         elif feature_type in ('cnn_frozen', 'dino'):
             # Check cache first
             frame_t_num = int(Path(mt).stem.replace("man_track", ""))
@@ -973,6 +1078,11 @@ FEATURE_CONFIGS = {
     'dino': {
         'feat_dim': 384,
         'display': 'DINOv2 (frozen)',
+        'needs_patches': False,
+    },
+    'hoct19': {
+        'feat_dim': 12,
+        'display': 'HOCT 19D (2D \u2192 12D)',
         'needs_patches': False,
     },
 }
