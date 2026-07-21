@@ -34,8 +34,10 @@ python benchmark_ssl/probe/unified_edge_probe.py \
     --features all \
     --probe both \
     --epochs 200 \
+    --cv-folds 5 \
+    --shuffle-baseline \
     --data-root /data/cat/ws/mawe985g-data/data/celltracking/vanvliet \
-    --output results/unified_probe_results.json
+    --output results/unified_probe_results_cv.json
 
 PROBE_EXIT=$?
 echo "  Probe exited with code $PROBE_EXIT at $(date)"

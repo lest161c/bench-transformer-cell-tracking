@@ -826,6 +826,128 @@ def concatenate_datasets(datasets):
     return torch.utils.data.ConcatDataset(datasets)
 
 
+def shuffle_edge_data_features(edge_data_list, seed=42):
+    """
+    Create a copy of edge_data with feature vectors shuffled independently
+    per frame pair to destroy all structure.
+    Returns a new list with same structure but shuffled features.
+    """
+    rng = np.random.RandomState(seed)
+    shuffled = []
+    for item in edge_data_list:
+        item_copy = dict(item)
+        if "feat_t" in item:
+            n1 = len(item["feat_t"])
+            n2 = len(item["feat_n"])
+            idx_t = torch.from_numpy(rng.permutation(n1))
+            idx_n = torch.from_numpy(rng.permutation(n2))
+            item_copy["feat_t"] = item["feat_t"][idx_t].clone()
+            item_copy["feat_n"] = item["feat_n"][idx_n].clone()
+        elif "patches_t" in item:
+            n1 = len(item["patches_t"])
+            n2 = len(item["patches_n"])
+            idx_t = torch.from_numpy(rng.permutation(n1))
+            idx_n = torch.from_numpy(rng.permutation(n2))
+            item_copy["patches_t"] = item["patches_t"][idx_t].clone()
+            item_copy["patches_n"] = item["patches_n"][idx_n].clone()
+        shuffled.append(item_copy)
+    return shuffled
+
+
+def run_cross_validation(frame_pair_datasets, probe_name, feat_dim, args,
+                         n_folds=5, is_e2e=False):
+    """
+    Run K-fold cross-validation on frame-pair-level datasets.
+
+    Each fold: train on K-1 folds, validate on 1 held-out fold.
+    Returns dict with mean, std, min, max of metrics across folds.
+    """
+    from sklearn.model_selection import KFold
+
+    if len(frame_pair_datasets) < n_folds:
+        n_folds = len(frame_pair_datasets)
+        logger.warning(f"    Reducing folds to {n_folds} (not enough frame pairs)")
+
+    kf = KFold(n_splits=n_folds, shuffle=True, random_state=SEED)
+    all_fold_results = []
+
+    for fold_idx, (train_indices, val_indices) in enumerate(kf.split(frame_pair_datasets)):
+        logger.info(f"    Fold {fold_idx + 1}/{n_folds}: "
+                    f"{len(train_indices)} train / {len(val_indices)} val frame pairs")
+
+        train_datasets = [frame_pair_datasets[i] for i in train_indices]
+        val_datasets = [frame_pair_datasets[i] for i in val_indices]
+
+        train_dataset = concatenate_datasets(train_datasets)
+        val_dataset = concatenate_datasets(val_datasets)
+
+        lr = args.lr if probe_name == "Linear" else args.lr / 10
+        batch_size = args.batch_size_linear if probe_name == "Linear" else args.batch_size_mlp
+
+        if is_e2e:
+            train_loader = DataLoader(
+                train_dataset, batch_size=batch_size, shuffle=True,
+                collate_fn=lambda b: (
+                    torch.stack([x[0] for x in b]),
+                    torch.stack([x[1] for x in b]),
+                    torch.stack([x[2] for x in b]),
+                )
+            )
+            val_loader = DataLoader(
+                val_dataset, batch_size=batch_size, shuffle=False,
+                collate_fn=lambda b: (
+                    torch.stack([x[0] for x in b]),
+                    torch.stack([x[1] for x in b]),
+                    torch.stack([x[2] for x in b]),
+                )
+            )
+            use_probe = "linear" if probe_name == "Linear" else "mlp"
+            model = CNNProbeE2E(scale='large', out_dim=128, probe_type=use_probe)
+            result = train_probe(
+                model, train_loader, val_loader,
+                epochs=args.epochs, lr=lr,
+                patience=args.patience, eval_every=args.eval_every,
+                is_e2e=True,
+            )
+        else:
+            train_loader = make_balanced_dataloader(
+                train_dataset, batch_size=batch_size, shuffle=True
+            )
+            val_loader = DataLoader(
+                val_dataset, batch_size=batch_size, shuffle=False,
+            )
+
+            if probe_name == "Linear":
+                probe = LinearProbe(feat_dim)
+            else:
+                probe = MLPProbe(feat_dim)
+
+            result = train_probe(
+                probe, train_loader, val_loader,
+                epochs=args.epochs, lr=lr,
+                patience=args.patience, eval_every=args.eval_every,
+                is_e2e=False,
+            )
+
+        all_fold_results.append(result)
+
+    bal_accs = [r["final_bal_acc"] for r in all_fold_results]
+    f1s = [r["final_f1"] for r in all_fold_results]
+
+    return {
+        "fold_results": all_fold_results,
+        "bal_acc_mean": float(np.mean(bal_accs)),
+        "bal_acc_std": float(np.std(bal_accs)),
+        "bal_acc_min": float(np.min(bal_accs)),
+        "bal_acc_max": float(np.max(bal_accs)),
+        "f1_mean": float(np.mean(f1s)),
+        "f1_std": float(np.std(f1s)),
+        "f1_min": float(np.min(f1s)),
+        "f1_max": float(np.max(f1s)),
+        "is_cv": True,
+    }
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 #  Per-feature evaluation
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -876,7 +998,82 @@ def evaluate_feature(feature_type, all_pairs, args, checkpoint_path):
         logger.warning(f"  Not enough data ({len(edge_data)}), skipping")
         return None
 
-    # ── Split by condition ────────────────────────────────────────────────
+    # ═══════════════════════════════════════════════════════════════════════
+    #  CV MODE (overrides train/val split)
+    # ═══════════════════════════════════════════════════════════════════════
+    if args.cv_folds > 0:
+        logger.info(f"  Running {args.cv_folds}-fold CV on {len(edge_data)} frame pairs (all conditions)")
+        all_datasets = flatten_to_pairs(edge_data)
+        logger.info(f"  Total frame-pair datasets: {len(all_datasets)}")
+        if not all_datasets:
+            logger.warning("  No pairs after flattening, skipping")
+            return None
+
+        results = {}
+
+        def _run_cv(probe_name, feat_dim, is_e2e):
+            return run_cross_validation(
+                all_datasets, probe_name, feat_dim, args,
+                n_folds=args.cv_folds, is_e2e=is_e2e,
+            )
+
+        # Linear probe
+        if args.probe in ("linear", "both"):
+            t1 = time.time()
+            cv_result = _run_cv("Linear", cfg['feat_dim'],
+                                is_e2e=(feature_type == 'cnn_e2e'))
+            elapsed = time.time() - t1
+            if cv_result:
+                logger.info(f"    Linear CV: bal_acc={cv_result['bal_acc_mean']:.4f}\u00b1{cv_result['bal_acc_std']:.4f}, "
+                            f"f1={cv_result['f1_mean']:.4f}\u00b1{cv_result['f1_std']:.4f} ({elapsed:.1f}s)")
+                results["linear"] = cv_result
+
+        # MLP probe
+        if args.probe in ("mlp", "both"):
+            t1 = time.time()
+            cv_result = _run_cv("MLP", cfg['feat_dim'],
+                                is_e2e=(feature_type == 'cnn_e2e'))
+            elapsed = time.time() - t1
+            if cv_result:
+                logger.info(f"    MLP CV: bal_acc={cv_result['bal_acc_mean']:.4f}\u00b1{cv_result['bal_acc_std']:.4f}, "
+                            f"f1={cv_result['f1_mean']:.4f}\u00b1{cv_result['f1_std']:.4f} ({elapsed:.1f}s)")
+                results["mlp"] = cv_result
+
+        # Shuffle baseline
+        if args.shuffle_baseline:
+            logger.info(f"  Running shuffled feature baseline ({args.cv_folds}-fold CV)...")
+            shuffled_edge_data = shuffle_edge_data_features(edge_data, seed=SEED)
+            shuffled_datasets = flatten_to_pairs(shuffled_edge_data)
+            if shuffled_datasets:
+                if args.probe in ("linear", "both"):
+                    t1 = time.time()
+                    shuf_result = run_cross_validation(
+                        shuffled_datasets, "Linear", cfg['feat_dim'], args,
+                        n_folds=args.cv_folds, is_e2e=(feature_type == 'cnn_e2e'),
+                    )
+                    elapsed = time.time() - t1
+                    if shuf_result:
+                        logger.info(f"    Shuffled Linear CV: bal_acc={shuf_result['bal_acc_mean']:.4f}\u00b1{shuf_result['bal_acc_std']:.4f} "
+                                    f"({elapsed:.1f}s)")
+                        results["linear_shuffled"] = shuf_result
+
+                if args.probe in ("mlp", "both"):
+                    t1 = time.time()
+                    shuf_result = run_cross_validation(
+                        shuffled_datasets, "MLP", cfg['feat_dim'], args,
+                        n_folds=args.cv_folds, is_e2e=(feature_type == 'cnn_e2e'),
+                    )
+                    elapsed = time.time() - t1
+                    if shuf_result:
+                        logger.info(f"    Shuffled MLP CV: bal_acc={shuf_result['bal_acc_mean']:.4f}\u00b1{shuf_result['bal_acc_std']:.4f} "
+                                    f"({elapsed:.1f}s)")
+                        results["mlp_shuffled"] = shuf_result
+            else:
+                logger.warning("  No shuffled datasets, skipping shuffle baseline")
+
+        return results
+
+    # ── Split by condition (non-CV mode) ──────────────────────────────────
     train_data, val_data = split_by_condition(
         edge_data, TRAIN_CONDITIONS, VAL_CONDITIONS
     )
@@ -884,10 +1081,12 @@ def evaluate_feature(feature_type, all_pairs, args, checkpoint_path):
     logger.info(f"  Val conditions:   {VAL_CONDITIONS} -> {len(val_data)} pairs")
 
     if len(val_data) < 1:
-        logger.warning(f"  Val empty ({VAL_CONDITIONS} have 0 pairs), falling back to random 80/20 split")
+        train_frac = 1.0 - args.val_frac
+        logger.warning(f"  Val empty ({VAL_CONDITIONS} have 0 pairs), falling back to random "
+                       f"{train_frac:.0%}/{args.val_frac:.0%} split")
         import random
         random.shuffle(train_data)
-        split = max(1, int(0.8 * len(train_data)))
+        split = max(1, int(train_frac * len(train_data)))
         val_data = train_data[split:]
         train_data = train_data[:split]
         logger.info(f"  Random split: {len(train_data)} train, {len(val_data)} val")
@@ -998,21 +1197,38 @@ def evaluate_feature(feature_type, all_pairs, args, checkpoint_path):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def print_results_table(all_results):
-    """Print formatted results table."""
+    """Print formatted results table. Handles both CV and non-CV results."""
+    # Auto-detect CV mode
+    is_cv_mode = any(
+        r is not None
+        and any(isinstance(m, dict) and m.get("is_cv", False) for m in r.values())
+        for r in all_results.values()
+    )
+
     print()
-    print("=" * 110)
-    print("Unified Edge Probing Benchmark — Results")
-    print("=" * 110)
-    header = (f"{'Feature':<25} {'Probe':<8} {'BalAcc':<10} {'F1':<10} "
-              f"{'Precision':<10} {'Recall':<10} {'Status':<10}")
+    print("=" * 120)
+    print("Unified Edge Probing Benchmark \u2014 Results")
+    print("=" * 120)
+
+    if is_cv_mode:
+        header = (f"{'Feature':<28} {'Probe':<8} {'BalAcc (mean\u00b1std)':<22} "
+                  f"{'F1 (mean\u00b1std)':<22} {'Status':<10}")
+    else:
+        header = (f"{'Feature':<25} {'Probe':<8} {'BalAcc':<10} {'F1':<10} "
+                  f"{'Precision':<10} {'Recall':<10} {'Status':<10}")
     print(header)
-    print("-" * 110)
+    print("-" * 120)
 
     rows = []
+    has_shuffled = False
+
     for fkey, cfg in FEATURE_CONFIGS.items():
         if fkey not in all_results or all_results[fkey] is None:
-            print(f"{cfg['display']:<25} {'—':<8} {'—':<10} {'—':<10} "
-                  f"{'—':<10} {'—':<10} {'SKIP':<10}")
+            if is_cv_mode:
+                print(f"{cfg['display']:<28} {'\u2014':<8} {'\u2014':<22} {'\u2014':<22} {'SKIP':<10}")
+            else:
+                print(f"{cfg['display']:<25} {'\u2014':<8} {'\u2014':<10} {'\u2014':<10} "
+                      f"{'\u2014':<10} {'\u2014':<10} {'SKIP':<10}")
             continue
 
         r = all_results[fkey]
@@ -1020,27 +1236,71 @@ def print_results_table(all_results):
             if ptype not in r or r[ptype] is None:
                 continue
             m = r[ptype]
-            print(f"{cfg['display']:<25} {ptype:<8} "
-                  f"{m['final_bal_acc']:<10.4f} {m['final_f1']:<10.4f} "
-                  f"{m['final_precision']:<10.4f} {m['final_recall']:<10.4f} "
-                  f"{'OK':<10}")
-            rows.append({
-                "feature": cfg['display'],
-                "probe": ptype,
-                "bal_acc": m['final_bal_acc'],
-                "f1": m['final_f1'],
-                "precision": m['final_precision'],
-                "recall": m['final_recall'],
-            })
 
-    print("-" * 110)
+            if m.get("is_cv", False):
+                print(f"{cfg['display']:<28} {ptype:<8} "
+                      f"{m['bal_acc_mean']:.4f}\u00b1{m['bal_acc_std']:<.4f}        "
+                      f"{m['f1_mean']:.4f}\u00b1{m['f1_std']:<.4f}        "
+                      f"{'OK':<10}")
+                rows.append({
+                    "feature": cfg['display'],
+                    "probe": ptype,
+                    "bal_acc": m['bal_acc_mean'],
+                    "bal_acc_std": m['bal_acc_std'],
+                    "f1": m['f1_mean'],
+                    "f1_std": m['f1_std'],
+                    "is_cv": True,
+                })
+            else:
+                print(f"{cfg['display']:<25} {ptype:<8} "
+                      f"{m['final_bal_acc']:<10.4f} {m['final_f1']:<10.4f} "
+                      f"{m['final_precision']:<10.4f} {m['final_recall']:<10.4f} "
+                      f"{'OK':<10}")
+                rows.append({
+                    "feature": cfg['display'],
+                    "probe": ptype,
+                    "bal_acc": m['final_bal_acc'],
+                    "f1": m['final_f1'],
+                    "precision": m['final_precision'],
+                    "recall": m['final_recall'],
+                })
+
+        # Check for shuffled results
+        for ptype in ["linear_shuffled", "mlp_shuffled"]:
+            if ptype in r and r[ptype] is not None:
+                has_shuffled = True
+
+    # Print shuffled baseline section
+    if has_shuffled:
+        print("--- shuffled baseline ---")
+        for fkey, cfg in FEATURE_CONFIGS.items():
+            if fkey not in all_results or all_results[fkey] is None:
+                continue
+            r = all_results[fkey]
+            for ptype, label in [("linear_shuffled", "linear"), ("mlp_shuffled", "mlp")]:
+                if ptype not in r or r[ptype] is None:
+                    continue
+                m = r[ptype]
+                display_name = f"{cfg['display']} (shuffled)"
+                print(f"{display_name:<28} {label:<8} "
+                      f"{m['bal_acc_mean']:.4f}\u00b1{m['bal_acc_std']:<.4f}        "
+                      f"{m['f1_mean']:.4f}\u00b1{m['f1_std']:<.4f}        "
+                      f"{'SHUF':<10}")
+
+    print("-" * 120)
     print()
 
     # Best performer
     if rows:
-        best = max(rows, key=lambda r: r["bal_acc"])
-        print(f"Best performer: {best['feature']} + {best['probe']} "
-              f"(bal_acc={best['bal_acc']:.4f}, f1={best['f1']:.4f})")
+        if is_cv_mode:
+            best = max(rows, key=lambda r: r["bal_acc"])
+            print(f"Best performer: {best['feature']} + {best['probe']} "
+                  f"(bal_acc={best['bal_acc']:.4f}\u00b1{best['bal_acc_std']:.4f}, "
+                  f"f1={best['f1']:.4f}\u00b1{best['f1_std']:.4f})")
+        else:
+            best = max(rows, key=lambda r: r["bal_acc"])
+            print(f"Best performer: {best['feature']} + {best['probe']} "
+                  f"(bal_acc={best['bal_acc']:.4f}, f1={best['f1']:.4f})")
         print()
 
     return rows
@@ -1112,6 +1372,12 @@ def parse_args(argv=None):
                    help="Random seed")
     p.add_argument("--no-cache", action="store_true",
                    help="Skip loading/saving feature cache")
+    p.add_argument("--cv-folds", type=int, default=0,
+                   help="Number of CV folds (0 = use original train/val split)")
+    p.add_argument("--shuffle-baseline", action="store_true",
+                   help="Also run on shuffled features as overfitting baseline")
+    p.add_argument("--val-frac", type=float, default=0.2,
+                   help="Validation fraction for non-CV mode (used in random split fallback)")
     return p.parse_args(argv)
 
 
