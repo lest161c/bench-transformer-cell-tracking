@@ -883,6 +883,14 @@ def evaluate_feature(feature_type, all_pairs, args, checkpoint_path):
     logger.info(f"  Train conditions: {TRAIN_CONDITIONS} -> {len(train_data)} pairs")
     logger.info(f"  Val conditions:   {VAL_CONDITIONS} -> {len(val_data)} pairs")
 
+    if len(val_data) < 1:
+        logger.warning(f"  Val empty ({VAL_CONDITIONS} have 0 pairs), falling back to random 80/20 split")
+        import random
+        random.shuffle(train_data)
+        split = max(1, int(0.8 * len(train_data)))
+        val_data = train_data[split:]
+        train_data = train_data[:split]
+        logger.info(f"  Random split: {len(train_data)} train, {len(val_data)} val")
     if len(train_data) < 1 or len(val_data) < 1:
         logger.warning("  Need at least 1 train and 1 val pair, skipping")
         return None
