@@ -1211,8 +1211,8 @@ def print_results_table(all_results):
     print("=" * 120)
 
     if is_cv_mode:
-        header = (f"{'Feature':<28} {'Probe':<8} {'BalAcc (mean\u00b1std)':<22} "
-                  f"{'F1 (mean\u00b1std)':<22} {'Status':<10}")
+        header = (f"{'Feature':<28} {'Probe':<8} {'BalAcc (mean±std)':<22} "
+                  f"{'F1 (mean±std)':<22} {'Status':<10}")
     else:
         header = (f"{'Feature':<25} {'Probe':<8} {'BalAcc':<10} {'F1':<10} "
                   f"{'Precision':<10} {'Recall':<10} {'Status':<10}")
