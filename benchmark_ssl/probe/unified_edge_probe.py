@@ -69,6 +69,8 @@ if torch.cuda.is_available():
 
 PATCH_SIZE = 64
 
+EM_DASH = '\u2014'
+
 # ═══════════════════════════════════════════════════════════════════════════════
 #  Data loading (shared across all feature types)
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1225,10 +1227,10 @@ def print_results_table(all_results):
     for fkey, cfg in FEATURE_CONFIGS.items():
         if fkey not in all_results or all_results[fkey] is None:
             if is_cv_mode:
-                print(f"{cfg['display']:<28} {'\u2014':<8} {'\u2014':<22} {'\u2014':<22} {'SKIP':<10}")
+                print(f"{cfg['display']:<28} {EM_DASH:<8} {EM_DASH:<22} {EM_DASH:<22} {'SKIP':<10}")
             else:
-                print(f"{cfg['display']:<25} {'\u2014':<8} {'\u2014':<10} {'\u2014':<10} "
-                      f"{'\u2014':<10} {'\u2014':<10} {'SKIP':<10}")
+                print(f"{cfg['display']:<25} {EM_DASH:<8} {EM_DASH:<10} {EM_DASH:<10} "
+                      f"{EM_DASH:<10} {EM_DASH:<10} {'SKIP':<10}")
             continue
 
         r = all_results[fkey]
