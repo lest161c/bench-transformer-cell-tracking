@@ -62,6 +62,11 @@ echo "=== Setting up environment ==="
 # Upgrade setuptools once (needed for editable installs)
 python -m pip install --upgrade setuptools
 
+# Install fast-regionprops if available (optional, skimage fallback exists)
+python -c "import fast_regionprops" 2>/dev/null \
+    || python -m pip install fast-regionprops 2>/dev/null \
+    || echo 'fast-regionprops not available, using skimage fallback'
+
 # Install trackastra from source (editable) if not already installed
 if ! python -c "import trackastra" 2>/dev/null; then
     echo "Installing trackastra from $TRK ..."
