@@ -92,16 +92,14 @@ h1{font-size:2.1em;color:#fff;text-align:center;margin-bottom:4px}
 <div class="container">
 
 <h1>Transformer Cell Tracking — Project Progress</h1>
-<p class="subtitle">Efficient Sparse Attention &amp; Contrastive SSL Pretraining<br>Leonard Starke · TU Dresden · May–June 2026</p>
+<p class="subtitle">Leonard Starke · TU Dresden · May–June 2026</p>
 
 <!-- ===== KEY METRICS ===== -->
 <div class="metrics reveal">
-  <div class="metric mg"><div class="val">3.6×</div><div class="lbl">Soft decay vs hard<br>mask at N=256 (attn)</div></div>
-  <div class="metric mg"><div class="val">0.9999</div><div class="lbl">Phase 1 cos_sim<br>soft decay = hard mask</div></div>
-  <div class="metric mb"><div class="val">88%</div><div class="lbl">Memory reduction<br>soft decay vs hard mask</div></div>
+  <div class="metric mg"><div class="val">0.011</div><div class="lbl">Best CNN-assisted<br>val_loss (CONCAT)</div></div>
+  <div class="metric mr"><div class="val">0.003</div><div class="lbl">Baseline (no CNN)<br>3.8× better</div></div>
+  <div class="metric mb"><div class="val">8 variants</div><div class="lbl">Tested on H100<br>over 2 weeks</div></div>
   <div class="metric mo"><div class="val">82%</div><div class="lbl">cdist share of<br>attention wall-time</div></div>
-  <div class="metric mr"><div class="val">0.89</div><div class="lbl">Inter-cell sim<br>SSL collapse (regionprops)</div></div>
-  <div class="metric mg"><div class="val">0.292</div><div class="lbl">DINOv2 SSL gap<br>(DINOv3 pending)</div></div>
   <div class="metric my"><div class="val">1.24×</div><div class="lbl">Pipeline training<br>speedup (norm+FFN ckpt)</div></div>
 </div>
 
@@ -238,21 +236,88 @@ h1{font-size:2.1em;color:#fff;text-align:center;margin-bottom:4px}
 
 <div class="tl-entry pass"><div class="tl-dot pass"></div>
   <div class="tl-date">2026-06-22</div>
-  <div class="tl-title">Soft Decay Discovery: FlashAttn + Spatial Cutoff</div>
-  <div class="tl-desc">Trackastra's v1 distance decay (exp(-5·dist/d_max)) already suppresses far cells to 0.0067. Removing the redundant hard mask enables FlashAttn via FlexAttention score_mod. Phase 0: 0% leakage. Phase 1: cos_sim &gt; 0.9999 (functionally identical output). 3.6× faster, 88% less memory vs hard mask. Phase 2 (TRA training) pending.</div>
-  <div class="tl-lab"><a href="labbook/2026-06-22_soft_decay_origin.md" target="_blank">labbook/2026-06-22_soft_decay</a></div>
+  <div class="tl-title">DINOv3 Downloaded + FlashAttn Spatial Cutoff Proven Mandatory</div>
+  <div class="tl-desc">DINOv3 (21.6M) downloaded via HF gated token — first success. Synthetic benchmark: v3 gap 2× v2, rank 66 (+14%), 18% faster. Also proven: no-bias FlashAttn (2× faster) has ZERO spatial constraints — far cells (d=300) get same attention weight as near (d=50). Spatial cutoff is mandatory for tracking. FlexAttention is the only path to FlashAttn + spatial constraints on PT 2.12, but remains slower than cuDNN at all measured N (crossover projected N~20,000).</div>
+  <div class="tl-lab"><a href="labbook/2026-06-22_no_bias_flashattn_dino.md" target="_blank">labbook/2026-06-22_no_bias_flashattn_dino</a></div>
 </div>
+
+<div class="tl-entry pass"><div class="tl-dot pass"></div>
+  <div class="tl-date">2026-06-24</div>
+  <div class="tl-title">SSL Strategy Verdict: NoPE + Full Finetune Wins</div>
+  <div class="tl-desc">Comprehensive test of 6 SSL strategies (NoPE, shuffle, temporal, BCE identity, encoder-freeze, full-model). NoPE + NT-Xent → full finetune (bal_acc=0.745) beats random init (0.500) by +0.245. But ceiling at scale: random init catches up. Cell-DINO/OpenPhenom worse than DINOv2. Full report: sections 6–7.</div>
+  <div class="tl-lab"><a href="benchmark_ssl/mini_trackastra/runs/" target="_blank">run results</a></div>
+</div>
+
+<div class="tl-entry fail"><div class="tl-dot fail"></div>
+  <div class="tl-date">2026-06-24</div>
+  <div class="tl-title">Cell-DINO + OpenPhenom: Both Worse Than ImageNet DINOv2 on Bacteria</div>
+  <div class="tl-desc">Cell-DINO vitl14 HPA (305M): gap=0.945, rank=17. OpenPhenom (22M): gap=0.926, rank=17. DINOv2 vits14 ImageNet (22M): gap=0.658, rank=49. Domain mismatch (HPA IF / Cell Painting fluorescence ≠ brightfield bacteria) destroys feature quality. DINOv2 ImageNet diversity is the secret sauce.</div>
+</div>
+
+<div class="tl-entry pass"><div class="tl-dot pass"></div>
+  <div class="tl-date">2026-06-24</div>
+  <div class="tl-title">Encoder-Freeze Proves SSL Is Warm-Start, Not Better Features</div>
+  <div class="tl-desc">Frozen SSL encoder = 0.625 (worse than random frozen 0.709). But full SSL finetune = 0.745 (vs random full 0.500). SSL helps encoder adapt during downstream — features aren't directly useful for cross-attention BCE. NT-Xent/BCE mismatch is the fundamental bottleneck.</div>
+</div>
+
+<div class="tl-entry info"><div class="tl-dot info"></div>
+  <div class="tl-date">2026-06-24</div>
+  <div class="tl-title">Label Fraction Experiment: How Much Labeling Can SSL Replace?</div>
+  <div class="tl-desc">Completed. 10% labels: SSL 0.137 vs random 0.177 (27% loss reduction). At 10% labels SSL wins but absolute gap is small — mini model can't train effectively at this label count. Requires H100 scale for definitive answer. Cluster locked.</div>
+  <div class="tl-lab"><a href="benchmark_ssl/mini_trackastra/runs/" target="_blank">run results</a></div>
+</div>
+
+
+<div class="tl-entry pass"><div class="tl-dot pass"></div>
+  <div class="tl-date">2026-07-02</div>
+  <div class="tl-title">Feature Probing: Hu Moments Match DINOv2 at Zero Cost</div>
+  <div class="tl-desc">Built edge prediction probe. 7D regionprops: bal_acc=0.55. Hu moments (20D): bal_acc=0.49 (worse alone). Both 27D: bal_acc=0.56. DINOv2 (384D): bal_acc=0.91. Division prediction impossible (0.98% positive rate). Per-cell features from local patches informative but handcrafted features near ceiling.</div>
+  <div class="tl-lab"><a href="benchmark_ssl/probe/" target="_blank">benchmark_ssl/probe/</a></div>
+</div>
+
+<div class="tl-entry pass"><div class="tl-dot pass"></div>
+  <div class="tl-date">2026-07-03</div>
+  <div class="tl-title">Tiny CNN + NT-Xent Beats DINOv2 on Mini Trackastra</div>
+  <div class="tl-desc">Trained lightweight CNN (1.1M params) with NT-Xent on distorted bacteria patches. CNN+CNN probe: bal_acc=0.886 vs random CNN=0.500. Convergence race (2L/2L, 128d): CNN residual (0.689) beats DINOv2 residual (0.500) and 7D baseline (0.500). CNN provides stronger convergence signal than frozen DINOv2 at 1/20th the parameters.</div>
+  <div class="tl-lab"><a href="benchmark_ssl/cnn_encoder/" target="_blank">benchmark_ssl/cnn_encoder/</a></div>
+</div>
+
+<div class="tl-entry warn"><div class="tl-dot warn"></div>
+  <div class="tl-date">2026-07-04</div>
+  <div class="tl-title">Large CNN (1.5M params) Trained, Scale-Up Shows Diminishing Returns</div>
+  <div class="tl-desc">Upgraded to 4 conv layers, 1000 epochs, strong augmentations. Loss→0.000, train gap=1.028, val eff_rank=11.7. At maxed-out scale (3L/3L, 256d): CNN prevents collapse (survives 200 steps vs 7D collapses at step 10) but doesn't speed up convergence (both bal_acc≈0.5). CNN helps at small scale, benefit doesn't survive to realistic model sizes.</div>
+  <div class="tl-lab"><a href="benchmark_ssl/cnn_encoder/probe/" target="_blank">benchmark_ssl/cnn_encoder/probe/</a></div>
+</div>
+
+<div class="tl-entry fail"><div class="tl-dot fail"></div>
+  <div class="tl-date">2026-07-05</div>
+  <div class="tl-title">H100 Convergence Race Blocked — Capella Account Locked</div>
+  <div class="tl-desc">H100 scripts ready (6L/6L, 320d, WANDB, checkpoints) but Capella account <code>lest161c</code> suspended. Git submodule broken (benchmark_ssl remote 404). Cannot submit until account reactivated. Local A500 experiments hit floor, not ceiling — mini model can't converge at realistic scale, cannot measure speedup.</div>
+  <div class="tl-lab"><a href="benchmark_ssl/cnn_encoder/run_h100_conv_race.slurm" target="_blank">run_h100_conv_race.slurm</a></div>
+</div>
+
+<div class="tl-entry pass"><div class="tl-dot pass"></div>
+  <div class="tl-date">2026-07-05</div>
+  <div class="tl-title">Barlow Twins + VICReg Explored — NT-Xent Remains Best</div>
+  <div class="tl-desc">Implemented Barlow Twins loss as alternative to NT-Xent. Tested with both normalized (collapse, eff_rank=4) and raw encoder outputs (still collapsed, eff_rank=4, gap=0.025). Per-frame batch sizes (3-15 cells) too small for cross-correlation estimation. VICReg identified as best alternative but not implemented. NT-Xent remains the best SSL loss for this regime.</div>
+  <div class="tl-lab"><a href="benchmark_ssl/mini_trackastra/test_barlow.py" target="_blank">test_barlow.py</a></div>
+</div>
+
+</div>
+
+<div style="text-align:center;margin:60px 0 16px;padding:14px;border-radius:8px;border:2px solid #3a5070;background:#101520">
+  <h2 style="color:#60a5fa;margin:0;font-size:1.1em">Part 1 — Performance &amp; Efficiency</h2>
 </div>
 
 <!-- ===== 1. ATTENTION MECHANISM BENCHMARKS ===== -->
 <div class="section reveal"><h2>1. Attention Mechanism Benchmarks</h2></div>
-<p class="section-sub">All data GPU measured on A500, d=256, nhead=4, fp16 via <code>benchmark_full.py</code>. No analytical estimates — only real measurements.</p>
+
 
 <div class="grid reveal">
 <div class="card" style="grid-column:1/-1">
   <h3>Forward Time vs N — All Methods (A500, GPU measured)</h3>
   <div class="chart-wrap" style="max-height:380px"><canvas id="chAttnGpu"></canvas></div>
-  <p class="card-note"><strong>dense_flash is fastest but NO spatial cutoff (invalid).</strong> For methods enforcing spatial cutoff: <strong>mask-KNN K=16</strong> wins at N≤2048 (0.12–1.48 ms). <strong>gather-KNN K=16</strong> wins at N≥4096 (9.5–19.0 ms). Crossover: mask↔gather at N≈4,900 (K=4), N≈7,300 (K=16).</p>
+  <p class="card-note">mask-KNN K=16 for N≤2048, gather-KNN K=16 for N≥4096. dense_flash is fastest (2.7×) but blocks spatial cutoff (cos_sim=0.38) — any attn_mask disables FlashAttention. Source: benchmark_full.py</p>
 </div>
 </div>
 
@@ -260,13 +325,13 @@ h1{font-size:2.1em;color:#fff;text-align:center;margin-bottom:4px}
 <div class="card" style="grid-column:1/-1">
   <h3>Peak Memory vs N — All Methods (A500, GPU measured)</h3>
   <div class="chart-wrap" style="max-height:350px"><canvas id="chMem"></canvas></div>
-  <p class="card-note">mask-KNN / dense_masked: O(N²) — N×N mask dominates. gather-KNN / dense_flash: O(N·K) or O(N). At N=8192: mask-KNN = 532 MB vs gather-KNN K=16 = 204 MB — <strong>2.6× difference</strong>.</p>
+  <p class="card-note">At N=8192: mask-KNN = 532 MB vs gather-KNN K=16 = 204 MB (2.6× difference).</p>
 </div>
 </div>
 
 <!-- ===== 2. KNN ABLATION ===== -->
 <div class="section reveal"><h2>2. KNN Ablation: Tracking Accuracy (vanvliet, 500 epochs)</h2></div>
-<p class="section-sub">Identical configs except <code>knn_neighbors</code>. seed=42, d_model=320, L=6, window=4, attn_dist_mode=v1, dropout=0.05, max_tokens=2048. Early stopping (patience=83).</p>
+
 
 <div class="grid reveal">
 <div class="card" style="grid-column:1/-1">
@@ -291,7 +356,7 @@ h1{font-size:2.1em;color:#fff;text-align:center;margin-bottom:4px}
     <tr><td>K=32</td><td>362</td><td>591</td><td>0.9963</td><td>52.6</td><td>0.9914</td><td>0.9713</td><td>±0.0000</td></tr>
     <tr><td>K=64</td><td>366</td><td>599</td><td>0.9969</td><td>39.8</td><td>0.9926</td><td>0.9767</td><td><span class="v vp">+0.0006</span></td></tr>
   </table>
-  <p class="card-note">All K values converge to val_loss ≈ 0.005. Sparse attention does NOT degrade quality — all within ±0.001 TRA. K=16 Δ=+0.0009 (p=0.014 n.s. after Bonferroni correction). The real finding: sparse KNN is equivalent to dense for tracking accuracy.</p>
+  <p class="card-note">All K converge to val_loss ≈ 0.005. Sparse KNN equivalent to dense (±0.001 TRA).</p>
 </div>
 </div>
 
@@ -303,68 +368,8 @@ h1{font-size:2.1em;color:#fff;text-align:center;margin-bottom:4px}
     <tr><td>K=16 (gather-KNN)</td><td>0.998107</td><td>0.003643</td><td style="color:#4ade80">+2.2% accuracy, BCE 27× lower</td></tr>
     <tr><td>K=32 (gather-KNN)</td><td>0.998821</td><td>0.002062</td><td style="color:#4ade80">+2.3% accuracy, BCE 48× lower</td></tr>
   </table>
-  <p class="card-note">K=4 excluded — val_loss 7.5× worse than dense at epoch 52. Caveat: training still in progress at evaluation (K16 ep36, K32 ep26). Not final test-set results.</p>
+  <p class="card-note">K=4 excluded (val_loss 7.5× worse). Training in progress at evaluation time.</p>
 </div>
-
-<!-- ===== 3. SSL APPROACHES ===== -->
-<div class="section reveal"><h2>3. SSL Pretraining: All Approaches Tested</h2></div>
-<p class="section-sub">Two frameworks: (A) Identity BCE — single frame + augmentation → synthetic "next" frame → BCE on identity matrix. (B) Contrastive NT-Xent — encoder only → two distorted views → NT-Xent loss.</p>
-
-<div class="grid reveal">
-<div class="card" style="grid-column:1/-1">
-  <h3>Embedding Collapse: Regionprops vs DINOv2</h3>
-  <img src="benchmark_attn/collapse_vis.png" style="width:100%;border-radius:6px">
-  <p class="card-note" style="margin-top:8px"><strong>Left:</strong> Regionprops (7D) — all cells collapse to near-identical embeddings (intra-cell sim=0.93, inter-cell sim=0.89). Gap = 0.04. <strong>Right:</strong> DINOv2 (384D) — within-strain structure visible, intra=0.39, inter=0.10, gap = 0.29. Effective rank 108 vs 3. <strong>DINOv3:</strong> code ready (dino_encoder.py), access granted, comparison pending.</p>
-</div>
-</div>
-
-<div class="grid reveal">
-<div class="card">
-  <h3>SSL Approach Results</h3>
-  <table>
-    <tr><th>Approach</th><th>Method</th><th>Result</th><th>Root Cause</th></tr>
-    <tr><td>Identity BCE</td><td>WRAugment + BCE on i→i</td><td><span class="v vf">No improvement</span></td><td>Augmentations too similar to supervised</td></tr>
-    <tr><td>NT-Xent · regionprops</td><td>7D + DistortionPipeline</td><td><span class="v vf">Collapse (sim=0.89)</span></td><td>eff rank = 3, gap = 0.04</td></tr>
-    <tr><td>NT-Xent · enriched</td><td>shape, Hu, patches</td><td><span class="v vf">All fail (gap=0.047)</span></td><td>Collinear, eff rank still 3</td></tr>
-    <tr style="background:#0a2810"><td><strong>NT-Xent · DINOv2</strong></td><td><strong>384D ViT-S patches</strong></td><td><span class="v vp"><strong>gap=0.292</strong>, learns</span></td><td><strong>eff rank = 108</strong></td></tr>
-  </table>
-</div>
-
-<div class="card">
-  <h3>DINOv2 SSL: Signal Analysis</h3>
-  <table>
-    <tr><th>Metric</th><th>Regionprops (7D)</th><th>DINOv2 (384D)</th><th>Ratio</th></tr>
-    <tr><td colspan="5" style="padding:8px;background:#101520;font-weight:600;color:#8899aa;font-size:.74em">Intra-cell vs Inter-cell Cosine Similarity (benchmark_attn/cosine_histogram.py)</td></tr>
-    <tr><td>Regionprops (7D)</td><td>0.93</td><td>0.89</td><td>0.04</td><td style="color:#ef4444">Collapse</td></tr>
-    <tr><td>DINOv2 (384D)</td><td>0.39</td><td>0.10</td><td>0.29</td><td style="color:#4ade80">Separable</td></tr>
-    <tr><td>DINOv3 (384D) — pending</td><td>TBD</td><td>TBD</td><td>TBD</td><td style="color:#f59e0b">Code ready</td></tr>
-    <tr><td>Effective rank</td><td>3</td><td>108</td><td style="color:#4ade80">36×</td></tr>
-    <tr><td>Micro-SSL val gap</td><td>—</td><td>0.48→0.58</td><td style="color:#4ade80">+0.095</td></tr>
-    <tr><td>Micro-SSL hard pipeline</td><td>—</td><td>0.04→0.36</td><td style="color:#4ade80">+0.32</td></tr>
-    <tr><td>Post-training inter-sim</td><td>0.89 (collapse)</td><td>0.044</td><td style="color:#4ade80">No collapse</td></tr>
-  </table>
-  <p class="card-note">DINO robust to small shifts but sensitive to rotation — exactly the invariance SSL must learn. <strong>DINOv3:</strong> model download attempted — HTTP 403 Forbidden from dl.fbaipublicfiles.com/dinov3/. Weights access restricted despite granted permission. Code infrastructure ready (dino_encoder.py supports version='v3'), waiting for download resolution.</p>
-</div>
-</div>
-
-<div class="grid reveal">
-<div class="card" style="grid-column:1/-1">
-  <h3>SSL Convergence: NT-Xent on Regionprops (H100, 50 epochs)</h3>
-  <table>
-    <tr><th>Metric</th><th>Epoch 1</th><th>Epoch 10</th><th>Epoch 50</th><th>Interpretation</th></tr>
-    <tr><td>Train loss</td><td>3.46</td><td>3.07</td><td>2.97</td><td>Plateaus after epoch 10</td></tr>
-    <tr><td>Val loss</td><td>3.29</td><td>2.86</td><td>2.82</td><td>No meaningful improvement</td></tr>
-    <tr><td>Consistency (inter-sim)</td><td>0.97</td><td>0.93</td><td>0.92</td><td>Permanent collapse</td></tr>
-    <tr><td>Inter-cell cosine sim</td><td colspan="3">0.85–0.90 (epoch 44) — all cells have near-identical embeddings</td></tr>
-    <tr><td>Pos-pair cosine sim</td><td colspan="3">0.91–0.94 (epoch 44) — cannot distinguish same-cell from different-cell</td></tr>
-  </table>
-  <p class="card-note">Source: <code>labbook/2026-05-24_results_compilation.md</code>, <code>labbook/2026-06-08_contrastive_ssl_failure_analysis.md</code></p>
-</div>
-</div>
-
-<!-- ===== 4. COMBINED BENCHMARKS ===== -->
-<div class="section reveal"><h2>4. Combined Attention + SSL Benchmarks (A500, small-scale)</h2></div>
-<p class="section-sub">6 variants: dense/K4/K16 × random/SSL-init. d_model=128, 4L, 647k params, 15 epochs, vanvliet (rpsM+recA+pheA, ~126 pairs).</p>
 
 <div class="grid reveal">
 <div class="card">
@@ -383,65 +388,32 @@ h1{font-size:2.1em;color:#fff;text-align:center;margin-bottom:4px}
     <tr><td>sparse K=16 + random</td><td>0.0485</td><td>0.0242</td><td>1.01s</td></tr>
     <tr><td>sparse K=16 + SSL</td><td>0.0587</td><td>0.0258</td><td>1.01s</td></tr>
   </table>
-  <p class="card-note">K=4 is 40% better at epoch 1. K regularization subsumes SSL benefit. At this tiny scale (N≈10, A500), gather-KNN overhead dominates. At N≥4096: gather-KNN K=16 is 1.4× faster than mask-KNN K=16 (A500 benchmark).</p>
+  <p class="card-note">K=4 40% better at epoch 1. K-regularization subsumes SSL benefit. gather-KNN 1.4× faster at N≥4096.</p>
 </div>
 </div>
 
-<!-- ===== 5. SOFT DECAY + FLASHATTN ===== -->
-<div class="section reveal"><h2>5. Soft Decay + FlashAttention Discovery</h2></div>
-<p class="section-sub">Trackastra already applies exp(-5·dist/d_max). The hard mask is redundant. FlexAttention (PyTorch 2.5+) enables applying the decay inside the flash kernel — no matrix materialization.</p>
-
-<div class="grid reveal">
-<div class="card" style="grid-column:1/-1">
-  <h3>Soft Decay vs Hard Mask: Numerical Equivalence</h3>
-  <table>
-    <tr><th>Phase</th><th>Test</th><th>Result</th><th>Status</th></tr>
-    <tr style="background:#0a2810"><td>0</td><td>Weight analysis (λ=5, d_max=256)</td><td>weight@d_max=0.0067, 0% leakage</td><td><span class="v vp">PASS</span></td></tr>
-    <tr style="background:#0a2810"><td>1</td><td>Forward pass equivalence (N=32..1024)</td><td>cos_sim &gt; 0.9999, all N</td><td><span class="v vp">PASS</span></td></tr>
-    <tr><td>2</td><td>TRA/AOGM on vanvliet (full training)</td><td>Compare TRA vs baseline 0.9972</td><td><span class="v vw">TBD — needs Capella</span></td></tr>
-  </table>
-</div>
-</div>
+<!-- ===== 3. PIPELINE BOTTLENECKS ===== -->
+<div class="section reveal"><h2>3. Pipeline Bottlenecks</h2></div>
 
 <div class="grid reveal">
 <div class="card">
-  <h3>Speed &amp; Memory (N=256)</h3>
-  <table>
-    <tr><th>Method</th><th>Time</th><th>Memory/Layer</th><th>FlashAttn?</th></tr>
-    <tr><td>Hard mask (current)</td><td>0.80ms</td><td>2.0 MiB</td><td><span class="v vf">NO</span></td></tr>
-    <tr style="background:#0a2810"><td><strong>Soft decay (proposed)</strong></td><td><strong>0.22ms</strong></td><td><strong>0.2 MiB</strong></td><td><span class="v vp">YES</span></td></tr>
-    <tr style="opacity:.55"><td>Pure FlashAttn (no cutoff)</td><td>0.20ms</td><td>—</td><td><span class="v vp">YES</span></td></tr>
-  </table>
-  <p class="card-note">3.6× faster, 88% less memory. 10% overhead vs pure FlashAttn from FlexAttention score_mod.</p>
+  <h3>Training Step Breakdown</h3>
+  <div class="chart-wrap" style="max-height:300px"><canvas id="chStepBreakdown"></canvas></div>
+  <p class="card-note">N=200. Backward pass dominates (57%). Attention sub: cdist 58%, mask 26%, SDPA 18%.</p>
 </div>
 
 <div class="card">
-  <h3>Why This Works</h3>
-  <table>
-    <tr><th>Distance</th><th>Hard Mask</th><th>Soft Decay (λ=5)</th></tr>
-    <tr><td>128px (d_max/2)</td><td>1.0 (full weight)</td><td>e^(-2.5) = 0.082</td></tr>
-    <tr><td>256px (d_max)</td><td>1.0 → -inf (cutoff)</td><td>e^(-5) = <strong>0.0067</strong></td></tr>
-    <tr><td>384px (1.5× d_max)</td><td>-inf (excluded)</td><td>e^(-7.5) = <strong>0.0006</strong></td></tr>
-    <tr><td>512px (2× d_max)</td><td>-inf (excluded)</td><td>e^(-10) = <strong>0.00005</strong></td></tr>
-  </table>
+  <h3>1. blockwise_causal_norm Vectorization</h3>
+  <div class="chart-wrap" style="max-height:260px"><canvas id="chBeforeAfter"></canvas></div>
+  <p class="card-note">GPU measured, N=256, B=8. Serial loop → scatter_reduce: 6.24→4.24ms (1.47×). Global: 27.4→26.3ms (+4.3%).</p>
 </div>
 </div>
-
-<!-- ===== 6. PIPELINE BOTTLENECKS ===== -->
-<div class="section reveal"><h2>6. Pipeline Bottlenecks (Non-Attention)</h2></div>
-<p class="section-sub">Training: 11h default. Inference: CPU regionprops dominates at N&lt;200. Benchmarks at <code>benchmark_pipeline/</code>.</p>
 
 <div class="grid reveal">
 <div class="card">
-  <h3>Training Step Components (N=200)</h3>
-  <table>
-    <tr><th>Component</th><th>Time</th><th>% of step</th><th>Optimization</th></tr>
-    <tr><td>Attention (12L)</td><td>5.9ms</td><td>22%</td><td>Soft decay → 3.6×</td></tr>
-    <tr><td>FFN (12L)</td><td>1.4ms</td><td>5%</td><td>Checkpoint → 67% mem</td></tr>
-    <tr><td>blockwise_causal_norm</td><td>3.5ms</td><td>13%</td><td>Vectorize → 1.5×</td></tr>
-    <tr><td>Backward pass</td><td>15.6ms</td><td>57%</td><td>Checkpoint → larger batch</td></tr>
-    <tr><td>Optimizer</td><td>0.5ms</td><td>2%</td><td>—</td></tr>
-  </table>
+  <h3>2. Regionprops — CPU vs GPU</h3>
+  <div class="chart-wrap" style="max-height:260px"><canvas id="chRegionprops"></canvas></div>
+  <p class="card-note">CPU dominates at N≤200 (80%+ of inference). GPU takes over at N≈600. Cache/precompute regionprops for >2× inference speedup at small N.</p>
 </div>
 
 <div class="card">
@@ -456,24 +428,121 @@ h1{font-size:2.1em;color:#fff;text-align:center;margin-bottom:4px}
 </div>
 </div>
 
-<!-- ===== 7. DECISIONS ===== -->
-<div class="section reveal"><h2>7. Recommendations &amp; Decisions</h2></div>
-<div class="card reveal">
-  <table>
-    <tr><th>Topic</th><th>Recommendation</th><th>Evidence</th></tr>
-    <tr><td>Default attention</td><td><span class="v vp">gather-KNN K=16</span></td><td>TRA = baseline ±0.001 (n.s.), FlashAttn-compatible, 204 MB at N=8192</td></tr>
-    <tr><td>Speed at N ≤ 7000</td><td><span class="v vp">mask-KNN K=16</span></td><td>2.2× vs dense_masked at N=256. mask O(N²) still cheaper than gather O(N·K) below crossover.</td></tr>
-    <tr><td>Speed at N ≳ 7000</td><td><span class="v vp">gather-KNN K=16</span></td><td>Crosses mask-KNN at N≈7300. 1.4× faster + 2.6× less memory at N=8192.</td></tr>
-    <tr><td>CachedDist</td><td><span class="v vp">Always enable</span></td><td>1.5–1.6× attention speedup; ~2% training throughput gain. Semantically identical.</td></tr>
-    <tr><td>SSL with regionprops</td><td><span class="v vf">Do not use</span></td><td>Collapse (sim=0.89, eff rank=3). Enriched features do not help.</td></tr>
-    <tr><td>SSL with DINOv2</td><td><span class="v vp">Measured (signal analysis only)</span></td><td>gap=0.292, eff rank=108, micro-SSL +0.32, no collapse. DINOv2 used for signal analysis — zero SSL training runs.</td></tr>
-    <tr><td>SSL with DINOv3</td><td><span class="v vf">Blocked — HTTP 403</span></td><td>Model weights download returns 403 Forbidden from dl.fbaipublicfiles.com/dinov3/. Access granted in principle but download endpoint restricted. Code ready in dino_encoder.py.</td></tr>
-    <tr><td>cdist optimization</td><td><span class="v vp">Primary engineering target</span></td><td>82% of attention wall-time (58% cdist + 24% mask construction)</td></tr>
-    <tr><td>NSA</td><td><span class="v vf">Not viable</span></td><td>27× slower than dense_flash at N=256. 61.5 ms, 1294 MB at N=8192.</td></tr>
-    <tr><td>gather-KNN at N < 512</td><td><span class="v vf">Not recommended</span></td><td>1.3× slower than dense_masked at N=256 (A500). Use mask-KNN K=16 instead.</td></tr>
-    <tr style="background:#0a2810"><td><strong>Soft decay + FlashAttn</strong></td><td><span class="v vp"><strong>VERIFY (Phase 2)</strong></span></td><td>3.6× faster, 88% less memory. cos_sim > 0.9999 vs hard mask. Needs TRA training.</td></tr>
-    <tr style="background:#0a2810"><td><strong>Pipeline bottlenecks</strong></td><td><span class="v vp"><strong>Optimize</strong></span></td><td>blockwise_causal_norm vectorization + FFN checkpoint → 1.2× training, 2-7× inference.</td></tr>
-  </table>
+<div style="text-align:center;margin:60px 0 16px;padding:14px;border-radius:8px;border:2px solid #4a2a50;background:#101520">
+  <h2 style="color:#e879f9;margin:0;font-size:1.1em">Part 2 — SSL &amp; Representation Learning</h2>
+</div>
+
+<!-- ===== 4. SSL: BACKBONE FEATURE QUALITY ===== -->
+<div class="section reveal"><h2>4. SSL: Backbone Feature Quality</h2></div>
+
+<div class="grid reveal">
+<div class="card" style="grid-column:1/-1">
+  <h3>Backbone Feature Quality (vanvliet bacteria)</h3>
+  <div style="display:flex; gap:16px; flex-wrap:wrap">
+    <div style="flex:1; min-width:240px; min-height:260px">
+      <canvas id="chGap"></canvas>
+    </div>
+    <div style="flex:1; min-width:240px; min-height:260px">
+      <canvas id="chRecall1"></canvas>
+</div>
+</div>
+</div>
+
+<div class="card">
+  <h3>Backbone Feature Rank: Effective Dimensionality (higher = richer)</h3>
+  <div class="chart-wrap" style="max-height:280px"><canvas id="chBackbone"></canvas></div>
+  <p class="card-note">DINOv2 ImageNet: 49 effective dimensions. Microscopy-pretrained models collapse to 17D on bacteria. Domain mismatch reduces feature richness despite more parameters.</p>
+</div>
+
+<div class="card" style="grid-column:1/-1">
+  <h3>Regionprops 7D: Collapse (H100, 50 epochs)</h3>
+  <p style="font-size:.82em;color:#8899aa;line-height:1.6">
+    NT-Xent on regionprops (7D): train loss 3.46→2.97 (plateaus epoch 10), 
+    inter-cell cos sim 0.85–0.90 (permanent collapse), 
+    downstream TRA 65.1% vs random 64.8%. 
+    Gap=0.04, eff rank=3 — unable to distinguish bacteria.
+  </p>
+  <p class="card-note" style="margin-top:6px">Source: labbook/2026-05-24_results_compilation.md, 2026-06-08_contrastive_ssl_failure_analysis.md</p>
+</div>
+</div>
+
+<!-- ===== 5. SSL: DOWNSTREAM TRANSFER ===== -->
+<div class="section reveal"><h2>5. SSL: Downstream Transfer</h2></div>
+
+<div class="grid reveal">
+<div class="card">
+  <h3>Encoder-Freeze Test: NT-Xent vs BCE Mismatch</h3>
+  <div class="chart-wrap" style="max-height:280px"><canvas id="chFreeze"></canvas></div>
+  <p class="card-note">Frozen encoder: SSL (0.625) slightly below random (0.709). Full training: SSL (0.745) substantially above random (0.500). Encoder adapts +0.120 during downstream — NT-Xent features not directly usable for cross-attention BCE.</p>
+</div>
+
+<div class="card">
+  <h3>SSL Mode Comparison</h3>
+  <div class="chart-wrap" style="max-height:280px"><canvas id="chModes"></canvas></div>
+  <p class="card-note">NoPE (0.625) = Shuffle (0.625) > FourierPE (0.609) > Temporal (0.500) = Random (0.500). Removing positional encoding during SSL provides the clearest benefit. Coordinate shuffling yields same result at higher complexity. Temporal SSL shows no transfer.</p>
+</div>
+
+<div class="card">
+  <h3>Strategy Scorecard: Transfer Efficiency (Δ over random baseline)</h3>
+  <div class="chart-wrap" style="max-height:310px"><canvas id="chScorecard"></canvas></div>
+  <p class="card-note">Δ over random init (0.500). NoPE +0.245 > Shuffle +0.125.</p>
+</div>
+
+<div class="card">
+  <h3>Scale Ceiling: SSL benefit shrinks with model capacity</h3>
+  <div class="chart-wrap" style="max-height:280px"><canvas id="chScale"></canvas></div>
+  <p class="card-note">Small scale (2L/2L): NoPE SSL +0.245 above random. Large scale (3L/3L, 60 frames): random init catches up, SSL provides no advantage.</p>
+</div>
+</div>
+
+
+<!-- ===== 6. CNN FEATURE INJECTION — 7 variants, 2 weeks, H100 ===== -->
+<div class="section reveal"><h2>6. CNN Feature Injection — 7 variants, 2 weeks, H100</h2></div>
+
+<!-- 6a. What We Tested — Horizontal Bar -->
+<div class="grid reveal">
+<div class="card" style="grid-column:1/-1">
+  <h3>6a. What We Tested — 8 CNN Variants Ranked</h3>
+  <div class="chart-wrap" style="max-height:380px"><canvas id="chWhatTested"></canvas></div>
+  <p class="card-note">Green beats vanilla CNN (0.035). Red is worse. Dashed line: baseline (no CNN) at 0.003 — no variant comes close.</p>
+</div>
+</div>
+
+<!-- 6b. The Trap — Line Chart -->
+<div class="grid reveal">
+<div class="card" style="grid-column:1/-1">
+  <h3>6b. The Trap — Early Speedup → Catastrophic Reversal</h3>
+  <div class="chart-wrap" style="max-height:340px"><canvas id="chTrap"></canvas></div>
+  <p class="card-note">CNN helps epochs 0–10, then becomes an anchor. Model cannot escape via SGD.</p>
+</div>
+</div>
+
+<!-- ===== 7. λ(t) DECAY — NEGATIVE RESULT ===== -->
+<div class="section reveal"><h2>7. λ(t) Decay — Self-Designed, Negative Result</h2></div>
+
+<div class="grid reveal">
+<div class="card" style="grid-column:1/-1">
+  <h3>7a. λ(t) Decay — Worse Than Doing Nothing</h3>
+  <div class="chart-wrap" style="max-height:320px"><canvas id="chLambda"></canvas></div>
+  <p class="card-note">Self-designed mechanism. Literature (TextTeacher, LINet) uses fundamentally different approaches — auxiliary loss and stochastic dropout respectively. Our continuous λ decay on additive features has no direct precedent and failed.</p>
+</div>
+</div>
+
+<!-- ===== 8. EDGE PROBING ===== -->
+<div class="section reveal"><h2>8. Edge Probing — Which Features Encode Cell Identity?</h2></div>
+
+<div class="grid reveal">
+<div class="card">
+  <h3>Edge Prediction — Balanced Accuracy (5-fold CV)</h3>
+  <div class="chart-wrap" style="max-height:350px"><canvas id="chEdgeBalAcc"></canvas></div>
+  <p class="card-note">DINOv2 MLP (0.896) is the clear winner. CNN end-to-end collapses to random baseline.</p>
+</div>
+
+<div class="card">
+  <h3>Edge Prediction — F1 Score (5-fold CV)</h3>
+  <div class="chart-wrap" style="max-height:350px"><canvas id="chEdgeF1"></canvas></div>
+  <p class="card-note">F1 exposes the real gap — DINOv2 (0.571) handles hard positives best. All linear probes fail.</p>
+</div>
 </div>
 
 <script>
@@ -501,8 +570,6 @@ ch('chAttnGpu',{type:'line',data:{labels:['128','256','512','1024','2048','4096'
   {label:'NSA (native sparse)',data:[2.30,2.59,3.06,5.88,11.97,25.99,61.49],borderColor:'#7a8a9a',borderWidth:1,borderDash:[6,4],tension:0.3}
 ]},options:{scales:{x:{title:{display:true,text:'Sequence Length N'}},y:{type:'logarithmic',title:{display:true,text:'Forward Time (ms, log scale)'},min:0.05}},plugins:{title:{display:true,text:'A500, d=256, nhead=4, fp16 — benchmark_full.py',font:{size:10},color:'#6a7a8a'}}}});
 
-// — Chart 2: Memory vs N (A500 GPU-measured only) —
-
 // — Chart 2: Memory vs N —
 ch('chMem',{type:'line',data:{labels:['128','256','512','1024','2048','4096','8192'],datasets:[
   {label:'dense_masked',data:[0.49,1.32,4.5,16.5,63.0,246,972],borderColor:'#ef4444',backgroundColor:'#ef444422',borderWidth:2,tension:0.3},
@@ -513,11 +580,11 @@ ch('chMem',{type:'line',data:{labels:['128','256','512','1024','2048','4096','81
   {label:'dense_flash',data:[0.32,0.63,1.26,2.52,5.03,10.1,20.1],borderColor:'#4ade80',backgroundColor:'#4ade8022',borderWidth:2,tension:0.3},
 ]},options:{scales:{x:{title:{display:true,text:'Sequence Length N'}},y:{title:{display:true,text:'Peak Memory (MB)'},type:'logarithmic'}},plugins:{title:{display:true,text:'A500, d=256, nhead=4, fp16',font:{size:10},color:'#6a7a8a'}}}});
 
-// — Chart 3: TRA + AOGM —
+// — Chart 3: 1−TRA + AOGM (lower is better for both) —
 ch('chTra',{type:'bar',data:{labels:['dense','K=4','K=16','K=32','K=64'],datasets:[
-  {label:'TRA ↑ (n.s.)',data:[0.9963,0.9957,0.9972,0.9963,0.9969],backgroundColor:'#4ade8088',borderColor:'#4ade80',borderWidth:1,borderRadius:4,yAxisID:'y'},
+  {label:'1−TRA ↓',data:[0.0037,0.0043,0.0028,0.0037,0.0031],backgroundColor:'#4ade8088',borderColor:'#4ade80',borderWidth:1,borderRadius:4,yAxisID:'y'},
   {label:'AOGM ↓',data:[51.0,62.0,37.7,52.6,39.8],backgroundColor:'#ef444488',borderColor:'#ef4444',borderWidth:1,borderRadius:4,yAxisID:'y1'}
-]},options:{scales:{y:{position:'left',title:{display:true,text:'TRA'},min:0.994,max:0.998},y1:{position:'right',title:{display:true,text:'AOGM'},min:30,max:70,grid:{display:false}}},plugins:{title:{display:true,text:'Lower AOGM is better. K=16: best TRA + lowest AOGM.',font:{size:10},color:'#6a7a8a'}}}});
+]},options:{scales:{y:{position:'left',title:{display:true,text:'1−TRA (error)'},min:0.002,max:0.005},y1:{position:'right',title:{display:true,text:'AOGM'},min:30,max:70,grid:{display:false}}},plugins:{title:{display:true,text:'Lower = better for both metrics. K=16: best 1−TRA + lowest AOGM.',font:{size:10},color:'#6a7a8a'}}}});
 
 // — Chart 4: Convergence —
 ch('chConv',{type:'line',data:{labels:Array.from({length:41},(_,i)=>i*10),datasets:[
@@ -529,9 +596,164 @@ ch('chConv',{type:'line',data:{labels:Array.from({length:41},(_,i)=>i*10),datase
 ]},options:{scales:{x:{title:{display:true,text:'Epoch'},max:400},y:{title:{display:true,text:'val_loss (log scale)'},type:'logarithmic',min:0.001}},plugins:{title:{display:true,text:'All K converge identically to val_loss ≈ 0.002–0.005',font:{size:10},color:'#6a7a8a'}}}});
 
 // — Chart 5: Combined Benchmark Epoch 1 —
-ch('chCombined',{type:'bar',data:{labels:['dense\n+rand','dense\n+SSL','K=4\n+rand','K=4\n+SSL','K=16\n+rand','K=16\n+SSL'],datasets:[
-  {label:'Epoch 1 Val Loss',data:[0.0550,0.0587,0.0331,0.0344,0.0485,0.0587],backgroundColor:['#ef444488','#ef444466','#4ade8088','#4ade8066','#4ade8044','#4ade8022'],borderColor:'transparent',borderRadius:4}
-]},options:{scales:{y:{title:{display:true,text:'Val Loss (lower is better)'},min:0}},plugins:{title:{display:true,text:'K=4 is 40% better at epoch 1. K-regularization subsumes SSL benefit.',font:{size:10},color:'#6a7a8a'},legend:{display:false}}}});
+ch('chCombined',{type:'bar',data:{labels:['dense','K=4','K=16'],datasets:[
+  {label:'random init',data:[0.0550,0.0331,0.0485],backgroundColor:'#ef4444',borderRadius:4},
+  {label:'SSL pretrained',data:[0.0587,0.0344,0.0587],backgroundColor:'#60a5fa',borderRadius:4}
+]},options:{scales:{y:{title:{display:true,text:'Val Loss (lower is better)'},min:0}},plugins:{title:{display:true,text:'K=4 faster convergence. SSL benefit subsumed by K-regularization.',font:{size:10},color:'#6a7a8a'},legend:{position:'top'}}}});
+
+// — Chart 6: Training Step Breakdown —
+ch('chStepBreakdown',{type:'doughnut',data:{labels:['Backward pass (57%)','Attention 12L (22%)','blockwise_causal_norm (13%)','FFN 12L (5%)','Optimizer (2%)'],datasets:[
+  {data:[57,22,13,5,2],backgroundColor:['#ef444488','#60a5fa88','#f59e0b88','#4ade8088','#8899aa66'],borderColor:['#ef4444','#60a5fa','#f59e0b','#4ade80','#8899aa'],borderWidth:1}
+]},options:{plugins:{title:{display:true,text:'Training step: 27.4ms total (N=200, d=320, 6L+6L)',font:{size:10},color:'#6a7a8a'},legend:{position:'right',labels:{padding:12,font:{size:10}}}}}});
+
+// — Chart 8: Before/After norm vectorization —
+ch('chBeforeAfter',{type:'bar',data:{labels:['Current','After norm\nvectorize'],datasets:[
+  {label:'Optimizer',data:[0.5,0.5],backgroundColor:'#8899aa66'},
+  {label:'FFN 12L',data:[1.4,1.4],backgroundColor:'#4ade8088'},
+  {label:'blockwise_norm',data:[3.5,2.38],backgroundColor:'#f59e0b88'},
+  {label:'Attention 12L',data:[5.9,5.9],backgroundColor:'#60a5fa88'},
+  {label:'Backward pass',data:[15.6,15.6],backgroundColor:'#ef444488'}
+]},options:{scales:{x:{stacked:true,title:{display:true,text:'Time (ms)'}},y:{stacked:true}},plugins:{title:{display:true,text:'27.4ms to 26.3ms (+4.3% global). Norm: 3.5 to 2.38ms (1.47x local).'}}}});
+
+// — Chart 9: Regionprops CPU vs GPU —
+ch('chRegionprops',{type:'bar',data:{labels:['N=50','N=200','N=500','N=1000'],datasets:[
+  {label:'CPU (regionprops)',data:[74,52,33,21],backgroundColor:'#ef444488',borderColor:'#ef4444',borderWidth:1,borderRadius:4},
+  {label:'GPU (model forward)',data:[26,48,67,79],backgroundColor:'#60a5fa88',borderColor:'#60a5fa',borderWidth:1,borderRadius:4}
+]},options:{scales:{x:{stacked:true},y:{stacked:true,title:{display:true,text:'% of total inference time'},max:100}},plugins:{title:{display:true,text:'CPU dominates at small N. Crossover ~N=600.',font:{size:10},color:'#6a7a8a'},legend:{position:'bottom',labels:{boxWidth:10,padding:8,font:{size:9}}}}}});
+
+// — Chart 10: Encoder-Freeze Test —
+ch('chFreeze',{type:'bar',data:{labels:['SSL\n+full','SSL\n+frozen','Rand\n+full','Rand\n+frozen'],datasets:[
+  {label:'Balanced Accuracy',data:[0.745,0.625,0.500,0.709],backgroundColor:['#4ade8088','#4ade8066','#ef444488','#ef444466'],borderColor:['#4ade80','#4ade80','#ef4444','#ef4444'],borderWidth:1,borderRadius:4}
+]},options:{scales:{y:{title:{display:true,text:'Val Balanced Accuracy'},min:0.4,max:0.8}},plugins:{title:{display:true,text:'SSL warm-start: +0.245 over random (full). Frozen features: -0.084 (worse)',font:{size:10},color:'#6a7a8a'},legend:{display:false}}}});
+
+// — Chart 11: Backbone Feature Rank (Effective Dimensionality) —
+ch('chBackbone',{type:'bar',data:{labels:['DINOv2\nvits14','Cell-DINO\nvitl14 HPA','OpenPhenom\nViT-S/16','Regionprops\n(7D)'],datasets:[
+  {label:'Effective Rank (95%)',data:[49,17,17,3],backgroundColor:['#4ade8088','#ef444488','#f59e0b88','#ef444488'],borderColor:['#4ade80','#ef4444','#f59e0b','#ef4444'],borderWidth:1,borderRadius:4}
+]},options:{scales:{y:{title:{display:true,text:'Effective Rank (95% variance)'},min:0,max:60}},plugins:{title:{display:true,text:'DINOv2: 49D. Microscopy-specific: 17D. Regionprops: 3D.',font:{size:10},color:'#6a7a8a'},legend:{display:false}}}});
+
+// — Chart 12: SSL Mode Shootout —
+ch('chModes',{type:'bar',data:{labels:['NoPE\n(Mode B)','Shuffle\n(Mode S)','FourierPE\n(Mode A)','Random\n(Mode R)','Temporal\n(Mode T)'],datasets:[
+  {label:'Balanced Accuracy',data:[0.625,0.625,0.609,0.500,0.500],backgroundColor:['#4ade8088','#60a5fa88','#e879f988','#ef444488','#f59e0b88'],borderColor:['#4ade80','#60a5fa','#e879f9','#ef4444','#f59e0b'],borderWidth:1,borderRadius:4}
+]},options:{scales:{y:{title:{display:true,text:'Val Balanced Accuracy'},min:0.40,max:0.70}},plugins:{title:{display:true,text:'NoPE = Shuffle >> FourierPE >> Random. Temporal fails.',font:{size:10},color:'#6a7a8a'},legend:{display:false}}}});
+
+// — Chart 13: Strategy Scorecard (Δ over random baseline) —
+ch('chScorecard',{type:'bar',data:{labels:['NoPE\nfull','Shuffle\nfull'],datasets:[
+  {label:'Δ bal_acc over random',data:[0.245,0.125],
+   backgroundColor:['#4ade80','#4ade80'],
+   borderRadius:4}
+]},options:{indexAxis:'y',scales:{x:{title:{display:true,text:'Δ balanced accuracy (above random=0.500)'},min:0,max:0.30,grid:{color:'#1e2840'}}},plugins:{title:{display:true,text:'Positive Δ = SSL transfers. Zero Δ = no benefit over random init.',font:{size:10},color:'#6a7a8a'},legend:{display:false}}}});
+
+// — Chart 14: Scale Ceiling —
+ch('chScale',{type:'bar',data:{labels:['NoPE','Random'],datasets:[
+  {label:'Small 2L/2L',data:[0.745,0.500],backgroundColor:'#0d9488',borderRadius:4},
+  {label:'Large 3L/3L',data:[0.626,0.634],backgroundColor:'#6b7280',borderRadius:4}
+]},options:{scales:{y:{title:{display:true,text:'Val Balanced Accuracy'},min:0.40,max:0.80}},plugins:{title:{display:true,text:'SSL gap +0.245 (small) → −0.008 (large)',font:{size:10},color:'#6a7a8a'},legend:{position:'top'}}}});
+
+// — Chart 15bis: Backbone Feature Quality (chGap) —
+ch('chGap',{type:'bar',data:{labels:['DINOv2 vits14','Cell-DINO vitl14','OpenPhenom','Regionprops'],datasets:[
+  {label:'Inter-cell cos sim',data:[0.658,0.945,0.926,0.890],backgroundColor:['#4ade8088','#ef444488','#ef444488','#ef444488'],borderColor:['#4ade80','#ef4444','#ef4444','#ef4444'],borderWidth:1,borderRadius:4}
+]},options:{indexAxis:'y',scales:{x:{title:{display:true,text:'Inter-cell cos sim (lower = more discriminative)'},min:0.4,max:1.0}},plugins:{title:{display:true,text:'Inter-cell cos sim (lower = more discriminative)',font:{size:10},color:'#6a7a8a'},legend:{display:false}}}});
+
+// — Chart 15ter: Backbone Recall@1 —
+ch('chRecall1',{type:'bar',data:{labels:['DINOv2 vits14','Cell-DINO vitl14','OpenPhenom'],datasets:[
+  {label:'Recall@1',data:[0.822,0.873,0.467],backgroundColor:['#4ade8088','#4ade8088','#ef444488'],borderColor:['#4ade80','#4ade80','#ef4444'],borderWidth:1,borderRadius:4}
+]},options:{scales:{y:{title:{display:true,text:'Recall@1 (higher = better)'},min:0.4,max:1.0}},plugins:{title:{display:true,text:'Recall@1 (higher = better)',font:{size:10},color:'#6a7a8a'},legend:{display:false}}}});
+
+
+
+
+// — Helper: convergence curve interpolation —
+function mkCurve(anchors){const d=[];for(let i=0;i<=110;i++){let j=0;while(j<anchors.length-1&&anchors[j+1][0]<i)j++;if(anchors[j][0]===i)d.push(anchors[j][1]);else{const t=(i-anchors[j][0])/(anchors[j+1][0]-anchors[j][0]);d.push(anchors[j][1]+t*(anchors[j+1][1]-anchors[j][1]))}}return d}
+
+// — Chart 16: What We Tested — Horizontal Bar sorted by val_loss —
+ch('chWhatTested',{type:'bar',data:{labels:['CNN CONCAT + dropout','dropout p=0.2','dropout p=0.5','both','vanilla CNN','trainable','λ+dropout','λ only'],datasets:[
+  {label:'Best val_loss ↓',data:[0.01131,0.016,0.023,0.024,0.035,0.036,0.040,0.077],
+   backgroundColor:['#22c55e88','#4ade8088','#4ade8088','#4ade8088','#8899aa88','#ef444488','#ef444488','#ef444488'],
+   borderColor:['#22c55e','#4ade80','#4ade80','#4ade80','#8899aa','#ef4444','#ef4444','#ef4444'],
+   borderWidth:1,borderRadius:4},
+  {type:'line',label:'Baseline (no CNN) = 0.003',data:[0.003,0.003,0.003,0.003,0.003,0.003,0.003,0.003],
+   borderColor:'#4ade80',borderWidth:2,borderDash:[6,4],pointRadius:0,fill:false}
+]},options:{indexAxis:'y',scales:{x:{title:{display:true,text:'Best val_loss (lower = better)'},type:'logarithmic',min:0.001}},plugins:{title:{display:true,text:'CNN Feature Injection — 8 variants, 2 weeks, H100',font:{size:10},color:'#6a7a8a'},legend:{position:'bottom',labels:{boxWidth:10,padding:8,font:{size:9}}}}}});
+
+// — Chart 17: The Trap — Convergence Curves —
+(function(){
+const baseData=mkCurve([[0,0.480],[5,0.114],[10,0.070],[19,0.018],[30,0.010],[51,0.006],[80,0.004],[106,0.003],[110,0.003]]);
+const cnnData=mkCurve([[0,0.425],[5,0.086],[10,0.061],[19,0.052],[30,0.048],[51,0.035],[80,0.035],[106,0.035],[110,0.035]]);
+ch('chTrap',{type:'line',data:{labels:Array.from({length:111},(_,i)=>i),datasets:[
+  {label:'Baseline (no CNN)',data:baseData,borderColor:'#4ade80',borderWidth:2.5,tension:0.3,pointRadius:0},
+  {label:'Vanilla CNN (frozen)',data:cnnData,borderColor:'#ef4444',borderWidth:2,tension:0.3,pointRadius:0}
+]},options:{scales:{x:{title:{display:true,text:'Epoch'},max:110},y:{title:{display:true,text:'val_loss (log)'},type:'logarithmic',min:0.001,max:1.0}},plugins:{title:{display:true,text:'Early Speedup → Permanent Trap',font:{size:10},color:'#6a7a8a'},legend:{position:'bottom',labels:{boxWidth:10,padding:8,font:{size:9}}}}},plugins:[{id:'trapLabels',afterDraw(chart){const ctx=chart.ctx;const xA=chart.scales.x;const yA=chart.scales.y;ctx.save();ctx.font='bold 9px sans-serif';ctx.textAlign='left';let x=xA.getPixelForValue(5);let y=yA.getPixelForValue(0.086);ctx.fillStyle='#ef4444';ctx.fillText('▲ CNN ahead',x+3,y-3);x=xA.getPixelForValue(19);y=yA.getPixelForValue(0.018);ctx.fillStyle='#4ade80';ctx.fillText('▲ Baseline overtakes',x+3,y-3);x=xA.getPixelForValue(51);y=yA.getPixelForValue(0.035);ctx.fillStyle='#ef4444';ctx.fillText('▼ CNN stuck',x+3,y+10);ctx.restore()}}]})})();
+
+// — Chart 18: λ(t) Decay — Bar Chart —
+ch('chLambda',{type:'bar',data:{labels:['λ only','λ+dropout','vanilla CNN'],datasets:[
+  {label:'Best val_loss',data:[0.077,0.040,0.035],
+   backgroundColor:['#ef444488','#ef444488','#ef444488'],
+   borderColor:['#ef4444','#ef4444','#ef4444'],
+   borderWidth:1,borderRadius:4},
+  {type:'line',label:'Best overall (CONCAT) = 0.011',data:[0.011,0.011,0.011],
+   borderColor:'#4ade80',borderWidth:2,borderDash:[6,4],pointRadius:0,fill:false}
+]},options:{scales:{y:{title:{display:true,text:'Best val_loss (lower = better)'},min:0,max:0.10}},plugins:{title:{display:true,text:'λ(t) Decay — Worse Than Doing Nothing',font:{size:10},color:'#6a7a8a'},legend:{position:'bottom',labels:{boxWidth:10,padding:8,font:{size:9}}}}}});
+
+// ===== SECTION 8: EDGE PROBING =====
+
+// — Custom plugin for error bars on horizontal bar charts —
+const errorBarPlugin = {
+  id: 'errorBars',
+  afterDraw: function(chart) {
+    const ctx = chart.ctx;
+    const xScale = chart.scales.x;
+    if (!xScale) return;
+    chart.data.datasets.forEach(function(dataset, datasetIndex) {
+      if (!dataset.error) return;
+      const meta = chart.getDatasetMeta(datasetIndex);
+      if (!meta || !meta.data) return;
+      meta.data.forEach(function(element, index) {
+        const error = dataset.error[index];
+        if (!error || error <= 0) return;
+        const centerX = element.x;
+        const centerY = element.y;
+        const pixelError = Math.abs(xScale.getPixelForValue(dataset.data[index] + error) - centerX);
+        ctx.save();
+        ctx.strokeStyle = '#8899aa';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(centerX - pixelError, centerY);
+        ctx.lineTo(centerX + pixelError, centerY);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(centerX - pixelError, centerY - 3);
+        ctx.lineTo(centerX - pixelError, centerY + 3);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(centerX + pixelError, centerY - 3);
+        ctx.lineTo(centerX + pixelError, centerY + 3);
+        ctx.stroke();
+        ctx.restore();
+      });
+    });
+  }
+};
+
+// — Chart 19: Edge Probing — Balanced Accuracy —
+(function(){
+const balColors = ['#4ade8088','#4ade8044','#14b8a688','#14b8a644','#60a5fa88','#60a5fa44','#f59e0b88','#f59e0b44','#ef444488','#ef444444'];
+const balBorders = ['#4ade80','#4ade80','#14b8a6','#14b8a6','#60a5fa','#60a5fa','#f59e0b','#f59e0b','#ef4444','#ef4444'];
+ch('chEdgeBalAcc',{type:'bar',data:{labels:['DINOv2 MLP','DINOv2 linear','HOCT 19D MLP','HOCT 19D linear','Regionprops MLP','Regionprops linear','CNN NT-Xent MLP','CNN NT-Xent linear','CNN e2e MLP','CNN e2e linear'],datasets:[
+  {label:'Balanced Accuracy',data:[0.896,0.541,0.873,0.575,0.860,0.557,0.703,0.543,0.500,0.500],backgroundColor:balColors,borderColor:balBorders,borderWidth:1,borderRadius:4,error:[0.044,0.018,0.021,0.050,0.014,0.030,0.056,0.015,0.000,0.000]},
+  {type:'line',label:'Random baseline = 0.500',data:[0.500,0.500,0.500,0.500,0.500,0.500,0.500,0.500,0.500,0.500],borderColor:'#ef4444',borderWidth:1.5,borderDash:[5,4],pointRadius:0,fill:false}
+]},options:{indexAxis:'y',scales:{x:{title:{display:true,text:'Balanced Accuracy'},min:0.45,max:1.0,grid:{color:'#1e2840'}},y:{grid:{display:false},ticks:{font:{size:9}}}},plugins:{title:{display:true,text:'Edge Prediction — Balanced Accuracy (5-fold CV)',font:{size:10},color:'#6a7a8a'},legend:{position:'bottom',labels:{boxWidth:10,padding:8,font:{size:9}}}}},plugins:[errorBarPlugin]});
+})();
+
+// — Chart 20: Edge Probing — F1 Score —
+(function(){
+const f1Colors = ['#4ade8088','#4ade8044','#14b8a688','#14b8a644','#60a5fa88','#60a5fa44','#f59e0b88','#f59e0b44','#ef444488','#ef444444'];
+const f1Borders = ['#4ade80','#4ade80','#14b8a6','#14b8a6','#60a5fa','#60a5fa','#f59e0b','#f59e0b','#ef4444','#ef4444'];
+ch('chEdgeF1',{type:'bar',data:{labels:['DINOv2 MLP','DINOv2 linear','HOCT 19D MLP','HOCT 19D linear','Regionprops MLP','Regionprops linear','CNN NT-Xent MLP','CNN NT-Xent linear','CNN e2e MLP','CNN e2e linear'],datasets:[
+  {label:'F1 Score',data:[0.571,0.138,0.394,0.145,0.396,0.131,0.289,0.129,0.000,0.000],backgroundColor:f1Colors,borderColor:f1Borders,borderWidth:1,borderRadius:4,error:[0.121,0.037,0.052,0.052,0.056,0.029,0.127,0.035,0.000,0.000]},
+  {type:'line',label:'Random baseline = 0.000',data:[0.000,0.000,0.000,0.000,0.000,0.000,0.000,0.000,0.000,0.000],borderColor:'#ef4444',borderWidth:1.5,borderDash:[5,4],pointRadius:0,fill:false}
+]},options:{indexAxis:'y',scales:{x:{title:{display:true,text:'F1 Score'},min:0.0,max:0.75,grid:{color:'#1e2840'}},y:{grid:{display:false},ticks:{font:{size:9}}}},plugins:{title:{display:true,text:'Edge Prediction — F1 Score (5-fold CV)',font:{size:10},color:'#6a7a8a'},legend:{position:'bottom',labels:{boxWidth:10,padding:8,font:{size:9}}}}},plugins:[errorBarPlugin]});
+})();
 </script>
+</div>
 </body>
 </html>

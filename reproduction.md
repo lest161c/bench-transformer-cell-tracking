@@ -3,6 +3,22 @@
 Comprehensive guide to reproduce all experimental findings in this project.
 Covers sparse attention benchmarks, CNN feature injection, edge probing, and pipeline optimization — across A500 (micro) and H100 (production) scales.
 
+> **Current branch:** `cached-dist-attn`
+
+## Results Summary
+
+| Experiment | Key Result | Section |
+|---|---|---|
+| Sparse Attention (K=16) | 1.9× slower than dense, same memory | §3 |
+| KNN Ablation (L=4) | Sparse matches dense convergence | §3.4 |
+| CNN CONCAT + Dropout | Best CNN variant: val_loss = 0.01131 | §4.5 |
+| **Baseline (no CNN)** | **Best overall: val_loss = 0.003** | §4.7 |
+| Edge Probe: DINOv2 MLP | Balanced accuracy = 0.896 ± 0.044 | §5 |
+| Edge Probe: Regionprops MLP | Balanced accuracy = 0.860 ± 0.014 | §5 |
+| DeepCell: Baseline | TRA = **0.990**, cHOTA = **0.956** | §8.2 |
+| DeepCell: vanilla_cnn | TRA = 0.988, cHOTA = 0.913 | §8.2 |
+| DeepCell: cnn_trainable | TRA = 0.909 (catastrophic forgetting) | §8.2 |
+
 ---
 
 ## 1. Prerequisites
@@ -73,8 +89,12 @@ pip install -e trackastra/
 wandb login
 ```
 
-**Verify git commits:**
+**Verify git branch and commits:**
 ```bash
+# Current branch: cached-dist-attn
+git branch --show-current
+#   → cached-dist-attn
+
 # Main repo (this project):
 #   HEAD SHA is visible via: git log -1 --format=%H
 #   Key commits:
@@ -387,7 +407,7 @@ python results/generate_plots.py
 # → results/figures/edge_probe_f1.pdf
 ```
 
-> **Note:** These plots use hard-coded data from the progress dashboard (progress_roadmap.html §Charts 19–20) because the unified probe JSON output was not saved. Re-running the probe script with `--output results.json` will produce the raw data.
+> **Note:** These plots use hard-coded data from the progress dashboard (progress_roadmap.html §Charts 19–20). The raw 5-fold CV data is also available in `results/probe_results_cv.json`. Re-running the probe script with `--output results.json` will regenerate the raw data.
 
 ---
 
@@ -439,7 +459,7 @@ python results/generate_plots.py
 ## 7. Figure Generation (Complete)
 
 ```bash
-cd /home/leonard.starke@mediainterface.de/Dokumente/Uni/research-proj
+# From project root (see §2 for setup):
 mkdir -p results/figures
 pip install seaborn matplotlib pandas numpy scipy  # if not installed
 python results/generate_plots.py
@@ -480,7 +500,9 @@ python benchmark_ssl/probe/unified_edge_probe.py \
 - Border distance (1D)
 - Plus temporal features extracted from 2-frame windows
 
-### 8.2 CTC Datasets
+### 8.2 CTC Datasets (DeepCell Cross-Dataset Evaluation)
+
+**Purpose:** Evaluate CNN feature injection variants on Cell Tracking Challenge (CTC) metrics — TRA, cHOTA, AOGM.
 
 **Configs for downstream evaluation:**
 - `configs/base-config.yaml` — base config with CTC dataset paths
@@ -492,7 +514,23 @@ python benchmark_ssl/probe/unified_edge_probe.py \
 python bench-transformer-cell-tracking/benchmark_combined/full_eval.py \
     --checkpoint checkpoints/<model>.pt \
     --dataset Fluo-N2DH-GOWT1
+
+# Run full cross-dataset evaluation of CNN variants (H100 required)
+python benchmark_ssl/cnn_encoder/cross_dataset_eval.py --device cuda
 ```
+
+**Expected results (from job 3781980 on Capella, H100, 32 min):**
+
+| Variant | TRA | cHOTA | AOGM |
+|---|---|---|---|
+| **Baseline** (no CNN) | **0.990** | **0.956** | **592** |
+| vanilla_cnn | 0.988 | 0.913 | 861 |
+| cnn_both | 0.985 | 0.876 | 1087 |
+| cnn_concat_dropout | 0.982 | 0.878 | 1064 |
+| cnn_dropout_additive | 0.982 | 0.858 | 1142 |
+| cnn_trainable | 0.909 | 0.708 | 7094 |
+
+> **Note:** Full JSON results live on Capella at `results/cross_dataset/deepcell/summary.json`. A local summary is at `results/deepcell_summary.md`.
 
 **SLURM scripts:**
 - `bench-transformer-cell-tracking/benchmark_combined/run_eval_all.slurm` — evaluate all checkpoints
@@ -646,7 +684,9 @@ python bench-transformer-cell-tracking/benchmark_combined/full_eval.py \
 ├── labbook/                           # 50+ experiment log files
 ├── results/
 │   ├── generate_plots.py              # THIS REPRODUCTION SCRIPT
-│   └── figures/                       # Output directory (9 PDFs)
+│   ├── figures/                       # Output directory (9 PDFs)
+│   ├── probe_results_cv.json          # 5-fold CV edge probe raw data
+│   └── deepcell_summary.md            # DeepCell cross-dataset evaluation summary
 ├── results_final/                     # Final convergence tables
 │   ├── results_table.csv              # 6-row summary
 │   └── convergence.csv                # 800+ row per-epoch convergence

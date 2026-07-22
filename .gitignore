@@ -43,3 +43,20 @@ HANDOVER.md
 IMPLEMENT.md
 meeting_*.txt
 remark.tx
+review_prompt.md
+weekly_report_*.md
+weeklyreport_*.md
+
+# Generated artifacts directories
+results/
+papers/
+knowledge-graph/
+benchmark_backward/
+performance_analysis/
+
+# Virtual environments in submodules
+benchmark_ssl/.venv/
+benchmark_attn/.venv/
+
+# Python cache in non-standard locations
+benchmark_backward/__pycache__/
