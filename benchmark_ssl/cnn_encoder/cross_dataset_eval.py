@@ -32,12 +32,12 @@ OUTPUT_ROOT = TRK / "results" / "cross_dataset" / "deepcell"
 
 # The 6 checkpoints to evaluate (run_dir_name, short_label)
 CHECKPOINTS = [
-    ("2026-06-17_01-32-30_vanvliet_baseline",   "baseline"),
-    ("2026-07-21_17-43-05_vanvliet_cnn_concat",  "cnn_concat"),
-    ("2026-07-19_21-44-17_vanvliet_cnn_dropout", "cnn_dropout"),
-    ("2026-07-20_09-04-06_vanvliet_cnn_both",    "cnn_both"),
-    ("2026-07-11_20-28-00_vanvliet_baseline_cnn","baseline_cnn"),
-    ("2026-07-20_03-32-50_vanvliet_cnn_trainable","cnn_trainable"),
+    ("2026-06-17_01-32-30_vanvliet_baseline",      "baseline"),
+    ("2026-07-21_17-43-05_vanvliet_cnn_concat",    "cnn_concat_dropout"),
+    ("2026-07-19_21-44-17_vanvliet_cnn_dropout",   "cnn_dropout_additive"),
+    ("2026-07-20_09-04-06_vanvliet_cnn_both",      "cnn_both"),
+    ("2026-07-11_20-28-00_vanvliet_baseline_cnn",  "vanilla_cnn"),
+    ("2026-07-20_03-32-50_vanvliet_cnn_trainable", "cnn_trainable"),
 ]
 
 # Sequences 00–11 are the deepcell test split (held-out, never used in training)
