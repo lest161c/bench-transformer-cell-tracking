@@ -60,3 +60,39 @@ benchmark_attn/.venv/
 
 # Python cache in non-standard locations
 benchmark_backward/__pycache__/
+
+# Eval artifacts
+eval_data/
+eval_tensorboard/
+eval_traccuracy/
+
+# SLURM logs
+logs/
+*.err
+*.out
+
+# Non-benchmark code directories
+.opencode/
+augmend/
+bench-transformer-cell-tracking/
+benchmark_pipeline/
+eval_data/
+eval_tensorboard/
+eval_traccuracy/
+labbook/
+logs/
+prompts/
+reports/
+results/
+results_final/
+scripts/
+suggestions/
+third_party/
+trackastra/
+wiki/
+
+# Non-benchmark files (root level)
+progress_roadmap*.html
+reproduction.md
+requirements.txt
+generate_roadmap.py
