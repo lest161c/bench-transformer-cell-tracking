@@ -43,11 +43,11 @@ PROBE_EXIT=$?
 echo "  Probe exited with code $PROBE_EXIT at $(date)"
 
 # Print results summary
-if [ -f results/unified_probe_results.json ]; then
+if [ -f results/unified_probe_results_cv.json ]; then
     echo "=== RESULTS ==="
     python -c "
 import json
-with open('results/unified_probe_results.json') as f:
+with open('results/unified_probe_results_cv.json') as f:
     data = json.load(f)
 for r in data['results']:
     print(f\"{r['feature']:12s} {r['probe']:6s}  bal_acc={r.get('bal_acc',0):.4f}  F1={r.get('F1',0):.4f}\")
