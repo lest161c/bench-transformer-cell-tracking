@@ -49,22 +49,6 @@ pip install wandb pyyaml einops lightning
 
 ---
 
-## Repository Structure
-
-This repo tracks **benchmark code only.** The following artifacts are maintained separately
-(on local machines or in a separate repository) and are not part of this git history:
-
-| Artifact | Location |
-|---|---|
-| LaTeX seminar paper | `report/` |
-| Research lab notebook | `labbook/` |
-| Result figures & tables | `results/` (checkpoints, figures, `knn_sweep/` K-sweep data, `probes/`) |
-| Experiment reproducibility guide | `reproduction.md` |
-| Trackastra library fork | `trackastra/` (separate repo) |
-| Architecture docs, SLURM guide | `wiki/` |
-
----
-
 ## AI Disclosure
 
 This repository was created with substantial assistance from the opencode agent
@@ -119,4 +103,5 @@ the DeepSeek-V4 model (via the opencode agent). Cite DeepSeek as follows:
 
 ## License
 
-See `trackastra/LICENSE` for the original Trackastra license (BSD-3-Clause). Additional code in this repository is provided for research purposes.
+The benchmark code in this repository is provided for research purposes. Trackastra itself is
+BSD-3-Clause licensed by its authors (weigertlab/trackastra).
