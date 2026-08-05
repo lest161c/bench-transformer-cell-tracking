@@ -35,7 +35,7 @@ Requires Python ≥3.14, PyTorch ≥2.11 with CUDA.
 All scripts run from the `benchmark_attn/` directory with the project venv:
 `cd benchmark_attn && .venv/bin/python <script>`.
 
-### Core benchmarks (load-bearing — feed the report)
+### Core benchmarks
 
 ```bash
 # Main sparse vs dense sweep (N up to 8192, K 4-64; edit N_vals/K_vals at top to extend)
@@ -60,33 +60,33 @@ python benchmarks/validate_mask_vs_gather.py
 python analysis/plot_sparse.py
 ```
 
-### Superseded / historical (kept for provenance; see REPRODUCTION.md)
+### Additional benchmarks
 
 ```bash
-# KNN method comparison (analytical; superseded by benchmark_cached_dist.py)
+# KNN method comparison (analytical model)
 python benchmarks/benchmark_knn_methods.py
 
-# Mask vs gather at small N (superseded by benchmark_full.py for N>=2048)
+# Mask vs gather at small N (N ≤ 512)
 python benchmarks/benchmark_mask_vs_gather.py
 
-# Blockwise norm / FFN-ratio (analytical; superseded by benchmark_pipeline/*)
+# Blockwise norm / FFN vs attention ratio (analytical)
 python benchmarks/benchmark_blockwise_norm.py
 python benchmarks/benchmark_ffn_attention_ratio.py
 
-# Generic profiler wrapper (superseded by profile_gather_sparse.py)
+# Generic profiler wrapper
 python benchmarks/benchmark_profiler.py
 
-# All spatial methods (NOTE: gather_knn_ms column is broken (-1); do not cite gather)
+# All spatial methods (NOTE: gather_knn_ms column is not populated; do not cite gather)
 python benchmarks/benchmark_all_spatial_methods.py
 
-# Small-N behavior (feeds figure set 02)
+# Small-N behavior
 python benchmarks/benchmark_small_n.py
 
 # FlashAttention with learned cutoff
 python benchmarks/benchmark_flash_with_cutoff.py
 ```
 
-### Exploratory / one-off (moved to `exploratory/`; NOT cited in the report)
+### Exploratory / one-off
 
 ```bash
 python exploratory/benchmark_pure_attn.py
@@ -124,7 +124,7 @@ python analysis/tra_aogm_visualization.py
 # Collapse visualization
 python analysis/vis_collapse.py
 
-# Generate the internal HTML dashboard (aggregates results/ artifacts)
+# Generate the HTML dashboard (aggregates results/ artifacts)
 python analysis/make_report.py
 ```
 
@@ -141,23 +141,23 @@ python analysis/make_report.py
 ├── README_system_impact.md      # System impact documentation
 ├── REPRODUCTION.md              # Benchmark reproduction guide
 │
-├── benchmarks/                           # Load-bearing + superseded benchmark scripts
-│   ├── benchmark_all_spatial_methods.py            # Unified spatial methods (gather_knn_ms column broken)
-│   ├── benchmark_blockwise_norm.py                 # Blockwise norm (superseded by benchmark_pipeline/*)
+├── benchmarks/                           # Benchmark scripts
+│   ├── benchmark_all_spatial_methods.py            # Unified spatial methods (gather_knn_ms column not populated)
+│   ├── benchmark_blockwise_norm.py                 # Blockwise norm
 │   ├── benchmark_cached_dist.py                    # CachedDistAttention real measurement
-│   ├── benchmark_ffn_attention_ratio.py            # FFN vs attention ratio (superseded)
+│   ├── benchmark_ffn_attention_ratio.py            # FFN vs attention ratio
 │   ├── benchmark_flash_with_cutoff.py              # FlashAttention with learned cutoff
 │   ├── benchmark_full.py                           # Unified benchmark: all methods × all N
 │   ├── benchmark_gather_v3.py                      # Gather v3 benchmark
 │   ├── benchmark_knn_methods.py                    # KNN method comparison (analytical)
-│   ├── benchmark_mask_vs_gather.py                 # Mask vs gather at small N (superseded)
-│   ├── benchmark_profiler.py                       # Generic profiler wrapper (superseded)
+│   ├── benchmark_mask_vs_gather.py                 # Mask vs gather at small N
+│   ├── benchmark_profiler.py                       # Generic profiler wrapper
 │   ├── benchmark_small_n.py                        # Small-N behavior
 │   ├── benchmark_sparse.py                         # Dense vs sparse sweep (N up to 8192, K 4-64)
 │   ├── profile_gather_sparse.py                    # Gather sparse profiler
 │   └── validate_mask_vs_gather.py                  # Equivalence verification (18 configs)
 │
-├── exploratory/                        # Exploratory / one-off scripts (not cited in the report)
+├── exploratory/                        # Exploratory / one-off scripts
 │   ├── benchmark_data_pipeline.py                  # Data pipeline
 │   ├── benchmark_dinov3_comparison_v2.py           # Dinov3 comparison v2
 │   ├── benchmark_flex_spatial.py                   # Flexible spatial

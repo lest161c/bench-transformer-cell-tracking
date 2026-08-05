@@ -5,10 +5,9 @@ editable hardcoded lists, required environments, output files, and the measured
 results ledger.
 
 Authoritative sources:
-- `labbook/2026-08-03_experiment_readiness_inventory.md` (incl. the
-  "Curation decision (2026-08-04)" section) — experiment inventory, feasibility
-  verdicts, measured numbers.
-- The benchmark scripts themselves (read at commit state of 2026-08-04).
+- The experiment readiness inventory in `labbook/` — experiment inventory,
+  feasibility verdicts, measured numbers.
+- The benchmark scripts themselves.
 - `run_full_bench.slurm` SBATCH directives.
 - `benchmark_attn/.venv` (Python 3.14.4, torch 2.12.0+cu130).
 
@@ -67,7 +66,7 @@ for sel_blocks in [2, 4, 8]:           # line 244  <-- EDIT for NSA K=16/64
 ```
 
 Reproduction of the **on-disk superset CSV** (`benchmark_sparse_results.csv`,
-written 2026-08-04, covering N = {128, 256, 512, 1024, 2048, 4096, 8192} and NSA
+covering N = {128, 256, 512, 1024, 2048, 4096, 8192} and NSA
 `sel_blocks` = {2, 4, 8, 16, 64}) requires temporarily editing:
 
 - line 214 → `N_vals = [128, 256, 512, 1024, 2048, 4096, 8192]`
@@ -129,7 +128,7 @@ Default `--mode none`, `--dist-mode v1` (matches Trackastra's CachedDistAttentio
 config used in `benchmark_cached_dist.py`). fp16, d=320, nhead=8, coord_dim=2,
 single N×N pass per method.
 
-The local A500 run (2026-06-17) used Ks limited to [4, 16] and produced:
+The local A500 run used Ks limited to [4, 16] and produced:
 
 ```bash
 cd benchmark_attn && $V benchmark_full.py --out benchmark_attn/full_bench_a500.csv
@@ -138,10 +137,10 @@ cd benchmark_attn && $V benchmark_full.py --out benchmark_attn/full_bench_a500.c
 
 `full_bench_a500.csv` is the **source of truth** for mask-KNN / gather-KNN /
 KNN-RelPos / NSA / dense at N = 1024, 2048, 4096, 8192 on the A500 — including
-mask-KNN at N ≥ 2048, which the outdated `benchmark_mask_vs_gather.py` never
-covered. Measured values: see §6.1.
+mask-KNN at N ≥ 2048, which `benchmark_mask_vs_gather.py` (limited to N ≤ 512)
+does not cover. Measured values: see §6.1.
 
-### 2.3 `benchmark_cached_dist.py` — CachedDistAttention REAL measurement (NEW)
+### 2.3 `benchmark_cached_dist.py` — CachedDistAttention real measurement
 
 Purpose: real per-layer forward measurement of Trackastra's dense baseline
 `RelativePositionalAttention` (per-layer 2D cdist) vs `CachedDistAttention`
@@ -155,8 +154,7 @@ total_cached   = t_cdist_2d + L * t_cached_dist
 
 The classes are self-contained copies in the local `model_parts.py`
 (`CachedDistAttention`, `RelativePositionalAttention`) — `benchmark_cached_dist.py`
-has NO trackastra dependency (the earlier importlib shim that loaded the classes
-from the trackastra source was removed 2026-08-05).
+has NO trackastra dependency.
 
 CLI (defaults from the script):
 
@@ -182,7 +180,7 @@ cd benchmark_attn && $V benchmark_cached_dist.py
 Measured results: see §6.4. N=8192 OOMs on the A500 for the cached variant
 (dense_masked@8192 fits: 190.0 ms / 1487 MB).
 
-### 2.4 `benchmark_gather_v3.py` — GatherSparseAttentionV3 (cached KNN indices) (NEW)
+### 2.4 `benchmark_gather_v3.py` — GatherSparseAttentionV3 (cached KNN indices)
 
 Purpose: compare the three gather variants head-to-head:
 - V1 = `GatherSparseAttention` (SDPA on flattened (B*N, nH, 1, Dh))
@@ -214,7 +212,7 @@ N ≥ 1024).
 Purpose: theoretical/calibrated comparison of `cached_dense` (CachedDistAttention
 baseline), `dense_flash`, `mask-KNN`, `gather-KNN`, `MiniMax`. This is an
 **analytical model only** — calibrated to labbook relative speeds at N=256
-(2026-06-08) — it does not touch the GPU. The `--gpu` mode mentioned in
+— it does not touch the GPU. The `--gpu` mode mentioned in
 `README_knn_methods.md` is **not implemented** in the current script
 (`main()` only calls `run_analytical()`).
 
@@ -235,7 +233,7 @@ cd benchmark_attn && $V benchmark_knn_methods.py
 `data_source = analytical_calibrated`. **This is NOT a real measurement** — the
 real CachedDistAttention measurement is `benchmark_cached_dist.py` (§2.3).
 
-### 2.6 `benchmark_mask_vs_gather.py` — mask vs gather (OUTDATED, superseded)
+### 2.6 `benchmark_mask_vs_gather.py` — mask vs gather
 
 Purpose: compare `KNNMaskSparseAttention` vs `GatherSparseAttention` vs
 `DenseFlashAttention` at N = [128, 256, 512], K = 16, L = 1, plus an SDPA
@@ -246,11 +244,11 @@ cd benchmark_attn && $V benchmark_mask_vs_gather.py
 # writes benchmark_mask_vs_gather.csv  (columns: method,N,K,time_s,mem_mb,speedup_vs_gather)
 ```
 
-The historical run wrote the CSV to the repo root
-(`/home/.../research-proj/benchmark_mask_vs_gather.csv`, 2026-05-29) because it
-was executed from there. **Status: superseded.** The report claim "mask-KNN only
-measured at N ≤ 512" applies only to this script; real mask-KNN data at
-N ≥ 2048 lives in `full_bench_a500.csv` (§2.2, §6.1).
+The script has no CLI args and writes `benchmark_mask_vs_gather.csv` to the
+current working directory; run it from inside `benchmark_attn/` so the output
+lands alongside the other benchmark CSVs. **Status: DONE.** mask-KNN data from
+this script is limited to N ≤ 512; real mask-KNN data at N ≥ 2048 lives in
+`full_bench_a500.csv` (§2.2, §6.1).
 
 ### 2.7 `benchmark_all_spatial_methods.py` — all spatial-cutoff methods
 
@@ -273,23 +271,20 @@ cd benchmark_attn && $V benchmark_all_spatial_methods.py
 
 Hardcoded N sweep (line 149): `Ns = [128, 256, 512, 1024, 2048, 4096]`.
 
-**Caveat:** the `gather_knn_ms` column is **broken** (−1 everywhere, shape bug —
-the gather reshape is invalid for the given tensor sizes, see
-`gather_knn_error`). Do NOT cite gather numbers from this CSV.
+**Caveat:** the `gather_knn_ms` column is not populated (unsupported) — see the
+`gather_knn_error` column. Do NOT cite gather numbers from this CSV.
 
 ### 2.8 `validate_mask_vs_gather.py` — numerical equivalence of the two KNN variants
 
-Purpose: this is the **source of the report's equivalence-validation claim**
-(`report/implementation.tex` §8.4, `report/argumentation.tex`): that
-`GatherSparseAttention` and `KNNMaskSparseAttention` produce numerically
-identical forward/backward outputs. It measures forward output cosine
-similarity, forward maximum absolute difference $|\Delta|$, and gradient
-relative error across parameters with significant gradient norms
+Purpose: verifies that `GatherSparseAttention` and `KNNMaskSparseAttention`
+produce numerically identical forward/backward outputs. It measures forward
+output cosine similarity, forward maximum absolute difference $|\Delta|$, and
+gradient relative error across parameters with significant gradient norms
 ($\|\nabla\| > 10^{-6}$), across $18$ configurations ($N \in \{128, 256, 512\}$,
-$K \in \{4, 16\}$, $3$ seeds each) in fp16 on CUDA. This is a load-bearing
-script for the paper; it writes no CSV (console output only).
+$K \in \{4, 16\}$, $3$ seeds each) in fp16 on CUDA. It writes no CSV (console
+output only).
 
-Result (verbatim from the report): cosine similarity $0.9995$–$1.0010$, forward
+Result: cosine similarity $0.9995$–$1.0010$, forward
 $|\Delta| < 5 \times 10^{-4}$, gradient relative error $< 8 \times 10^{-4}$
 across all $18$ configurations. The whole validation costs roughly $2$
 GPU-minutes versus $600{+}$ for a full training run — a $300\times$ reduction —
@@ -423,44 +418,39 @@ edit `benchmark_full.py:167` before submitting.
 
 Status legend: DONE = measured artifact exists on disk (locally and/or on the
 cluster); PENDING = code ready, not yet run / H100-only / cluster capacity
-needed; NOT-NEEDED = de-prioritized by the Curation decision (2026-08-04).
+needed.
 
 ### 5.1 `benchmark_attn` experiments
 
 | Experiment | Script / Slurm | Status | Resources | Outputs |
 |---|---|---|---|---|
-| Dense vs sparse sweep (N incl. 1024/4096, NSA sel_blocks 16/64) | `benchmarks/benchmark_sparse.py` | **DONE** (2026-08-04, superset run) | A500, `benchmark_attn/.venv` | `benchmark_sparse_results.csv`, `benchmark_sparse.html` |
-| Full method set × N (dense_masked, dense_flash, gather/mask-KNN, NSA, KNN-RelPos) | `benchmark_full.py` | **DONE** (2026-06-17) | A500 | `full_bench_a500.csv` |
-| H100 full benchmark (same script, K sweep) | `run_full_bench.slurm` | **PENDING** (H100-only; not run) | H100, 90G, 8 CPUs, 1 h | `full_bench_h100.csv` (cluster) |
-| CachedDistAttention real measurement | `benchmark_cached_dist.py` | **DONE** (2026-08-03) | A500 (classes in local `model_parts.py`) | `cached_dist_results.csv` |
-| GatherSparseAttention V1/V2/V3 | `benchmark_gather_v3.py` | **DONE** (2026-08-03) | A500 | `gather_v3_results.csv` |
-| KNN method comparison (analytical) | `benchmark_knn_methods.py` | **DONE** (analytical only) | CPU only | `knn_methods_results.csv` + PNGs |
-| Mask vs gather (N≤512) | `benchmark_mask_vs_gather.py` | **DONE** (superseded) | A500 | `benchmark_mask_vs_gather.csv` |
-| All spatial-cutoff methods | `benchmark_all_spatial_methods.py` | **DONE** | A500 | `all_spatial_methods.csv` (gather_knn_ms broken) |
+| Dense vs sparse sweep (N incl. 1024/4096, NSA sel_blocks 16/64) | `benchmarks/benchmark_sparse.py` | **DONE** | A500, `benchmark_attn/.venv` | `benchmark_sparse_results.csv`, `benchmark_sparse.html` |
+| Full method set × N (dense_masked, dense_flash, gather/mask-KNN, NSA, KNN-RelPos) | `benchmark_full.py` | **DONE** | A500 | `full_bench_a500.csv` |
+| H100 full benchmark (same script, K sweep) | `run_full_bench.slurm` | **PENDING** | H100, 90G, 8 CPUs, 1 h | `full_bench_h100.csv` (cluster) |
+| CachedDistAttention real measurement | `benchmark_cached_dist.py` | **DONE** | A500 (classes in local `model_parts.py`) | `cached_dist_results.csv` |
+| GatherSparseAttention V1/V2/V3 | `benchmark_gather_v3.py` | **DONE** | A500 | `gather_v3_results.csv` |
+| KNN method comparison (analytical) | `benchmark_knn_methods.py` | **DONE** | CPU only | `knn_methods_results.csv` + PNGs |
+| Mask vs gather (N≤512) | `benchmark_mask_vs_gather.py` | **DONE** | A500 | `benchmark_mask_vs_gather.csv` |
+| All spatial-cutoff methods | `benchmark_all_spatial_methods.py` | **DONE** | A500 | `all_spatial_methods.csv` (gather_knn_ms not populated) |
 | Sparse sweep visualization | `plot_sparse.py` | **DONE** | CPU only | `benchmark_sparse.html` |
-| Backward pass at N=8192 | `benchmark_backward/benchmark_sparse_backward.py` | **DONE** (2026-08-04) | A500 | `benchmark_backward/sparse_backward_results_8192.csv` |
-| Full-model speed/mem K=64 | `benchmark_training/benchmarks/benchmark_speed_mem.py` | **DONE** (2026-08-04) | A500 | `benchmark_training/results/training_speed_memory_by_N_K.csv`, copy at `benchmark_attn/speed_mem.csv` |
-| DINOv3 comparison | `benchmark_dinov3_comparison*.py` | **NOT-NEEDED** (HTTP 403 — weights download blocked) | internet | `dinov3_comparison*.csv` |
+| Backward pass at N=8192 | `benchmark_backward/benchmark_sparse_backward.py` | **DONE** | A500 | `benchmark_backward/sparse_backward_results_8192.csv` |
+| Full-model speed/mem K=64 | `benchmark_training/benchmarks/benchmark_speed_mem.py` | **DONE** | A500 | `benchmark_training/results/training_speed_memory_by_N_K.csv`, copy at `benchmark_attn/speed_mem.csv` |
+| DINOv3 comparison | `benchmark_dinov3_comparison*.py` | **PENDING** (requires gated weights) | internet | `dinov3_comparison*.csv` |
 
-### 5.2 Cluster experiments per the Curation decision (2026-08-04)
+### 5.2 Cluster experiments
 
 | Experiment | Status | Notes |
 |---|---|---|
-| Multi-seed K-sweep (5 K × seeds 42/43/44, 15 jobs via `run_single_config.slurm`) | **PENDING / NECESSARY** | closes the single-seed limitation; 48 h budget each, expect 6.4–11 h (early-stopped) |
-| DeepCell cross-dataset eval incl. KNN checkpoints | **PENDING / NECESSARY** | edit `CHECKPOINTS` in `cross_dataset_eval.py`; inference-only, fits 1 GPU |
-| Pull 5 clean K-sweep run dirs from `$TRK/runs/2026-06-01_23-04-*_clean/` | **PENDING** | needed for K=4/K=64 checkpoint reproducibility |
-| DINOv2 full SSL pretraining (24 h) | **NOT-NEEDED** | micro-tests + edge-probe ceiling already support the conclusion |
-| Low-label regime sweep (12 h) | **NOT-NEEDED** | SSL showed zero improvement at 10% labels |
-| CNN extended/race/lambda re-runs | **NOT-NEEDED** | already done (jobs 3768419, 3719326, 3710363) |
-| `phase1_*`, `dist_ablation`, `diag2`, `quick_bench`, `ssl_only`, `ssl_d2d` | **NOT-NEEDED** | diagnostic/earlier exploratory; not required for report claims |
-| CNN feature-injection training (8 variants) | **NOT-NEEDED** unless re-running | H100-only (A500 OOM measured) |
+| Multi-seed K-sweep (5 K × seeds 42/43/44, 15 jobs via `run_single_config.slurm`) | **PENDING** | 48 h budget each; expect 6.4–11 h (early-stopped) |
+| DeepCell cross-dataset eval incl. KNN checkpoints | **PENDING** | edit `CHECKPOINTS` in `cross_dataset_eval.py`; inference-only, fits 1 GPU |
+| Pull 5 clean K-sweep run dirs from `$TRK/runs/` | **PENDING** | needed for K=4/K=64 checkpoint reproducibility |
 
 ---
 
 ## 6. Measured results ledger (DONE experiments)
 
-Numbers verbatim from `labbook/2026-08-03_experiment_readiness_inventory.md`
-§1.x / §5, cross-checked against the CSVs on disk. All A500 fp16 unless stated.
+Numbers verbatim from the experiment readiness inventory in `labbook/`
+(§1.x / §5), cross-checked against the CSVs on disk. All A500 fp16 unless stated.
 
 ### 6.1 `full_bench_a500.csv` — mask-KNN at N ≥ 2048 (labbook §1.2)
 
@@ -470,8 +460,7 @@ Numbers verbatim from `labbook/2026-08-03_experiment_readiness_inventory.md`
 | 4096 | 5.19 ms / 138 MB | 5.35 ms / 138 MB |
 | 8192 | 24.9 ms / 532 MB | 26.1 ms / 532 MB |
 
-Fits the A500 at N=8192. This resolves the `\pending{mask-KNN benchmark at
-N≥2048}` marker in `argumentation.tex`.
+Fits the A500 at N=8192.
 
 ### 6.2 `benchmark_sparse_results.csv` — N=1024/4096 sweep (labbook §5.5)
 
@@ -503,11 +492,11 @@ Per-layer speedup / end-to-end (L=12) speedup, `dense_masked` vs `cached_dist`:
 | 4096 | 1.22× | 1.20× |
 | 8192 | **OOM** | **OOM** |
 
-Nuance for the report: the "~2× speedup" claim only holds at small N (≤ 256);
-at N = 512–2048 it collapses to ~1.05×, and N=8192 OOMs on the A500. The report's
-"~2×" CachedDistAttention claim must be qualified to the small-N regime (the
-dominant regime in vanvliet). Raw CSV nuance: `dense_masked`@8192 actually
-succeeded (190.0 ms / 1487 MB); only `cached_dist`@8192 OOM'd in the on-disk CSV.
+Nuance: the "~2× speedup" figure only holds at small N (≤ 256); at N = 512–2048
+it collapses to ~1.05×, and N=8192 OOMs on the A500. The "~2×" CachedDistAttention
+figure must be qualified to the small-N regime (the dominant regime in vanvliet).
+Raw CSV nuance: `dense_masked`@8192 actually succeeded (190.0 ms / 1487 MB);
+only `cached_dist`@8192 OOM'd in the on-disk CSV.
 
 ### 6.5 `gather_v3_results.csv` — GatherSparseAttentionV3 (labbook §1.5)
 
@@ -522,12 +511,11 @@ V3/V1 ratio (< 1 means V3 faster), fp16, d=320, h=8, B=2:
 | 2048 | 0.20× | 0.35× | 0.56× |
 
 V3 is consistently faster than V1/V2 everywhere — up to **5× at N ≥ 1024**
-(0.20×) and 1.2–2.6× at small N. This contradicts the report's "V3 does not
-exist" narrative.
+(0.20×) and 1.2–2.6× at small N.
 
 ### 6.6 Backward pass at N=8192 (labbook §5.6) — `benchmark_backward/sparse_backward_results_8192.csv`
 
-All methods fit, **NO OOM** (contrary to expectation):
+All methods fit, **NO OOM**:
 
 | method | forward | backward | peak mem |
 |---|---|---|---|
@@ -543,16 +531,16 @@ was overwritten by the run.
 ### 6.7 speed_mem (labbook §5.8) — `benchmark_attn/speed_mem.csv`
 
 Full-model fp32 fwd+bwd+AdamW table for K {0,4,8,16,32,64} × N {128,256,512}.
-Headline: **K=64, N=512 = 194 ms / 1604 MB** (fits A500). FIX APPLIED to
-`benchmark_training/benchmarks/benchmark_speed_mem.py`: the broken
-`from track_encoder import AgentCentricNormalization` import was resolved by
-inlining the class; `wandb` was installed into `benchmark_attn/.venv`.
+Headline: **K=64, N=512 = 194 ms / 1604 MB** (fits A500). Note:
+`benchmark_training/benchmarks/benchmark_speed_mem.py` inlines
+`AgentCentricNormalization` (rather than importing it from `track_encoder`) and
+requires `wandb` (installed in `benchmark_attn/.venv`).
 
 ---
 
 ## 7. Early-stopping guidance
 
-**Only relevant for training runs** (e.g. the NECESSARY multi-seed K-sweep).
+**Only relevant for training runs** (e.g. the multi-seed K-sweep in §5.2).
 The attention benchmarks in this directory are single-shot measurements and do
 **not** need early stopping — there is no training loop to stop.
 
@@ -562,26 +550,26 @@ upper bound.
 
 ---
 
-## 8. Known discrepancies / notes (found 2026-08-04)
+## 8. Known discrepancies / notes
 
 1. `benchmarks/benchmark_sparse.py` working tree currently has `N_vals` without 1024/4096
    (line 214) and `sel_blocks = [2, 4, 8]` (line 244), but the on-disk
-   `benchmark_sparse_results.csv` (Aug 4) covers N = 128…8192 and
+   `benchmark_sparse_results.csv` covers N = 128…8192 and
    sel ∈ {2,4,8,16,64}. Reproduce the superset CSV by editing those two lines
    before running; otherwise the smaller sweep overwrites the superset data.
 2. `run_full_bench.slurm` echoes "K = 4 16" but `benchmark_full.py:167`
-   hardcodes `Ks = [4, 16, 32, 64, 128]`; the H100 job will actually sweep all
+   hardcodes `Ks = [4, 16, 32, 64, 128]`; the H100 run will actually sweep all
    five K values.
 3. `README_knn_methods.md` documents a `--gpu` mode that the current
    `benchmark_knn_methods.py` does not implement (analytical only).
 4. `cached_dist_results.csv`: `dense_masked`@8192 succeeded (190.0 ms/1487 MB)
    while `cached_dist`@8192 OOM'd; the labbook writes "OOM (both variants)" —
    the on-disk CSV records OOM only for the cached variant.
-5. `all_spatial_methods.csv` `gather_knn_ms` is broken (−1 everywhere, shape
-   bug) — do not cite.
-6. `benchmark_mask_vs_gather.py`'s output CSV historically landed at the repo
-   root (`research-proj/benchmark_mask_vs_gather.csv`) because it was run from
-   there; run from `benchmark_attn/` to keep outputs together.
+5. `all_spatial_methods.csv` `gather_knn_ms` is not populated (unsupported) —
+   do not cite.
+6. `benchmark_mask_vs_gather.py` writes its output CSV to the current working
+   directory; run it from inside `benchmark_attn/` so the output lands at
+   `benchmark_attn/benchmark_mask_vs_gather.csv`.
 7. The cluster slurm script installs torch from the cu124 index while the local
    venv is torch 2.12.0+cu130 — a mismatch to be aware of when comparing
    A500 (cu130) vs H100 (cu124) timings.

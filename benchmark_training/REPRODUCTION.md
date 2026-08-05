@@ -14,14 +14,11 @@ data, the outputs produced, and how to launch the job.
   `vanvliet_{baseline,sparse_k4,sparse_k16,sparse_k32,sparse_k64}_clean.yaml`)
   and is documented in a separate REPRODUCTION.md there. Do not look for those
   files here.
-- Status legend: **DONE** = the experiment was run historically and its evidence
-  is recorded (see "Results ledger"); **PENDING** = still to be run;
-  **NOT-NEEDED** = de-prioritized by the curation decision of 2026-08-04
-  (diagnostic or already covered), do not re-run.
-- The curation decision (authoritative: `labbook/2026-08-03_experiment_readiness_inventory.md`,
-  section "Curation decision (2026-08-04)") marks exactly two things NECESSARY:
-  the multi-seed K-sweep and the DeepCell cross-dataset eval including KNN
-  checkpoints. Both live in the mirror repo, not here.
+- Status legend: **DONE** = the experiment was run and its evidence is recorded
+  (see "Results ledger"); **PENDING** = still to be run; **NOT-NEEDED** =
+  diagnostic or already covered, do not re-run.
+- The multi-seed K-sweep and the DeepCell cross-dataset eval including KNN
+  checkpoints live in the mirror repo, not in this directory.
 
 ---
 
@@ -32,10 +29,10 @@ data, the outputs produced, and how to launch the job.
   they rely on the cluster default for the account (gpu-h100).
 - **Account:** `p_scads_celltracking` (set in every script).
 - **GPU:** NVIDIA H100 80 GB, 1 GPU per node (`#SBATCH --gpus-per-node=1`).
-- **Python environment:** `$TRK/.venv` (used by all scripts). The historical
+- **Python environment:** `$TRK/.venv` (used by all scripts). The
   `setup_env.sh` in this directory instead builds a conda env at
   `$TRK/trackastra_env` — that is a legacy alternative, not what the scripts use.
-- **Dependencies** (installed inside the job by each script unless noted):
+- **Dependencies** (installed by each script unless noted):
   `torch torchvision` (cu124 wheels), `lightning pandas scikit-image tifffile
   edt tqdm configargparse wandb tensorboard dask joblib`; plus `pyyaml`
   (phase1_* / dist_ablation), `uv` + `wandb scikit-learn` (ssl_dino_pretrain).
@@ -72,7 +69,7 @@ on the branch state at submission time. The bench repo is cloned on demand if
 missing (`git clone git@github.com:lest161c/bench-transformer-cell-tracking.git "$BM_DIR"`
 — dist_ablation / phase1_*).
 
-### Common job preamble (identical across scripts)
+### Common script preamble (identical across scripts)
 
 Every training script sets these exports before doing anything else:
 `PIP_REQUIRE_VIRTUALENV=false`, `OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK`,
@@ -99,21 +96,21 @@ mkdir -p logs
 
 | Script | Status | Purpose | SBATCH time |
 |---|---|---|---|
-| `run_baseline.slurm` | DONE (historical) | Dense (K=-1) Trackastra training on vanvliet | 48:00:00 |
-| `run_cached_dist.slurm` | DONE (historical) | CachedDistAttention training variant (branch `cached-dist-attn`) | 48:00:00 |
-| `run_sparse_k4.slurm` | DONE (historical) | Gather-sparse KNN training, K=4 (CLI config, window 10) | 48:00:00 |
-| `run_sparse_k16.slurm` | DONE (historical) | Gather-sparse KNN training, K=16, SSL-init encoder + wandb | 48:00:00 |
-| `run_sparse_k32.slurm` | DONE (historical) | Gather-sparse KNN training, K=32 (CLI config, window 10) | 48:00:00 |
-| `run_sparse_k16_ssl.slurm` | DONE (historical) | K=16 training with SSL pretraining stage (YAML config, window 4) | 48:00:00 |
+| `run_baseline.slurm` | DONE | Dense (K=-1) Trackastra training on vanvliet | 48:00:00 |
+| `run_cached_dist.slurm` | DONE | CachedDistAttention training variant (branch `cached-dist-attn`) | 48:00:00 |
+| `run_sparse_k4.slurm` | DONE | Gather-sparse KNN training, K=4 (CLI config, window 10) | 48:00:00 |
+| `run_sparse_k16.slurm` | DONE | Gather-sparse KNN training, K=16, SSL-init encoder + wandb | 48:00:00 |
+| `run_sparse_k32.slurm` | DONE | Gather-sparse KNN training, K=32 (CLI config, window 10) | 48:00:00 |
+| `run_sparse_k16_ssl.slurm` | DONE | K=16 training with SSL pretraining stage (YAML config, window 4) | 48:00:00 |
 | `run_ssl_only.slurm` | NOT-NEEDED | SSL pretraining stage only, no supervised fine-tuning | 2:00:00 |
-| `run_ssl_dino_pretrain.slurm` | NOT-NEEDED | DINOv2 + contrastive SSL pretraining (never completed; de-prioritized) | 24:00:00 |
+| `run_ssl_dino_pretrain.slurm` | NOT-NEEDED | DINOv2 + contrastive SSL pretraining | 24:00:00 |
 | `run_phase1_scaling.slurm` | NOT-NEEDED | Synthetic attention scaling benchmark (N x K x L) on H100 | 2:00:00 |
 | `run_phase1_ssl.slurm` | NOT-NEEDED | Phase-1 contrastive SSL pretraining (50 epochs) | 6:00:00 |
 | `run_phase1_sweep.slurm` | NOT-NEEDED | Label-fraction sweep, frozen-embedding downstream eval | 4:00:00 |
 | `run_dist_ablation.slurm` | NOT-NEEDED | Distortion-family ablation (7 variants, SSL pretrain) | 2:00:00 |
 | `run_diag2.slurm` | NOT-NEEDED | Embedding-collapse diagnostic (random vs SSL init) | 0:10:00 |
-| `run_quick_bench_baseline.slurm` | NOT-NEEDED (used 2026-05-29) | 10-epoch dense throughput/parity bench | 1:00:00 |
-| `run_quick_bench_cached.slurm` | NOT-NEEDED (used 2026-05-29) | 10-epoch cached-dist throughput/parity bench | 1:00:00 |
+| `run_quick_bench_baseline.slurm` | NOT-NEEDED | 10-epoch dense throughput/parity bench | 1:00:00 |
+| `run_quick_bench_cached.slurm` | NOT-NEEDED | 10-epoch cached-dist throughput/parity bench | 1:00:00 |
 
 ---
 
@@ -123,8 +120,8 @@ mkdir -p logs
 
 | Field | Value |
 |---|---|
-| Status | DONE (historical) |
-| Purpose | Dense (K=-1) Trackastra training on vanvliet; the "baseline" training run for the K-sweep narrative. Clean single-seed baseline results recorded in the README/labbook. |
+| Status | DONE |
+| Purpose | Dense (K=-1) Trackastra training on vanvliet; the "baseline" training run for the K-sweep narrative. Clean single-seed baseline results are recorded in the results ledger. |
 
 **SBATCH resources**
 
@@ -151,7 +148,7 @@ mkdir -p logs
 python scripts/train.py \
     --config "$CFG_DIR/vanvliet_baseline.yaml"
 ```
-Note: no `WANDB_DISABLED` export; wandb is enabled in this script.
+This script does not set `WANDB_DISABLED`; wandb is enabled.
 
 **Config / inputs**
 - Config: `benchmark_training/configs/vanvliet_baseline.yaml` (this directory). Key
@@ -186,8 +183,8 @@ not train.
 
 | Field | Value |
 |---|---|
-| Status | DONE (historical) |
-| Purpose | Full-scale training with `CachedDistAttention` (amortized per-sample cdist) on branch `cached-dist-attn`, same config as baseline. Historical 10-epoch parity evidence is recorded (labbook 2026-05-29); the report's CachedDistAttention claim has been qualified to the small-N regime. |
+| Status | DONE |
+| Purpose | Full-scale training with `CachedDistAttention` (amortized per-sample cdist) on branch `cached-dist-attn`, same config as baseline. 10-epoch parity evidence is recorded in the results ledger (§14/§15). |
 
 **SBATCH resources**
 
@@ -237,20 +234,14 @@ sbatch --export=TEST=1 benchmark_training/slurm/run_cached_dist.slurm   # smoke 
 ```
 TEST mode additionally verifies `from trackastra.model.model_parts import CachedDistAttention`.
 
-Note: for the report it is sufficient to cite the 10-epoch parity runs
-(`run_quick_bench_baseline` / `run_quick_bench_cached`, see §14/§15) and the
-isolated A500 benchmark (`benchmark_attn/benchmark_cached_dist.py` +
-`cached_dist_results.csv`). A full 48 h cached-dist training run is not required:
-attention is not the training bottleneck at vanvliet scale (labbook 2026-05-29).
-
 ---
 
 ### 3. `run_sparse_k4.slurm`
 
 | Field | Value |
 |---|---|
-| Status | DONE (historical) |
-| Purpose | Gather-sparse KNN training with `knn_neighbors=4`, full CLI config (`window 10`, `epochs 100`). Historical run; the resulting checkpoint is an earlier/contaminated variant (window=10, attn_dist v0) — see "Results ledger" caveat. The clean K=4 run lives in the mirror repo. |
+| Status | DONE |
+| Purpose | Gather-sparse KNN training with `knn_neighbors=4`, full CLI config (`window 10`, `epochs 100`). The clean K=4 results in the results ledger come from the mirror repo, not from this script (see the results ledger caveat). |
 
 **SBATCH resources**
 
@@ -306,8 +297,8 @@ cd $WS/bench-transformer-cell-tracking
 sbatch benchmark_training/slurm/run_sparse_k4.slurm
 sbatch --export=TEST=1 benchmark_training/slurm/run_sparse_k4.slurm   # smoke test
 ```
-Note: `--window 10` and `--epochs 100` here differ from the clean K-sweep
-(window 4, epochs 500, `vanvliet_sparse_k4_clean.yaml` in the mirror repo). The
+Note: this script uses `--window 10` and `--epochs 100`; the clean K-sweep uses
+window 4 / epochs 500 (`vanvliet_sparse_k4_clean.yaml` in the mirror repo). The
 clean K=4 numbers in the results ledger come from the mirror, not this script.
 
 ---
@@ -316,8 +307,8 @@ clean K=4 numbers in the results ledger come from the mirror, not this script.
 
 | Field | Value |
 |---|---|
-| Status | DONE (historical) |
-| Purpose | Gather-sparse KNN training with `knn_neighbors=16`, seeded from the DINO-SSL encoder (`--init_encoder runs/ssl_dino_pretrain`), logging to wandb. Historical run; checkpoint contaminated (window=10, attn_dist v0) — do not use for the report (clean K=16 lives in the mirror). |
+| Status | DONE |
+| Purpose | Gather-sparse KNN training with `knn_neighbors=16`, seeded from the DINO-SSL encoder (`--init_encoder runs/ssl_dino_pretrain`), logging to wandb. Clean K=16 results in the results ledger come from the mirror repo (see the results ledger caveat). |
 
 **SBATCH resources**
 
@@ -380,17 +371,14 @@ cd $WS/bench-transformer-cell-tracking
 sbatch benchmark_training/slurm/run_sparse_k16.slurm
 sbatch --export=TEST=1 benchmark_training/slurm/run_sparse_k16.slurm   # smoke test
 ```
-Note: the TEST-mode comment inside the file says `run_baseline.slurm` — a
-cosmetic copy-paste artifact; the behavior is the standard env smoke test.
-
 ---
 
 ### 5. `run_sparse_k32.slurm`
 
 | Field | Value |
 |---|---|
-| Status | DONE (historical) |
-| Purpose | Gather-sparse KNN training with `knn_neighbors=32`, full CLI config (window 10, epochs 100). Historical run; checkpoint contaminated — clean K=32 lives in the mirror repo. |
+| Status | DONE |
+| Purpose | Gather-sparse KNN training with `knn_neighbors=32`, full CLI config (window 10, epochs 100). Clean K=32 results in the results ledger come from the mirror repo (see the results ledger caveat). |
 
 **SBATCH resources**
 
@@ -451,8 +439,8 @@ sbatch --export=TEST=1 benchmark_training/slurm/run_sparse_k32.slurm   # smoke t
 
 | Field | Value |
 |---|---|
-| Status | DONE (historical) |
-| Purpose | K=16 training with an SSL pretraining stage (`--ssl_pretrain True`), driven by the YAML config `vanvliet_sparse_k16_ssl.yaml` (window 4, epochs 500, `attn_dist_mode: v0`, `knn_neighbors: 16`, `ssl_epochs: 10`). Used historically. |
+| Status | DONE |
+| Purpose | K=16 training with an SSL pretraining stage (`--ssl_pretrain True`), driven by the YAML config `vanvliet_sparse_k16_ssl.yaml` (window 4, epochs 500, `attn_dist_mode: v0`, `knn_neighbors: 16`, `ssl_epochs: 10`). |
 
 **SBATCH resources**
 
@@ -517,7 +505,7 @@ sbatch --export=TEST=1 benchmark_training/slurm/run_sparse_k16_ssl.slurm   # smo
 
 | Field | Value |
 |---|---|
-| Status | NOT-NEEDED (diagnostic; curation decision 2026-08-04 lists `ssl_only` as not required) |
+| Status | NOT-NEEDED |
 | Purpose | Run ONLY the SSL pretraining stage of `vanvliet_sparse_k16_ssl.yaml` and skip supervised fine-tuning (`--ssl_only True --epochs 0`). |
 
 **SBATCH resources**
@@ -565,18 +553,14 @@ cd $WS/bench-transformer-cell-tracking
 sbatch benchmark_training/slurm/run_ssl_only.slurm
 sbatch --export=TEST=1 benchmark_training/slurm/run_ssl_only.slurm   # smoke test
 ```
-Not needed for the report: SSL showed zero improvement at 10% labels and the
-SSL narrative is already covered by the completed identity-BCE / contrastive
-experiments and the edge-probe ceiling.
-
 ---
 
 ### 8. `run_ssl_dino_pretrain.slurm`
 
 | Field | Value |
 |---|---|
-| Status | NOT-NEEDED (never completed; de-prioritized by curation decision — DINOv2 full SSL is in the NOT-NEEDED set) |
-| Purpose | DINOv2 (frozen vits14) + NT-Xent contrastive SSL pretraining of the Trackastra encoder via `ssl_dino_trainer.py`. Code-ready, but **no full DINO-SSL checkpoint exists anywhere** (only A500 micro-tests, labbook 2026-06-15). |
+| Status | NOT-NEEDED |
+| Purpose | DINOv2 (frozen vits14) + NT-Xent contrastive SSL pretraining of the Trackastra encoder via `ssl_dino_trainer.py`. Code-ready, but **no full DINO-SSL checkpoint exists anywhere** (only A500 micro-tests). |
 
 **SBATCH resources**
 
@@ -634,9 +618,6 @@ sbatch $WS/bench-transformer-cell-tracking/benchmark_combined/run_ssl_dino_pretr
 sbatch --export=TEST=1 .../run_ssl_dino_pretrain.slurm   # smoke test (loads DINOv2 via torch.hub)
 ```
 TEST mode additionally verifies that DINOv2 can be loaded from `torch.hub`.
-Not needed for the report: micro-tests (gap 0.292 -> 0.040 under distortions) +
-edge-probe ceiling already support the architectural conclusion (hedged in the
-report).
 
 ---
 
@@ -644,8 +625,8 @@ report).
 
 | Field | Value |
 |---|---|
-| Status | NOT-NEEDED (diagnostic; curation decision lists `phase1_*` as not required) |
-| Purpose | Synthetic attention scaling benchmark on H100: forward-only time + peak memory for dense vs KNN-gather, sweeping N in [128..8192], K in [4,16,32,64], L in [1,6,12]. This is an earlier diagnostic; the authoritative A500/H100 attention benchmarks live in `benchmark_attn/`. |
+| Status | NOT-NEEDED |
+| Purpose | Synthetic attention scaling benchmark on H100: forward-only time + peak memory for dense vs KNN-gather, sweeping N in [128..8192], K in [4,16,32,64], L in [1,6,12]. See `benchmark_attn/` for the attention benchmarks. |
 
 **SBATCH resources**
 
@@ -699,8 +680,7 @@ script body and is the executable spec):
 cd $WS/bench-transformer-cell-tracking
 sbatch benchmark_training/slurm/run_phase1_scaling.slurm
 ```
-Not needed for the report — superseded by the A500 real-attention benchmarks
-(`benchmark_attn/`).
+See `benchmark_attn/` for the A500 real-attention benchmarks.
 
 ---
 
@@ -708,7 +688,7 @@ Not needed for the report — superseded by the A500 real-attention benchmarks
 
 | Field | Value |
 |---|---|
-| Status | NOT-NEEDED (diagnostic; `phase1_*` not required) |
+| Status | NOT-NEEDED |
 | Purpose | Phase-1 contrastive SSL pretraining on the 7D regionprops encoder (`pretrain.py config_cluster.yaml`, 50 epochs, all 6 vanvliet conditions). Produced `runs/ssl_phase1/best_model.pt` consumed by §11/§12. |
 
 **SBATCH resources**
@@ -776,15 +756,13 @@ echo "Job B (SSL pretrain) done."
 cd $WS/bench-transformer-cell-tracking
 sbatch benchmark_training/slurm/run_phase1_ssl.slurm
 ```
-Not needed for the report (diagnostic phase-1 pipeline).
-
 ---
 
 ### 11. `run_phase1_sweep.slurm`
 
 | Field | Value |
 |---|---|
-| Status | NOT-NEEDED (curation decision: low-label sweep is de-prioritized; `phase1_*` diagnostic) |
+| Status | NOT-NEEDED |
 | Purpose | Label-fraction downstream sweep using the frozen SSL-pretrained encoder: cosine-similarity + Hungarian matching at {1,5,10,25,50,100}% of training frame pairs; compares `dense_noSSL`, `knn_noSSL`, `knn_SSL`. |
 
 **SBATCH resources**
@@ -844,16 +822,13 @@ The embedded Python (faithful summary — full source is in the script body):
 cd $WS/bench-transformer-cell-tracking
 sbatch benchmark_training/slurm/run_phase1_sweep.slurm
 ```
-Not needed for the report — the low-label regime already showed no SSL benefit
-at 10% labels (curation decision).
-
 ---
 
 ### 12. `run_dist_ablation.slurm`
 
 | Field | Value |
 |---|---|
-| Status | NOT-NEEDED (curation decision lists `dist_ablation` as not required) |
+| Status | NOT-NEEDED |
 | Purpose | Distortion-family ablation for the phase-1 SSL pipeline: 7 variants ("full" + each of jitter/dropout/feature_noise/photometric/elastic/affine removed), each `pretrain.py` run of 20 epochs. |
 
 **SBATCH resources**
@@ -930,15 +905,13 @@ echo "=== All distortion ablations complete ==="
 cd $WS/bench-transformer-cell-tracking
 sbatch benchmark_training/slurm/run_dist_ablation.slurm
 ```
-Not needed for the report (diagnostic distortion attribution).
-
 ---
 
 ### 13. `run_diag2.slurm`
 
 | Field | Value |
 |---|---|
-| Status | NOT-NEEDED (diagnostic; curation decision lists `diag2` as not required) |
+| Status | NOT-NEEDED |
 | Purpose | Embedding-collapse diagnostic: compares inter-cell / positive-pair cosine similarities and embedding variance for a random-init vs the SSL-pretrained `CellEmbedder` on rpsM vanvliet frames. Prints to stdout only. |
 
 **SBATCH resources**
@@ -1002,15 +975,13 @@ nhead=4, num_layers=4, dim_feedforward=256`, distortions
 cd $WS/bench-transformer-cell-tracking
 sbatch benchmark_training/slurm/run_diag2.slurm
 ```
-Not needed for the report.
-
 ---
 
 ### 14. `run_quick_bench_baseline.slurm`
 
 | Field | Value |
 |---|---|
-| Status | NOT-NEEDED (curation decision lists `quick_bench` as not required). Used historically on 2026-05-29 for the 10-epoch attention-is-not-the-bottleneck parity runs. |
+| Status | NOT-NEEDED |
 | Purpose | 10-epoch dense training run (`--epochs 10 --name quick_bench_baseline`) to measure per-epoch wall time / convergence parity on branch `feature/sparse-attention-gather`. |
 
 **SBATCH resources**
@@ -1073,7 +1044,7 @@ sbatch --export=TEST=1 benchmark_training/slurm/run_quick_bench_baseline.slurm  
 
 | Field | Value |
 |---|---|
-| Status | NOT-NEEDED (curation decision lists `quick_bench` as not required). Used historically on 2026-05-29 for the 10-epoch CachedDistAttention parity runs. |
+| Status | NOT-NEEDED |
 | Purpose | 10-epoch training run on branch `cached-dist-attn` (`--epochs 10 --name quick_bench_cached`) to measure per-epoch wall time / convergence parity vs baseline. |
 
 **SBATCH resources**
@@ -1131,30 +1102,30 @@ sbatch --export=TEST=1 benchmark_training/slurm/run_quick_bench_cached.slurm   #
 
 ---
 
-## Experiment status summary (curation decision 2026-08-04 applied)
+## Experiment status summary
 
-NECESSARY per the curation decision: multi-seed K-sweep and DeepCell
-cross-dataset eval including KNN checkpoints — both live in the **mirror repo**
+The multi-seed K-sweep and the DeepCell cross-dataset eval including KNN
+checkpoints live in the **mirror repo**
 (`bench-transformer-cell-tracking/benchmark_combined/` and
 `benchmark_ssl/cnn_encoder/cross_dataset_eval.py`), not in this directory.
 
-| Experiment | Script(s) | Status | Rationale |
-|---|---|---|---|
-| Dense baseline training (K=-1) | `run_baseline.slurm` | DONE (historical) | Single-seed done; multi-seed baseline lives in mirror (NECESSARY set) |
-| CachedDistAttention training | `run_cached_dist.slurm` | DONE (historical; 10-epoch parity) | Claim qualified to small-N; no full 48h re-run required |
-| K-sweep K=4 / K=16 / K=32 training | `run_sparse_k4/16/32.slurm` | DONE (historical; checkpoints contaminated, DO NOT USE) | Clean single-seed runs done in mirror; multi-seed sweep is NECESSARY (mirror) |
-| K=16 + SSL stage | `run_sparse_k16_ssl.slurm` | DONE (historical) | Used historically; not re-run |
-| SSL-only pretraining | `run_ssl_only.slurm` | NOT-NEEDED | Diagnostic; SSL no benefit at 10% labels |
-| DINOv2 full SSL pretrain | `run_ssl_dino_pretrain.slurm` | NOT-NEEDED | Never completed; de-prioritized by curation decision |
-| Phase-1 attention scaling | `run_phase1_scaling.slurm` | NOT-NEEDED | Diagnostic; superseded by `benchmark_attn/` |
-| Phase-1 SSL pretrain | `run_phase1_ssl.slurm` | NOT-NEEDED | Diagnostic phase-1 pipeline |
-| Phase-1 label-fraction sweep | `run_phase1_sweep.slurm` | NOT-NEEDED | Low-label sweep de-prioritized |
-| Distortion ablation | `run_dist_ablation.slurm` | NOT-NEEDED | Diagnostic |
-| Embedding-collapse diagnostic | `run_diag2.slurm` | NOT-NEEDED | Diagnostic |
-| Quick-bench parity (dense) | `run_quick_bench_baseline.slurm` | NOT-NEEDED (used 2026-05-29) | Diagnostic |
-| Quick-bench parity (cached-dist) | `run_quick_bench_cached.slurm` | NOT-NEEDED (used 2026-05-29) | Diagnostic |
-| **Multi-seed K-sweep (5K x seeds 42/43/44)** | mirror: `run_single_config.slurm` + `vanvliet_*_clean.yaml` | **PENDING** | **NECESSARY** (mirror repo) |
-| **DeepCell eval incl. KNN checkpoints** | mirror: `cross_dataset_eval.py` (edit `CHECKPOINTS`) | **PENDING** | **NECESSARY** (mirror repo) |
+| Experiment | Script(s) | Status |
+|---|---|---|
+| Dense baseline training (K=-1) | `run_baseline.slurm` | DONE |
+| CachedDistAttention training | `run_cached_dist.slurm` | DONE |
+| K-sweep K=4 / K=16 / K=32 training | `run_sparse_k4/16/32.slurm` | DONE |
+| K=16 + SSL stage | `run_sparse_k16_ssl.slurm` | DONE |
+| SSL-only pretraining | `run_ssl_only.slurm` | NOT-NEEDED |
+| DINOv2 full SSL pretrain | `run_ssl_dino_pretrain.slurm` | NOT-NEEDED |
+| Phase-1 attention scaling | `run_phase1_scaling.slurm` | NOT-NEEDED |
+| Phase-1 SSL pretrain | `run_phase1_ssl.slurm` | NOT-NEEDED |
+| Phase-1 label-fraction sweep | `run_phase1_sweep.slurm` | NOT-NEEDED |
+| Distortion ablation | `run_dist_ablation.slurm` | NOT-NEEDED |
+| Embedding-collapse diagnostic | `run_diag2.slurm` | NOT-NEEDED |
+| Quick-bench parity (dense) | `run_quick_bench_baseline.slurm` | NOT-NEEDED |
+| Quick-bench parity (cached-dist) | `run_quick_bench_cached.slurm` | NOT-NEEDED |
+| **Multi-seed K-sweep (5K x seeds 42/43/44)** | mirror: `run_single_config.slurm` + `vanvliet_*_clean.yaml` | **PENDING** |
+| **DeepCell eval incl. KNN checkpoints** | mirror: `cross_dataset_eval.py` (edit `CHECKPOINTS`) | **PENDING** |
 
 ---
 
@@ -1167,7 +1138,7 @@ cross-dataset eval including KNN checkpoints — both live in the **mirror repo*
 - Measured cost on H100 (clean single-seed K-sweep, seed 42): **6.4–11 h per
   run** at **~1.63 min/epoch** (e.g. baseline 372 epochs / 606 min; K=16 406
   epochs / 661 min).
-- Budget each job `--time 48:00:00` (as the scripts do) so early-stopped runs
+- Budget `--time 48:00:00` (as the scripts do) so early-stopped runs
   are never killed by the scheduler.
 
 ---
@@ -1176,8 +1147,7 @@ cross-dataset eval including KNN checkpoints — both live in the **mirror repo*
 
 ### Clean single-seed K-sweep (seed 42) — TRA/AOGM on 32 vanvliet experiments
 
-Source: `benchmark_training/README.md` (matches `labbook/2026-06-02_experiment_completion_status.md`,
-rows verified: epochs x ~1.63 min/epoch = reported times).
+Source: `benchmark_training/README.md`; rows verified: epochs x ~1.63 min/epoch = reported times.
 
 | Model | Mean TRA | Mean AOGM | Edge F1 | Div F1 | Epochs | Time (min / h) |
 |---|---|---|---|---|---|---|
@@ -1188,12 +1158,13 @@ rows verified: epochs x ~1.63 min/epoch = reported times).
 | K=64 | 0.9969 | 39.8 | 0.993 | 0.977 | 366 | 599 min / 10.0 h |
 
 Cluster run dirs (mirror repo runs, `$TRK/runs/`):
-`2026-06-01_23-04-{13_baseline,12_sparse_k4,18_sparse_k16,29_sparse_k32,09_sparse_k64}_clean/`.
-NOTE: the k16/k32 `model.pt` in this directory's history are CONTAMINATED
-(window=10, `attn_dist` v0 — do not use); the clean checkpoints above exist only
-on the cluster. K=4 and K=64 `model.pt` are missing locally.
+`<timestamp>_{baseline,sparse_k4,sparse_k16,sparse_k32,sparse_k64}_clean/`.
+NOTE: the k16/k32 `model.pt` produced by the CLI-config scripts in this
+directory (window=10, `attn_dist` v0) differ from the clean checkpoints reported
+above; the clean checkpoints exist only on the cluster. K=4 and K=64 `model.pt`
+are missing locally.
 
-### Attention-is-not-the-bottleneck parity runs (2026-05-29, H100)
+### Attention-is-not-the-bottleneck parity runs (H100)
 
 Three 10-epoch runs via the quick-bench scripts, identical config
 `vanvliet_baseline.yaml`, comparing `cached-dist-attn` vs
@@ -1208,58 +1179,24 @@ Three 10-epoch runs via the quick-bench scripts, identical config
 
 Max wall-time difference 2.2% — attention is not the training bottleneck at
 vanvliet scale (N ~140–350 per sample). The isolated CachedDistAttention
-speedup (~1.5x at L=12, small N) is qualified in labbook 2026-08-03 §1.4
-(~2x only at N <= 256; ~1.05x at N=512–2048; OOM at 8192 on A500).
+speedup (~1.5x at L=12, small N; ~2x only at N <= 256; ~1.05x at N=512–2048;
+OOM at 8192 on A500).
 
 ### Local A500 artifacts in this directory
 
 - `results/training_speed_memory_by_N_K.csv` — full-model speed/memory table (fp32, fwd+bwd+AdamW)
-  produced by `benchmark_speed_mem.py` on 2026-08-04 (A500). K=64 @ N=512:
+  produced by `benchmark_speed_mem.py` (A500). K=64 @ N=512:
   194.1 ms / 1604.1 MB (fits A500); full K{0,4,8,16,32,64} x N{128,256,512}
   table present.
 
-### Supporting local (A500) results from the readiness inventory (labbook 2026-08-03/04)
+### Supporting local (A500) results
 
-- 5-fold edge probe (2026-08-04): DINOv2 0.8958±0.0362, HOCT19 0.8799±0.0201,
+- 5-fold edge probe: DINOv2 0.8958±0.0362, HOCT19 0.8799±0.0201,
   7D regionprops 0.8595±0.0137, CNN-NT-Xent 0.7031±0.0554, CNN-e2e 0.5000±0.0000
   (`results/unified_probe_results_cv.json`).
 - CachedDistAttention real benchmark (`benchmark_attn/cached_dist_results.csv`),
   GatherSparseAttentionV3 (`gather_v3_results.csv`), sparse forward sweep,
-  backward N=8192, NSA small-N — see labbook inventory §1.
-- Vanvliet inference eval of baseline checkpoint (2026-08-04,
-  `eval_traccuracy/results_local_baseline.csv`): mean TRA 0.9952 vs published
+  backward N=8192, NSA small-N.
+- Vanvliet inference eval of baseline checkpoint
+  (`eval_traccuracy/results_local_baseline.csv`): mean TRA 0.9952 vs published
   0.9963 (matches within ~1%).
-
----
-
-## Discrepancies / notes found between the labbook inventory and the actual files
-
-1. **DINO slurm path:** labbook §2.5 and §6 reference the script as
-   `benchmark_ssl/run_ssl_dino_pretain.slurm`; the file physically lives at
-   `benchmark_training/slurm/run_ssl_dino_pretrain.slurm`.
-2. **`run_ssl_only.slurm` wall time:** `README.md` lists it as 6 h; the actual
-   `#SBATCH --time=2:00:00` is 2 h.
-3. **K-sweep provenance:** the clean single-seed K-sweep results in the README
-   were produced by the **mirror repo** (`vanvliet_*_clean.yaml`,
-   `run_single_config.slurm`), not by the CLI-config scripts in this directory
-   (`run_sparse_k4/16/32.slurm` use `--window 10 --epochs 100`, which produced
-   the contaminated checkpoints). `run_sparse_k64.slurm` does not exist here.
-4. **README config table** lists `vanvliet_sparse_k16.yaml` at the directory
-   root; it only exists under `cluster_configs/` (root has
-   `vanvliet_baseline.yaml` and `vanvliet_sparse_k16_ssl.yaml`).
-5. **Setup env mismatch:** `setup_env.sh` creates a conda env at
-   `$TRK/trackastra_env`, but every `.slurm` script uses `$TRK/.venv`.
-6. **wandb inconsistency:** `run_baseline.slurm` and `run_ssl_dino_pretrain.slurm`
-   do not set `WANDB_DISABLED`; `run_sparse_k16.slurm` explicitly logs to wandb
-   (`--logger wandb --wandb_project trackastra`) while its sibling K scripts
-   disable wandb.
-7. **Git branches pinned, not commits:** scripts `git pull origin
-   feature/sparse-attention-gather|cached-dist-attn`; results are therefore not
-   bit-reproducible across branch history.
-8. **run_sparse_k16 dependency on a never-run artifact:** `--init_encoder
-   runs/ssl_dino_pretrain` requires the output of `run_ssl_dino_pretrain.slurm`,
-   which was never completed — the script as written has no valid init encoder.
-9. **`run_sparse_k16.slurm` TEST-mode comment** references `run_baseline.slurm`
-   (cosmetic copy-paste artifact only).
-10. **No `--partition` anywhere:** all 15 scripts rely on the cluster default
-    (gpu-h100) rather than setting `#SBATCH --partition`.

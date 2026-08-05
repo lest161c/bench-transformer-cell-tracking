@@ -4,16 +4,16 @@ SLURM submission scripts, configs, and analysis for Trackastra training runs on 
 
 ## Slurm Scripts (`slurm/`)
 
-| Script | Description | Est. time |
-|--------|-------------|-----------|
-| `slurm/run_baseline.slurm` | Dense Trackastra training (baseline) | 48h |
-| `slurm/run_cached_dist.slurm` | CachedDistAttention variant (amortized cdist) | 48h |
-| `slurm/run_sparse_k4.slurm` | Gather-sparse KNN, K=4 | 48h |
-| `slurm/run_sparse_k16.slurm` | Gather-sparse KNN, K=16 (best TRA: 0.9972) | 48h |
-| `slurm/run_sparse_k32.slurm` | Gather-sparse KNN, K=32 | 48h |
-| `slurm/run_sparse_k16_ssl.slurm` | K16 + SSL-pretrained init | 48h |
-| **`slurm/run_ssl_dino_pretrain.slurm`** | **DINOv2 + contrastive SSL pretraining (new)** | **24h** |
-| `slurm/run_dist_ablation.slurm` | Distortion family ablation | 2h |
+| Script | Description |
+|--------|-------------|
+| `slurm/run_baseline.slurm` | Dense Trackastra training (baseline) |
+| `slurm/run_cached_dist.slurm` | CachedDistAttention variant (amortized cdist) |
+| `slurm/run_sparse_k4.slurm` | Gather-sparse KNN, K=4 |
+| `slurm/run_sparse_k16.slurm` | Gather-sparse KNN, K=16 (best TRA: 0.9972) |
+| `slurm/run_sparse_k32.slurm` | Gather-sparse KNN, K=32 |
+| `slurm/run_sparse_k16_ssl.slurm` | K16 + SSL-pretrained init |
+| **`slurm/run_ssl_dino_pretrain.slurm`** | **DINOv2 + contrastive SSL pretraining** |
+| `slurm/run_dist_ablation.slurm` | Distortion family ablation |
 
 ## Configs (`configs/`)
 
@@ -23,9 +23,8 @@ SLURM submission scripts, configs, and analysis for Trackastra training runs on 
 | `configs/vanvliet_sparse_k16.yaml` | KNN=16 training |
 | `configs/vanvliet_sparse_k16_ssl.yaml` | K16 + SSL pretraining |
 
-> Note: the `cluster_configs/` variants and the phase-1 / quick-bench / diag slurm scripts
-> were removed as obsolete (2026-08-05); the current K-sweep configs and the multi-seed
-> harness live in the `bench-transformer-cell-tracking/benchmark_combined/` repo.
+> Note: the K-sweep configs and the multi-seed harness live in the
+> `bench-transformer-cell-tracking/benchmark_combined/` repo.
 
 ## Results summary (vanvliet)
 
