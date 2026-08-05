@@ -69,11 +69,10 @@ This repo tracks **benchmark code only.** The following artifacts are maintained
 |---|---|
 | LaTeX seminar paper | `report/` |
 | Research lab notebook | `labbook/` |
-| Result figures & tables | `results/`, `results_final/` |
+| Result figures & tables | `results/` (checkpoints, figures, `knn_sweep/` K-sweep data, `probes/`) |
 | Experiment reproducibility guide | `reproduction.md` |
 | Trackastra library fork | `trackastra/` (separate repo) |
 | Architecture docs, SLURM guide | `wiki/` |
-| Progress roadmap dashboard | `progress_roadmap*.html` |
 
 ---
 

@@ -458,7 +458,7 @@ Local equivalents:
 | DINOv2 full SSL pretraining (`run_ssl_dino_pretrain.slurm`, 24 h) | **NOT-NEEDED** | 1× H100, 90 GB, 8 CPU, 24 h, `$TRK/.venv` | `$TRK/runs/ssl_dino_pretrain/` (never produced) |
 | Low-label regime sweep (12 h, H100) | **NOT-NEEDED** | H100 | — (SSL already showed zero improvement at 10% labels) |
 | `ssl_d2d` (diagnostic) | **NOT-NEEDED** | — | — (earlier exploratory; not required) |
-| Multi-seed K-sweep (42/43/44 × 5 K, 15 jobs) | PENDING (cluster, NECESSARY) | 15× H100, 48 h each (`benchmark_combined`) | `results_final/` variance estimates, K=4/K=64 checkpoints |
+| Multi-seed K-sweep (42/43/44 × 5 K, 15 jobs) | PENDING (cluster, NECESSARY) | 15× H100, 48 h each (`benchmark_combined`) | `results/knn_sweep/` variance estimates, K=4/K=64 checkpoints |
 | DeepCell cross-dataset eval incl. KNN checkpoints | PENDING (cluster, NECESSARY) | 1 GPU, data + CHOTAMetric on cluster | `$TRK/results/cross_dataset/deepcell/...` |
 
 Not needed (curation decision): `phase1_*`, `dist_ablation`, `diag2`, `quick_bench`,
