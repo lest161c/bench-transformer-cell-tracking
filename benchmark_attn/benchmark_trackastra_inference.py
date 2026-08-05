@@ -1,0 +1,347 @@
+"""Trackastra inference benchmark — timing breakdown for get_features() and predict_windows().
+
+Measures wall time and memory across varying cell counts (N) using
+example_data_bacteria and synthetic masks of known sizes.
+
+Addresses meeting_18_06_26.txt lines 12-18:
+  - measure get_features() separately
+  - measure predict_windows() for different N
+  - inference time vs N scaling
+  - memory vs N scaling
+
+Usage:
+    python benchmark_trackastra_inference.py [--out results.csv]
+"""
+
+import argparse
+import csv
+import gc
+import time
+from pathlib import Path
+
+import numpy as np
+import torch
+
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
+
+def _get_example_data():
+    """Load example bacteria data (63 frames, trpL/150310-11)."""
+    from trackastra.data import example_data_bacteria
+    return example_data_bacteria()
+
+
+def _get_model():
+    """Load pretrained Trackastra model."""
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    from trackastra import Trackastra
+    model = Trackastra.from_pretrained("general_2d", device=device)
+    return model, device
+
+
+def _synthesize_data(N_cells_per_frame: int, T: int = 10, H: int = 320, W: int = 320):
+    """Generate synthetic masks/images with controlled cell count.
+
+    Args:
+        N_cells_per_frame: Average cells per frame (uniform across frames).
+        T: Number of frames.
+        H, W: Image dimensions.
+
+    Returns:
+        masks: (T, H, W) uint16 array
+        imgs: (T, H, W) uint16 array
+    """
+    rng = np.random.RandomState(42)
+    masks = []
+    imgs = []
+    for t in range(T):
+        mask = np.zeros((H, W), dtype=np.uint16)
+        img = np.zeros((H, W), dtype=np.uint16)
+        for i in range(N_cells_per_frame):
+            # Random ellipse
+            cy = rng.randint(20, H - 20)
+            cx = rng.randint(20, W - 20)
+            ry = rng.randint(5, 12)
+            rx = rng.randint(5, 12)
+            yy, xx = np.ogrid[:H, :W]
+            region = ((yy - cy) / ry) ** 2 + ((xx - cx) / rx) ** 2 <= 1
+            if mask[region].sum() == 0:  # no overlap
+                mask[region] = i + 1
+                img[region] = rng.randint(100, 200)
+        masks.append(mask)
+        imgs.append(img)
+    return np.stack(masks, axis=0), np.stack(imgs, axis=0)
+
+
+def _measure_get_features(masks, imgs, n_workers=0):
+    """Measure get_features() wall time and peak memory."""
+    from trackastra.data import get_features
+
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+        torch.cuda.reset_peak_memory_stats()
+        mem_before = torch.cuda.memory_allocated()
+
+    t0 = time.perf_counter()
+    features = get_features(masks, imgs, features="wrfeat", n_workers=n_workers)
+    t1 = time.perf_counter()
+
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+        mem_peak = torch.cuda.max_memory_allocated()
+        mem_used = (mem_peak - mem_before) / (1024 ** 2)
+    else:
+        mem_used = 0
+
+    total_cells = sum(len(f.labels) for f in features)
+    return t1 - t0, mem_used, total_cells
+
+
+def _measure_predict_windows(features, model, batch_size=4):
+    """Measure predict_windows() wall time and peak memory.
+
+    Returns:
+        wall_time: seconds
+        mem_mb: peak GPU memory increment
+        n_windows: number of windows processed
+        mean_cells_per_window: average N in each window
+    """
+    from trackastra.data import build_windows
+    from trackastra.model.predict import predict_windows
+
+    windows = build_windows(features, window_size=4)
+    n_cells = [len(w["labels"]) for w in windows]
+
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+        torch.cuda.reset_peak_memory_stats()
+        mem_before = torch.cuda.memory_allocated()
+
+    t0 = time.perf_counter()
+    result = predict_windows(windows, features, model, batch_size=batch_size)
+    t1 = time.perf_counter()
+
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+        mem_peak = torch.cuda.max_memory_allocated()
+        mem_used = (mem_peak - mem_before) / (1024 ** 2)
+    else:
+        mem_used = 0
+
+    return t1 - t0, mem_used, len(windows), np.mean(n_cells) if n_cells else 0, max(n_cells) if n_cells else 0
+
+
+def run_benchmark():
+    rows = []
+
+    print("Loading model...")
+    model, device = _get_model()
+    gc.collect()
+
+    # ── Test 1: Example data (bacteria) ──
+    print("\n=== Test 1: Example bacteria data ===")
+    masks, imgs = _get_example_data()
+    T, H, W = masks.shape
+    total_cells = len(np.unique(masks)) - 1
+
+    # get_features timing
+    t_feat, mem_feat, n_feat = _measure_get_features(masks, imgs)
+    print(f"  get_features: {t_feat:.3f}s, {mem_feat:.1f} MB, {n_feat} cells")
+
+    rows.append({
+        "test": "example_bacteria", "N_mean": n_feat // T, "N_max": -1,
+        "T": T, "stage": "get_features",
+        "time_s": t_feat, "mem_mb": mem_feat, "n_total": n_feat,
+    })
+
+    # predict_windows timing
+    from trackastra.data import get_features
+    features = get_features(masks, imgs, features="wrfeat")
+
+    t_pred, mem_pred, n_windows, mean_cells, max_cells = _measure_predict_windows(features, model)
+    print(f"  predict_windows: {t_pred:.3f}s, {mem_pred:.1f} MB, {n_windows} windows, "
+          f"mean {mean_cells:.0f} cells/win, max {max_cells} cells/win")
+
+    rows.append({
+        "test": "example_bacteria", "N_mean": mean_cells, "N_max": max_cells,
+        "T": T, "stage": "predict_windows",
+        "time_s": t_pred, "mem_mb": mem_pred, "n_total": n_windows,
+    })
+
+    # ── Test 2: Synthetic scaling with varying N ──
+    print("\n=== Test 2: Synthetic N scaling ===")
+    gc.collect()
+
+    N_values = [10, 25, 50, 100, 200, 500, 1000]
+    for N_cells in N_values:
+        try:
+            masks_syn, imgs_syn = _synthesize_data(N_cells, T=10)
+            T_syn = 10
+
+            t_feat, mem_feat, n_feat = _measure_get_features(masks_syn, imgs_syn)
+            print(f"  N={N_cells:>4d}  get_features: {t_feat:.4f}s  "
+                  f"cells={n_feat}")
+
+            rows.append({
+                "test": f"synthetic_N={N_cells}", "N_mean": N_cells, "N_max": N_cells,
+                "T": T_syn, "stage": "get_features",
+                "time_s": t_feat, "mem_mb": mem_feat, "n_total": n_feat,
+            })
+
+            from trackastra.data import get_features
+            features_syn = get_features(masks_syn, imgs_syn, features="wrfeat")
+            t_pred, mem_pred, n_windows, mean_cells, max_cells = _measure_predict_windows(
+                features_syn, model
+            )
+            print(f"  N={N_cells:>4d}  predict_win: {t_pred:.4f}s  mem={mem_pred:.1f}MB  "
+                  f"windows={n_windows}  mean_N={mean_cells:.0f}  max_N={max_cells}")
+
+            rows.append({
+                "test": f"synthetic_N={N_cells}", "N_mean": mean_cells, "N_max": max_cells,
+                "T": T_syn, "stage": "predict_windows",
+                "time_s": t_pred, "mem_mb": mem_pred, "n_total": n_windows,
+            })
+
+        except Exception as e:
+            print(f"  N={N_cells:>4d}  ERROR: {e}")
+            rows.append({
+                "test": f"synthetic_N={N_cells}", "N_mean": N_cells, "N_max": N_cells,
+                "T": 10, "stage": "ERROR",
+                "time_s": -1, "mem_mb": -1, "n_total": -1,
+                "error": str(e)[:200],
+            })
+
+        gc.collect()
+        if device == "cuda":
+            torch.cuda.empty_cache()
+
+    return rows, device
+
+
+def save_results(rows, path="trackastra_inference_benchmark.csv"):
+    fieldnames = ["test", "N_mean", "N_max", "T", "stage", "time_s", "mem_mb", "n_total"]
+    with open(path, "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
+        w.writeheader()
+        w.writerows(rows)
+    print(f"\nSaved {len(rows)} rows → {path}")
+
+
+def generate_figure(rows, save_path="trackastra_inference_scaling.png"):
+    """Generate scaling plots: time vs N, memory vs N, and % breakdown."""
+    get_feat = [r for r in rows if r["stage"] == "get_features" and "synthetic" in r["test"]]
+    pred_win = [r for r in rows if r["stage"] == "predict_windows" and "synthetic" in r["test"]]
+
+    fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+
+    # Top-left: Time vs N (log-log)
+    ax = axes[0, 0]
+    if get_feat:
+        ns_f = [r["N_mean"] for r in get_feat if r["time_s"] > 0]
+        ts_f = [r["time_s"] * 1000 for r in get_feat if r["time_s"] > 0]
+        ax.plot(ns_f, ts_f, "o-", color="#e74c3c", label="get_features()",
+                markersize=8, linewidth=2)
+    if pred_win:
+        ns_p = [r["N_mean"] for r in pred_win if r["time_s"] > 0]
+        ts_p = [r["time_s"] * 1000 for r in pred_win if r["time_s"] > 0]
+        ax.plot(ns_p, ts_p, "s-", color="#3498db", label="predict_windows()",
+                markersize=8, linewidth=2)
+    ax.set_xlabel("Cells per frame (N)")
+    ax.set_ylabel("Time (ms)")
+    ax.set_title("Inference Time vs Cell Count")
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+
+    # Top-right: Memory vs N
+    ax = axes[0, 1]
+    if get_feat:
+        ns_f = [r["N_mean"] for r in get_feat if r["mem_mb"] > 0]
+        ms_f = [r["mem_mb"] for r in get_feat if r["mem_mb"] > 0]
+        ax.plot(ns_f, ms_f, "o-", color="#e74c3c", label="get_features()",
+                markersize=8, linewidth=2)
+    if pred_win:
+        ns_p = [r["N_mean"] for r in pred_win if r["mem_mb"] > 0]
+        ms_p = [r["mem_mb"] for r in pred_win if r["mem_mb"] > 0]
+        ax.plot(ns_p, ms_p, "s-", color="#3498db", label="predict_windows()",
+                markersize=8, linewidth=2)
+    ax.set_xlabel("Cells per frame (N)")
+    ax.set_ylabel("GPU Memory (MiB)")
+    ax.set_title("GPU Memory vs Cell Count")
+    ax.set_xscale("log")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+
+    # Bottom-left: Time breakdown (% of total inference)
+    ax = axes[1, 0]
+    categories = []
+    feat_pct, pred_pct = [], []
+    for r in get_feat:
+        r2 = [x for x in pred_win if x["test"] == r["test"]]
+        if r2 and r["time_s"] > 0 and r2[0]["time_s"] > 0:
+            total = r["time_s"] + r2[0]["time_s"]
+            categories.append(f"N={r['N_mean']}")
+            feat_pct.append(r["time_s"] / total * 100)
+            pred_pct.append(r2[0]["time_s"] / total * 100)
+
+    if categories:
+        x = np.arange(len(categories))
+        w = 0.35
+        ax.bar(x - w/2, feat_pct, w, color="#e74c3c", label="get_features()", alpha=0.8)
+        ax.bar(x + w/2, pred_pct, w, color="#3498db", label="predict_windows()", alpha=0.8)
+        ax.set_xticks(x)
+        ax.set_xticklabels(categories)
+        ax.set_ylabel("% of total time")
+        ax.set_title("Time Breakdown by Stage")
+        ax.legend()
+        ax.grid(True, alpha=0.3, axis="y")
+
+    # Bottom-right: Time per cell vs N
+    ax = axes[1, 1]
+    if pred_win:
+        ns_p = [r["N_mean"] for r in pred_win if r["time_s"] > 0]
+        ts_per_cell = [r["time_s"] / (r["N_mean"] * r["T"]) * 1e6
+                       for r in pred_win if r["time_s"] > 0]
+        ax.plot(ns_p, ts_per_cell, "D-", color="#2ecc71",
+                markersize=8, linewidth=2)
+    ax.set_xlabel("Cells per frame (N)")
+    ax.set_ylabel("Time per cell (μs)")
+    ax.set_title("Per-Cell Inference Time")
+    ax.set_xscale("log")
+    ax.grid(True, alpha=0.3)
+
+    fig.suptitle("Trackastra Inference Benchmark", fontsize=14, fontweight="bold")
+    fig.tight_layout(rect=[0, 0, 1, 0.96])
+    fig.savefig(save_path, dpi=150, bbox_inches="tight", facecolor="white")
+    plt.close(fig)
+    print(f"Saved figure → {save_path}")
+
+
+def main():
+    p = argparse.ArgumentParser(description="Trackastra inference benchmark")
+    p.add_argument("--out-csv", default="trackastra_inference_benchmark.csv")
+    p.add_argument("--out-png", default="trackastra_inference_scaling.png")
+    args = p.parse_args()
+
+    rows, device = run_benchmark()
+
+    save_results(rows, args.out_csv)
+    generate_figure(rows, args.out_png)
+
+    # Console summary
+    print("\n" + "=" * 60)
+    print(f"Benchmark complete on {device.upper()}")
+    for stage in ["get_features", "predict_windows"]:
+        sub = [r for r in rows if r["stage"] == stage and r["time_s"] > 0]
+        if sub:
+            avg_t = np.mean([r["time_s"] for r in sub])
+            avg_m = np.mean([r["mem_mb"] for r in sub if r["mem_mb"] > 0])
+            print(f"  {stage}: avg {avg_t*1000:.2f}ms, avg mem {avg_m:.1f}MB "
+                  f"({len(sub)} measurements)")
+
+
+if __name__ == "__main__":
+    main()

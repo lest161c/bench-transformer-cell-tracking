@@ -1,0 +1,3 @@
+gap,eff_rank,intra_sim,inter_sim,n_intra,n_inter,version,status,dim,throughput_pps,n_patches
+0.00053,58,0.97312,0.97258,30625,750000,v2,OK,384,101.8,1250
+0.00104,66,0.95611,0.95507,30625,750000,v3,OK,384,120.3,1250

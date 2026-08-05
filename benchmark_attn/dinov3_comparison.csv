@@ -1,0 +1,3 @@
+version,status,dim,gap,eff_rank,intra_sim,inter_sim,n_intra_pairs,n_inter_pairs,extraction_time_s,patches_per_second,n_patches
+v2,OK,384,0.0008,55,0.94202,0.94122,3934,35866,9.99,20,200
+v3,FAILED,0,nan,nan,,,,,,,

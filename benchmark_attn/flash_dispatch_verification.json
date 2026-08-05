@@ -1,0 +1,32 @@
+{
+  "pytorch_version": "2.12.0+cu130",
+  "cuda_available": true,
+  "flash_sdp_enabled": true,
+  "tests": [
+    {
+      "N": 256,
+      "flash_no_mask_ms": 3.7192,
+      "soft_mask_ms": 1.3966,
+      "hard_mask_ms": 0.169,
+      "soft_vs_flash": 0.4,
+      "flash_dispatched_with_mask": false
+    },
+    {
+      "N": 512,
+      "flash_no_mask_ms": 0.1137,
+      "soft_mask_ms": 0.1178,
+      "hard_mask_ms": 0.1085,
+      "soft_vs_flash": 1.0,
+      "flash_dispatched_with_mask": false
+    },
+    {
+      "N": 1024,
+      "flash_no_mask_ms": 0.1751,
+      "soft_mask_ms": 0.3287,
+      "hard_mask_ms": 0.3901,
+      "soft_vs_flash": 1.9,
+      "flash_dispatched_with_mask": false
+    }
+  ],
+  "force_flash_with_mask": "FAIL: No available kernel. Aborting execution."
+}

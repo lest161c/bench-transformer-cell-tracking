@@ -1,0 +1,5 @@
+N,current_ms,no_bias_flash_ms,speedup_vs_current,current_mem_mb,no_bias_mem_mb,cos_sim_vs_current,max_abs_diff,flashattn_dispatched
+128,0.0263,0.0229,1.15,0.08,0.08,0.3755,1.6826,True
+256,0.0441,0.0272,1.62,0.16,0.17,0.3776,1.1586,True
+512,0.1017,0.0576,1.77,0.31,0.33,0.3934,0.6834,True
+1024,0.3291,0.1548,2.13,0.62,0.66,0.3787,0.4058,True

@@ -1,0 +1,5 @@
+N,hard_sdpa_ms,no_bias_flash_ms,flex_hard_ms,flex_soft_ms,flex_vs_hard,flex_vs_nobias,flex_mem_mb,cos_flex_vs_hard,cos_flex_soft_vs_hard,flashattn_dispatched
+128,0.0234,0.0193,0.0746,0.0661,0.31,0.26,0.09,1.0,0.999886,True
+256,0.042,0.0245,0.081,0.0791,0.52,0.3,0.17,1.0,0.999846,True
+512,0.0996,0.0557,0.1447,0.1414,0.69,0.39,0.34,1.0,0.999878,True
+1024,0.313,0.154,0.5958,0.5161,0.53,0.26,0.69,1.0,0.999883,True

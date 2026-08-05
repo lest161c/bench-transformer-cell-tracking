@@ -1,0 +1,64 @@
+method,N,K,time_ms,spatial_cutoff,data_source
+cached_dense (baseline),32,-1,0.0125,True,analytical_calibrated
+cached_dense (baseline),64,-1,0.05,True,analytical_calibrated
+cached_dense (baseline),128,-1,0.2,True,analytical_calibrated
+cached_dense (baseline),256,-1,0.8,True,analytical_calibrated
+cached_dense (baseline),512,-1,3.2,True,analytical_calibrated
+dense_flash,32,-1,0.0031,False,analytical_calibrated
+dense_flash,64,-1,0.0125,False,analytical_calibrated
+dense_flash,128,-1,0.05,False,analytical_calibrated
+dense_flash,256,-1,0.2,False,analytical_calibrated
+dense_flash,512,-1,0.8,False,analytical_calibrated
+mask-KNN,32,4,0.0042,True,analytical_calibrated
+mask-KNN,32,8,0.0043,True,analytical_calibrated
+mask-KNN,32,16,0.0045,True,analytical_calibrated
+mask-KNN,64,4,0.0164,True,analytical_calibrated
+mask-KNN,64,8,0.0166,True,analytical_calibrated
+mask-KNN,64,16,0.0172,True,analytical_calibrated
+mask-KNN,64,32,0.0182,True,analytical_calibrated
+mask-KNN,128,4,0.065,True,analytical_calibrated
+mask-KNN,128,8,0.0655,True,analytical_calibrated
+mask-KNN,128,16,0.0666,True,analytical_calibrated
+mask-KNN,128,32,0.0686,True,analytical_calibrated
+mask-KNN,128,64,0.0727,True,analytical_calibrated
+mask-KNN,256,4,0.2591,True,analytical_calibrated
+mask-KNN,256,8,0.2601,True,analytical_calibrated
+mask-KNN,256,16,0.2622,True,analytical_calibrated
+mask-KNN,256,32,0.2663,True,analytical_calibrated
+mask-KNN,256,64,0.2744,True,analytical_calibrated
+mask-KNN,256,128,0.2908,True,analytical_calibrated
+mask-KNN,512,4,2.0913,True,analytical_calibrated
+mask-KNN,512,8,2.0934,True,analytical_calibrated
+mask-KNN,512,16,2.0975,True,analytical_calibrated
+mask-KNN,512,32,2.1057,True,analytical_calibrated
+mask-KNN,512,64,2.1221,True,analytical_calibrated
+mask-KNN,512,128,2.1548,True,analytical_calibrated
+gather-KNN,32,4,0.3717,True,analytical_calibrated
+gather-KNN,32,8,0.4101,True,analytical_calibrated
+gather-KNN,32,16,0.4869,True,analytical_calibrated
+gather-KNN,64,4,0.7435,True,analytical_calibrated
+gather-KNN,64,8,0.8203,True,analytical_calibrated
+gather-KNN,64,16,0.9739,True,analytical_calibrated
+gather-KNN,64,32,1.2811,True,analytical_calibrated
+gather-KNN,128,4,1.4869,True,analytical_calibrated
+gather-KNN,128,8,1.6405,True,analytical_calibrated
+gather-KNN,128,16,1.9477,True,analytical_calibrated
+gather-KNN,128,32,2.5621,True,analytical_calibrated
+gather-KNN,128,64,3.7909,True,analytical_calibrated
+gather-KNN,256,4,2.9739,True,analytical_calibrated
+gather-KNN,256,8,3.2811,True,analytical_calibrated
+gather-KNN,256,16,3.8955,True,analytical_calibrated
+gather-KNN,256,32,5.1243,True,analytical_calibrated
+gather-KNN,256,64,7.5819,True,analytical_calibrated
+gather-KNN,256,128,12.4971,True,analytical_calibrated
+gather-KNN,512,4,5.9477,True,analytical_calibrated
+gather-KNN,512,8,6.5621,True,analytical_calibrated
+gather-KNN,512,16,7.7909,True,analytical_calibrated
+gather-KNN,512,32,10.2485,True,analytical_calibrated
+gather-KNN,512,64,15.1637,True,analytical_calibrated
+gather-KNN,512,128,24.9941,True,analytical_calibrated
+MiniMax,32,-1,1.3563,True,analytical_calibrated
+MiniMax,64,-1,2.7126,True,analytical_calibrated
+MiniMax,128,-1,5.4252,True,analytical_calibrated
+MiniMax,256,-1,15.0446,True,analytical_calibrated
+MiniMax,512,-1,46.8664,True,analytical_calibrated

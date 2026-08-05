@@ -1,0 +1,7 @@
+distance,hard_mask_weight,soft_decay_weight,no_bias_weight,cutoff_enforced,hard_mask_enforces,soft_decay_suppresses,no_bias_suppresses
+0,0.999017,0.99901283,0.98986948,False,False,False,False
+50,0.00059011,0.0005901,0.00154551,False,False,True,True
+100,0.00039292,0.00039292,0.0027287,False,False,True,True
+300,0.0,4e-06,0.001382,True,True,True,True
+500,0.0,1.7e-07,0.00284745,True,True,True,True
+800,0.0,0.0,0.00162683,True,True,True,True

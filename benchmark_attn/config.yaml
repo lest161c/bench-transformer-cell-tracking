@@ -1,0 +1,8 @@
+name: benchmark_v1
+batch_size: 4
+max_tokens: 2048
+d_model: 320
+n_head: 1
+coord_dim: 3
+knn_neighbors: 12 # -1 -> disabled
+attn_positional_bias: rope
