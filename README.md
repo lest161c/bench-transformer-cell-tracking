@@ -15,7 +15,7 @@ Sparse attention benchmarks and CNN feature injection experiments for transforme
 |---|---|
 | `benchmark_attn/` | Standalone sparse attention micro-benchmarks (dense vs gather vs mask-KNN vs spatial-flash) |
 | `benchmark_ssl/` | CNN encoder training (DINO, MAE), edge probing, cross-dataset downstream evaluation |
-| `benchmark_combined/` | End-to-end training benchmarks, SLURM cluster configs, convergence experiments |
+| `benchmark_combined/` | End-to-end training benchmarks, convergence experiments, local SLURM launchers (the clean K-sweep harness and multi-seed configs live in the separate `bench-transformer-cell-tracking/` checkout) |
 | `configs/` | YAML configs for all training runs (baseline, CNN variants, lambda-schedule) |
 
 ---
@@ -40,15 +40,9 @@ Sparse attention benchmarks and CNN feature injection experiments for transforme
 ## Installation
 
 ```bash
-git clone --recurse-submodules https://github.com/lest161c/bench-transformer-cell-tracking.git
+git clone https://github.com/lest161c/bench-transformer-cell-tracking.git
 cd bench-transformer-cell-tracking
 ```
-
-**Required submodules:**
-
-| Submodule | Source | Purpose |
-|---|---|---|
-| `benchmark_attn/` | [github.com/lest161c/sparse-gather-bench](https://github.com/lest161c/sparse-gather-bench) | Standalone sparse attention micro-benchmarks |
 
 **Dependencies:**
 
@@ -100,7 +94,7 @@ Key references for this project:
 
 - **Trackastra** — Gallusser & Weigert, ECCV 2024 ([arXiv:2405.15700](https://arxiv.org/abs/2405.15700))
 - **DINOv2** — Oquab et al., arXiv 2023 ([2304.07193](https://arxiv.org/abs/2304.07193))
-- **HOCT** — Löffler et al., CVPR 2023 (hand-crafted cell tracking features)
+- **HOCT** — Bragantini et al., arXiv 2026 ([2607.11754](https://arxiv.org/abs/2607.11754), higher-order cell tracking transformer)
 - **NSA** — Native Sparse Attention (deep learning sparse attention kernel)
 - **flash-attention** — Dao et al., 2022 (fast attention with IO awareness)
 
