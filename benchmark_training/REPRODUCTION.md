@@ -1,11 +1,5 @@
 # REPRODUCTION.md — benchmark_training (cluster training experiments)
 
-> Note (2026-08-05): this directory was renamed from `benchmark_combined/` to
-> `benchmark_training/` and restructured into `benchmarks/`, `analysis/`,
-> `slurm/`, `configs/`, `results/`. All command references below use the new
-> layout (`slurm/*.slurm`, `configs/*.yaml`). Text describing the mirror repo
-> (`bench-transformer-cell-tracking/benchmark_combined/`) is unchanged.
-
 Reproduction guide for every SLURM experiment script physically present in this
 directory (`benchmark_training/slurm/`). Each entry gives the exact SBATCH resources,
 the verbatim command(s) from the script body, the required configs and input
@@ -1265,9 +1259,7 @@ speedup (~1.5x at L=12, small N) is qualified in labbook 2026-08-03 §1.4
 8. **run_sparse_k16 dependency on a never-run artifact:** `--init_encoder
    runs/ssl_dino_pretrain` requires the output of `run_ssl_dino_pretrain.slurm`,
    which was never completed — the script as written has no valid init encoder.
-9. **README "HPC workflow" is outdated:** it instructs pulling `cached-dist-attn`
-   for both repos; most scripts actually use `feature/sparse-attention-gather`.
-10. **`run_sparse_k16.slurm` TEST-mode comment** references `run_baseline.slurm`
-    (cosmetic copy-paste artifact only).
-11. **No `--partition` anywhere:** all 15 scripts rely on the cluster default
+9. **`run_sparse_k16.slurm` TEST-mode comment** references `run_baseline.slurm`
+   (cosmetic copy-paste artifact only).
+10. **No `--partition` anywhere:** all 15 scripts rely on the cluster default
     (gpu-h100) rather than setting `#SBATCH --partition`.

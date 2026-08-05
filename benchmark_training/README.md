@@ -2,9 +2,6 @@
 
 SLURM submission scripts, configs, and analysis for Trackastra training runs on the HPC cluster (Capella, H100 GPUs).
 
-> Note (2026-08-05): directory renamed from `benchmark_combined/` to `benchmark_training/`
-> and restructured into `benchmarks/`, `analysis/`, `slurm/`, `configs/`, `results/`.
-
 ## Slurm Scripts (`slurm/`)
 
 | Script | Description | Est. time |
@@ -53,27 +50,6 @@ SLURM submission scripts, configs, and analysis for Trackastra training runs on 
 | `analysis/plot_ablation.py` | Ablation result plots |
 | `analysis/plot_combined.py` | Combined benchmark plots |
 | `analysis/plot_comprehensive.py` | Comprehensive comparison plots |
-
-## HPC workflow
-
-```bash
-# 1. SSH to cluster
-ssh capella
-
-# 2. Pull latest code (two repos)
-cd ~/bench-transformer-cell-tracking && git pull origin cached-dist-attn
-cd ~/trackastra && git pull origin cached-dist-attn
-
-# 3. Authenticate with wandb
-wandb login
-
-# 4. Submit job
-sbatch benchmark_training/slurm/run_ssl_dino_pretrain.slurm
-
-# 5. Monitor
-squeue -u $USER
-tail -f logs/slurm-ssl_dino-<JOB_ID>.out
-```
 
 ## Pre-submission validation
 
