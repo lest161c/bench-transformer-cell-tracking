@@ -278,7 +278,30 @@ Hardcoded N sweep (line 149): `Ns = [128, 256, 512, 1024, 2048, 4096]`.
 the gather reshape is invalid for the given tensor sizes, see
 `gather_knn_error`). Do NOT cite gather numbers from this CSV.
 
-### 2.8 `plot_sparse.py` — visualization of the sparse sweep
+### 2.8 `validate_mask_vs_gather.py` — numerical equivalence of the two KNN variants
+
+Purpose: this is the **source of the report's equivalence-validation claim**
+(`report/implementation.tex` §8.4, `report/argumentation.tex`): that
+`GatherSparseAttention` and `KNNMaskSparseAttention` produce numerically
+identical forward/backward outputs. It measures forward output cosine
+similarity, forward maximum absolute difference $|\Delta|$, and gradient
+relative error across parameters with significant gradient norms
+($\|\nabla\| > 10^{-6}$), across $18$ configurations ($N \in \{128, 256, 512\}$,
+$K \in \{4, 16\}$, $3$ seeds each) in fp16 on CUDA. This is a load-bearing
+script for the paper; it writes no CSV (console output only).
+
+Result (verbatim from the report): cosine similarity $0.9995$–$1.0010$, forward
+$|\Delta| < 5 \times 10^{-4}$, gradient relative error $< 8 \times 10^{-4}$
+across all $18$ configurations. The whole validation costs roughly $2$
+GPU-minutes versus $600{+}$ for a full training run — a $300\times$ reduction —
+so the faster mask-KNN inherits the gather-KNN tracking accuracy without
+retraining.
+
+```bash
+cd benchmark_attn && $V benchmarks/validate_mask_vs_gather.py
+```
+
+### 2.9 `plot_sparse.py` — visualization of the sparse sweep
 
 Purpose: seaborn/matplotlib figures from `benchmark_sparse_results.csv`,
 combined into a single self-contained HTML report (figures embedded as base64
