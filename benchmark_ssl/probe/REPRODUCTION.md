@@ -5,12 +5,12 @@ This document describes how to reproduce every experiment in
 
 | Experiment | Script | Status | Run where |
 |---|---|---|---|
-| Unified 5-fold CV edge probe | `unified_edge_probe.py` (1599 lines) | **DONE** (2026-08-04, local A500) | Local (A500), runnable on H100 |
+| Unified 5-fold CV edge probe | `unified_edge_probe.py` (1599 lines) | **DONE** (local A500) | Local (A500), runnable on H100 |
 | Same probe via SLURM | `run_unified_probe.slurm` | **PENDING** (not yet run on cluster) | Cluster (H100) |
-| Legacy single-split edge probe | `edge_probe.py` (972 lines) | **DONE / SUPERSEDED** by unified probe | Local |
+| Single-split edge probe | `edge_probe.py` (972 lines) | **DONE** | Local |
 
-Authoritative source for feasibility verdicts and measured numbers is
-`labbook/2026-08-03_experiment_readiness_inventory.md` (§2.1 and §5, item 1).
+Measured numbers are quoted verbatim from the run output
+(`results/unified_probe_results_cv.json`).
 
 ---
 
@@ -21,7 +21,7 @@ Verified against the scripts (see `run_unified_probe.slurm` and
 
 | Constant | Path |
 |---|---|
-| Repo root (local) | `/home/leonard.starke@mediainterface.de/Dokumente/Uni/research-proj` |
+| Repo root (local) | repo root (the `research-proj` directory) |
 | Local SSL venv | `benchmark_ssl/.venv` (Python 3.14.4, torch 2.12.0+cu130, sklearn 1.9.0, scipy, scikit-image, tifffile, pandas, numpy) |
 | Local vanvliet data | `data/vanvliet/` (repo root; 6 conditions `rpsM, recA, pheA, metA, cib, trpL`, complete 3.1 GB) |
 | Local results output (repo root) | `results/unified_probe_results_cv.json` |
@@ -37,10 +37,10 @@ Verified against the scripts (see `run_unified_probe.slurm` and
 
 ## 1. Local (A500) run — unified 5-fold CV edge probe `unified_edge_probe.py`
 
-**Status: DONE (2026-08-04).** This is the authoritative edge-probe experiment and
+**Status: DONE.** This is the authoritative edge-probe experiment and
 the backing artifact for the report's edge-probe table. It is **runnable locally**
 (measured wall time 50 min 53 s; GPU peak ~3.35 GiB on a 4 GB RTX A500 Laptop).
-The labbook (§2.1) estimated 30–90 min; the measured run was 50 min 53 s.
+Estimated 30–90 min; the measured run was 50 min 53 s.
 
 ### 1.1 Requirements (local)
 
@@ -68,7 +68,7 @@ the repo root; `--output` is written relative to the current working directory
 (so it lands at `<repo>/results/unified_probe_results_cv.json`).
 
 ```bash
-cd /home/leonard.starke@mediainterface.de/Dokumente/Uni/research-proj
+cd <repo root>
 benchmark_ssl/.venv/bin/python benchmark_ssl/probe/unified_edge_probe.py \
     --features all --probe both --epochs 200 --cv-folds 5 --shuffle-baseline \
     --data-root data/vanvliet --output results/unified_probe_results_cv.json
@@ -98,7 +98,7 @@ This is the exact invocation that produced
 
 ### 1.4 Output
 
-- JSON: `results/unified_probe_results_cv.json` (336 KB, created 2026-08-04).
+- JSON: `results/unified_probe_results_cv.json` (336 KB).
   Top-level keys: `args`, `results`, `rows`.
 - Console log (not saved to a file): per-fold progress, per-feature CV summary,
   and the shuffled-baseline block. **Shuffled rows are printed only in the
@@ -187,15 +187,14 @@ summary. Fix: change `results/unified_probe_results.json` to
 
 ---
 
-## 3. Legacy single-split probe — `edge_probe.py`
+## 3. Single-split probe — `edge_probe.py`
 
-**Status: DONE / SUPERSEDED.** This is the older probe, kept for reference. It
-was superseded by the unified 5-fold CV probe (which is the source of truth for
-the report).
+**Status: DONE.** This is the older probe, kept for reference. The unified 5-fold
+CV probe is the source of truth for the report.
 
 ### 3.1 Differences from the unified probe
 
-| Aspect | `edge_probe.py` (legacy) | `unified_edge_probe.py` |
+| Aspect | `edge_probe.py` | `unified_edge_probe.py` |
 |---|---|---|
 | Feature sets | Regionprops 7D (area/eccentricity/perimeter/solidity/extent/orientation/intensity_mean), Hu moments 20D, combined 27D | rp 7D, hoct19 12D, cnn_frozen 128D, cnn_e2e 128D, dino 384D |
 | Edge targets | `target_all` and `target_div` (division-only, harder task) | single all-edges target (same-cell + divisions) |
@@ -213,7 +212,7 @@ cd benchmark_ssl/probe
 
 ### 3.3 Output
 
-`benchmark_ssl/probe/results_edge_probe.txt` (created 2026-07-23). Measured
+`benchmark_ssl/probe/results_edge_probe.txt`. Measured
 values on the single split (from the on-disk file):
 
 - Regionprops 7D: all-edges Linear 0.5524, all-edges MLP 0.5000; divisions
@@ -285,7 +284,7 @@ report. Do not use this script for new measurements.
 
 `cnn_frozen` and `dino` features are cached per frame under
 `benchmark_ssl/probe/feature_cache/` (`<cond>_<exp>_t<frame>_<feat_type>.npy`).
-The 2026-08-04 run left 30 `dino` + 30 `cnn_frozen` cache files. On a fresh
+The run left 30 `dino` + 30 `cnn_frozen` cache files. On a fresh
 machine the cache is rebuilt automatically. `--no-cache` skips
 loading/saving.
 
@@ -331,21 +330,21 @@ To run the unified probe on the H100 cluster (via `run_unified_probe.slurm`):
 
 | Experiment | Status | Resources | Outputs |
 |---|---|---|---|
-| Unified 5-fold CV edge probe (`unified_edge_probe.py`, local A500) | **DONE** (2026-08-04) | RTX A500 Laptop 4 GB (peak ~3.35 GiB), `benchmark_ssl/.venv`, `data/vanvliet`, DINOv2 vits14 cached weights, `cnn_ntxent_large.pt`; 50 min 53 s | `results/unified_probe_results_cv.json` |
+| Unified 5-fold CV edge probe (`unified_edge_probe.py`, local A500) | **DONE** | RTX A500 Laptop 4 GB (peak ~3.35 GiB), `benchmark_ssl/.venv`, `data/vanvliet`, DINOv2 vits14 cached weights, `cnn_ntxent_large.pt`; 50 min 53 s | `results/unified_probe_results_cv.json` |
 | Unified 5-fold CV edge probe via SLURM (`run_unified_probe.slurm`, H100) | **PENDING** (script ready, not submitted) | H100, partition `gpu-h100`, account `p_scads_celltracking`, 1 GPU, 8 CPUs, 64 G, 2 h; cluster venv `$TRK/.venv`; data root `/data/cat/ws/mawe985g-data/data/celltracking/vanvliet` | `$BENCH/results/unified_probe_results_cv.json`, `$BENCH/logs/edge_probe-%j.{out,err}` |
-| Legacy edge probe (`edge_probe.py`, single 80/20 split) | **DONE / SUPERSEDED** (2026-07-23) | local; same venv and data | `benchmark_ssl/probe/results_edge_probe.txt` |
-| `cnn_probe.py` / `train_cnn_probe.py` (legacy CNN probe artifacts) | **DONE / SUPERSEDED** (medium-scale; all 0.500) | local | `cnn_probe_results.txt` (not in this dir); source of truth for the 0.703 CNN number is the unified `cnn_frozen` (large + 5-fold), NOT this legacy file |
+| Single-split edge probe (`edge_probe.py`, 80/20 split) | **DONE** | local; same venv and data | `benchmark_ssl/probe/results_edge_probe.txt` |
+| `cnn_probe.py` / `train_cnn_probe.py` (CNN probe artifacts) | **DONE** (medium-scale; all 0.500) | local | `cnn_probe_results.txt` (not in this dir); the 0.703 CNN number is the unified `cnn_frozen` (large + 5-fold) result, not from this file |
 
 NOT-NEEDED: no further edge-probe experiments are required — the unified run
 already reproduces the report's edge-probe table (see §7). The multi-seed
-K-sweep and DeepCell cross-dataset experiments (cluster-only) are tracked in
-the labbook inventory and are outside this directory.
+K-sweep and DeepCell cross-dataset experiments (cluster-only) are tracked
+elsewhere and are outside this directory.
 
 ---
 
-## 7. Measured results ledger (verbatim from `labbook/2026-08-03...` §5, item 1)
+## 7. Measured results ledger (verbatim)
 
-Re-run unified 5-fold edge probe (2026-08-04) -> `results/unified_probe_results_cv.json`.
+Re-run unified 5-fold edge probe -> `results/unified_probe_results_cv.json`.
 MLP CV values reproduce the report's edge-probe table — DINOv2 **0.8958±0.0362**
 (report 0.896), HOCT19 **0.8799±0.0201** (report 0.873, run-to-run), 7D
 regionprops **0.8595±0.0137** (report 0.860), CNN-NT-Xent **0.7031±0.0554**
@@ -379,7 +378,7 @@ Notes:
 - The primary report metric is **MLP balanced accuracy** (the linear probes are
   0.50–0.57 and are not cited in the report).
 - The report's HOCT value 0.873 differs slightly from the measured 0.8799 —
-  this is run-to-run variation (labbook notation "report 0.873, run-to-run").
+  this is run-to-run variation (noted as "report 0.873, run-to-run").
 - `cnn_e2e` at exactly 0.5000 means the end-to-end CNN never separates classes
   (balanced accuracy of a constant predictor).
 - Shuffle baseline (label-leakage check) was ~0.50–0.55 and is visible only in
@@ -393,8 +392,8 @@ Notes:
 |---|---|---|
 | Probe script | `benchmark_ssl/probe/unified_edge_probe.py` | `$BENCH/benchmark_ssl/probe/unified_edge_probe.py` |
 | SLURM script | `benchmark_ssl/probe/run_unified_probe.slurm` | `$BENCH/benchmark_ssl/probe/run_unified_probe.slurm` |
-| Legacy probe | `benchmark_ssl/probe/edge_probe.py` | `$BENCH/benchmark_ssl/probe/edge_probe.py` |
-| Legacy result | `benchmark_ssl/probe/results_edge_probe.txt` | — |
+| Single-split probe | `benchmark_ssl/probe/edge_probe.py` | `$BENCH/benchmark_ssl/probe/edge_probe.py` |
+| Single-split result | `benchmark_ssl/probe/results_edge_probe.txt` | — |
 | Data (vanvliet) | `data/vanvliet/` (6 conditions) | `/data/cat/ws/mawe985g-data/data/celltracking/vanvliet` |
 | NT-Xent checkpoint | `benchmark_ssl/cnn_encoder/probe/cnn_ntxent_large.pt` | `$BENCH/benchmark_ssl/cnn_encoder/probe/cnn_ntxent_large.pt` (or pass `--checkpoint`) |
 | DINOv2 vits14 weights | `~/.cache/torch/hub/checkpoints/dinov2_vits14_pretrain.pth` | `~/.cache/torch/hub/` on the node (or download) |
@@ -412,7 +411,7 @@ Notes:
    log. Any later reproduction that needs the shuffle numbers must re-run with
    `--shuffle-baseline` and capture stdout.
 3. **HOCT report value**: measured 0.8799 vs report 0.873 — run-to-run
-   variation, explicitly annotated in the labbook; all other values match the
+   variation; all other values match the
    report within rounding.
 4. **Results location**: the local JSON is at the **repo root**
    `results/unified_probe_results_cv.json`, not under
