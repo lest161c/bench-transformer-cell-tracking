@@ -215,10 +215,10 @@ def main():
     h = 4
     coord_dim = 3
     L_vals = [1, 4]
-    N_vals = [128, 256, 512, 2048, 8192]
+    N_vals = [128, 256, 512, 1024, 2048, 4096, 8192]
     K_vals = [4, 16, 64]
 
-    out_csv = "benchmark_sparse_results.csv"
+    out_csv = str(Path(__file__).resolve().parents[1] / "results" / "benchmark_sparse_results.csv")
 
     with open(out_csv, "w", newline="") as f:
         w = csv.writer(f)
@@ -245,7 +245,7 @@ def main():
                     print(f"dense_flash    L={L} N={N:<5} -> {status:>6}")
 
                 # --- nsa (Native Sparse Attention) ---
-                for sel_blocks in [2, 4, 8]:
+                for sel_blocks in [2, 4, 8, 16, 64]:
                     t, mem, status = try_bench(bench_nsa, N, L, B, d, h, coord_dim, device, dtype,
                                                sliding_window_size=64, compress_block_size=32,
                                                compress_block_sliding_stride=16, selection_block_size=32,

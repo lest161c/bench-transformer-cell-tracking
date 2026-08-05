@@ -101,7 +101,7 @@ def main():
     p.add_argument("--nhead", type=int, default=8)
     p.add_argument("--warmup", type=int, default=5)
     p.add_argument("--rep", type=int, default=30)
-    p.add_argument("--out", default="benchmark_attn/gather_v3_results.csv")
+    p.add_argument("--out", default=str(Path(__file__).resolve().parents[1] / "results" / "gather_v3_results.csv"))
     p.add_argument("--Ns", default="128,256,512,1024,2048,4096,8192")
     p.add_argument("--Ks", default="4,16,64")
     args = p.parse_args()

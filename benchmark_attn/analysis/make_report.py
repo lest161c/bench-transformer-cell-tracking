@@ -13,6 +13,7 @@ Usage:
   python make_report.py --out comprehensive_report.html
 """
 
+import datetime
 import csv, io, base64, argparse, json
 from pathlib import Path
 from collections import defaultdict
@@ -215,6 +216,7 @@ def make_training_projection_figure():
 
 def build_html(args):
     outdir = Path(args.outdir if hasattr(args, 'outdir') else 'benchmark_attn')
+    outdir = (outdir if outdir.is_absolute() else Path(__file__).resolve().parents[1] / outdir)
 
     # Load data
     knn_rows = load_knn_methods_csv(args.knn_csv or str(outdir / "knn_methods_results.csv"))
@@ -267,7 +269,7 @@ def build_html(args):
     P.append(".toc a:hover{text-decoration:underline}")
     P.append("</style></head><body>")
     P.append("<h1>Trackastra Benchmark Suite — Comprehensive Report</h1>")
-    P.append("<p>Generated 2026-06-22 &middot; d_model=320, nhead=8, fp16 &middot; Analytical (GPU verification pending)</p>")
+    P.append(f"<p>Generated {datetime.datetime.now().strftime('%Y-%m-%d')} &middot; d_model=320, nhead=8, fp16</p>")
 
     # ── TOC ──
     P.append("<div class='box toc'><h2>Contents</h2><ol>")
@@ -449,8 +451,7 @@ def build_html(args):
             P.append(f'<img src="data:image/png;base64,{b64}">')
 
     P.append("<hr><p style='text-align:center;color:#8b949e;font-size:0.8em'>")
-    P.append("Trackastra Benchmark Suite &middot; Generated 2026-06-22 &middot; "
-             "All times analytical unless noted &middot; GPU verification on Capella pending</p>")
+    P.append(f"Trackastra Benchmark Suite &middot; Generated {datetime.datetime.now().strftime('%Y-%m-%d')}</p>")
     P.append("</body></html>")
 
     output_path = getattr(args, 'out', 'benchmark_attn/comprehensive_report.html')
@@ -463,8 +464,8 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--knn-csv", default=None)
     p.add_argument("--flash-csv", default=None)
-    p.add_argument("--out", default="benchmark_attn/comprehensive_report.html")
-    p.add_argument("--outdir", default="benchmark_attn")
+    p.add_argument("--out", default=str(Path(__file__).resolve().parents[1] / "results" / "comprehensive_report.html"))
+    p.add_argument("--outdir", default=str(Path(__file__).resolve().parents[1] / "results"))
     args = p.parse_args()
 
     path = build_html(args)

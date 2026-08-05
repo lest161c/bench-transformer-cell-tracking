@@ -279,7 +279,7 @@ def _b64(path):
 def main():
     device = torch.device("cuda")
     dtype = torch.float16
-    output_dir = "profiler_out"
+    output_dir = str(Path(__file__).resolve().parents[2] / "profiler_out")
     B = 2
     d = 256
     h = 4

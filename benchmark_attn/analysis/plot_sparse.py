@@ -3,6 +3,7 @@
 import csv
 import io
 import base64
+from pathlib import Path
 
 import pandas as pd
 import seaborn as sns
@@ -14,17 +15,25 @@ import numpy as np
 sns.set_theme(style="whitegrid")
 color_map = {
     "dense": "tab:blue",
+    "dense Flash": "tab:cyan",
+    "NSA": "tab:purple",
+    "sparse K=2": "tab:orange",
     "sparse K=4": "tab:orange",
+    "sparse K=8": "tab:green",
     "sparse K=16": "tab:green",
     "sparse K=64": "tab:red",
+    "sparse V2 K=4": "tab:olive",
+    "sparse V2 K=16": "tab:olive",
+    "sparse V2 K=64": "tab:brown",
     "sparse K=4 +reorder": "orange",
     "sparse K=16 +reorder": "limegreen",
     "sparse K=64 +reorder": "coral",
 }
 
 # --- load ---
+RESULT_DIR = Path(__file__).resolve().parents[1] / "results"
 rows = []
-with open("benchmark_sparse_results.csv") as f:
+with open(RESULT_DIR / "benchmark_sparse_results.csv") as f:
     reader = csv.DictReader(f)
     for r in reader:
         r["time_s"] = float(r["time_s"]) if r["time_s"] else float("nan")
@@ -39,10 +48,17 @@ df = pd.DataFrame(rows)
 df_ok = df[df["status"] == "ok"].copy()
 df_oom = df[df["status"] == "oom"].copy()
 
-# create label: dense / sparse / sparse+r
+# create label: dense / dense Flash / NSA / sparse / sparse V2 / sparse+r
 def make_label(r):
-    if r["method"] == "dense":
+    m = r["method"]
+    if m == "dense":
         return "dense"
+    if m == "dense_flash":
+        return "dense Flash"
+    if m == "nsa":
+        return "NSA"
+    if m == "sparse_v2":
+        return f"sparse V2 K={int(r['K'])}"
     if r["reorder"]:
         return f"sparse K={int(r['K'])} +reorder"
     return f"sparse K={int(r['K'])}"
@@ -207,7 +223,7 @@ for i, fig in enumerate(figures):
 
 html_parts.append("</body></html>")
 
-with open("benchmark_sparse.html", "w") as f:
+with open(RESULT_DIR / "benchmark_sparse.html", "w") as f:
     f.write("\n".join(html_parts))
 
 print(f"Saved benchmark_sparse.html with {len(figures)} figures")

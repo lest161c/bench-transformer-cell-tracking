@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>§4.1 Sparse Attention — Curated Findings</title>
+<style>
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+       max-width: 1100px; margin: 0 auto; padding: 30px 20px; background: #fafafa; color: #222; }
+h1 { font-size: 28px; border-bottom: 3px solid #333; padding-bottom: 10px; }
+h2 { font-size: 20px; margin-top: 40px; color: #2c3e50; border-left: 4px solid #3498db;
+     padding-left: 12px; }
+.figure { background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+          padding: 20px; margin: 15px 0; text-align: center; }
+.figure img { max-width: 100%; height: auto; }
+.figure .caption { text-align: left; color: #555; font-size: 14px; margin-top: 10px;
+                   line-height: 1.6; }
+.figure .subfig { display: flex; gap: 15px; justify-content: center; flex-wrap: wrap; }
+.figure .subfig img { max-width: 48%; }
+.meta { color: #888; font-size: 13px; text-align: center; margin-top: 40px; }
+a { color: #2980b9; }
+.nav { position: sticky; top: 0; background: #fafafa; padding: 10px 0; z-index: 10;
+       border-bottom: 1px solid #ddd; margin-bottom: 20px; }
+.nav a { margin-right: 12px; font-size: 13px; }
+</style>
+</head>
+<body>
+<h1>§4.1 Efficient Sparse Attention — Curated Findings</h1>
+<p style="color:#666;font-size:14px;">
+Chronological investigation of KNN-gather sparse attention in Trackastra.
+All graphs are standalone SVGs (in <code>figures/</code>) for report integration.
+</p>
+<div class="nav">
+<a href="#motivation">▸ Motivation & Context</a>
+<a href="#speed_vs_n">▸ 1. Attention Time vs Sequence Length</a>
+<a href="#small_n">▸ 2. Small-N Focus (Real Dataset Size)</a>
+<a href="#mask_vs_gather">▸ 3. Mask vs Gather: Alternative Sparse Designs</a>
+<a href="#memory">▸ 4. Memory Footprint</a>
+<a href="#convergence">▸ 5. Convergence: All Models Behave Identically</a>
+<a href="#per_epoch">▸ 6. Per-Epoch Training Time</a>
+<a href="#accuracy">▸ 7. Tracking Accuracy (TRA & AOGM)</a>
+<a href="#ssl">▸ 8. SSL Pretraining (Negative Result)</a>
+<a href="#profiler">▸ 10. Profiler: Why Gather Fails</a>
+<a href="#edge_div">▸ 11. Edge & Division Quality</a>
+<a href="#speedup_heatmap">▸ 12. Speedup Heatmap: All N × K Combinations</a>
+<a href="#resolution">▸ Conclusion</a>
+</div>
+<h2 id="motivation">Motivation & Context</h2>
+<div class="figure"><div class="caption">
+<p>The original Trackastra uses <b>RelativePositionalAttention</b>: masked dense SDPA with per-layer
+<code>cdist</code> computation. Profiling shows the mask construction (cdist + masked_fill) consumes
+<strong>82% of attention CUDA time</strong> at N=256 — the actual attention is only 17%.
+Replacing this with <b>KNN-based sparse gather attention</b> was hypothesized to:</p>
+<ul>
+  <li>Reduce complexity from O(N²) to O(NK) per layer</li>
+  <li>Enable FlashAttention by removing the N×N mask</li>
+  <li>Deliver &gt;5× speedup at scale</li>
+</ul>
+ <p>The hypothesis was tested, verified at large N, but found <em>inapplicable</em> at the
+cell counts of the analysis datasets (vanvliet / DeepCell). The data follows.</p>
+            </div></div>
+<h2 id="speed_vs_n">1. Attention Time vs Sequence Length</h2>
+<div class="figure">
+  <img src="figures/01_speed_vs_n.svg" alt="1. Attention Time vs Sequence Length">
+  <div class="caption">
+<p>Dense FlashAttention (no mask) is fastest across all measured N on this hardware.
+Sparse gather attention crosses over at N ≈ 2000 — above the cell-count range of the
+analysis datasets (vanvliet / DeepCell, shaded region). At N=8192, the 6.5× speedup holds
+against the masked dense baseline. Against dense_flash, sparse is 2.5× slower even at N=8192.</p>
+            </div>
+</div>
+<h2 id="small_n">2. Small-N Focus (Real Dataset Size)</h2>
+<div class="figure">
+  <img src="figures/02_small_n.svg" alt="2. Small-N Focus (Real Dataset Size)">
+  <div class="caption">
+<p>At N=256, sparse gather is 10.7× slower than dense FlashAttention (1.07ms vs 0.10ms).
+Two bottlenecks: (1) q_len=1 shape forces 2048 independent FlashAttention kernel launches,
+(2) irreducible gather copy of 8MB from scattered memory dominates at small N.</p>
+            </div>
+</div>
+<h2 id="mask_vs_gather">3. Mask vs Gather: Alternative Sparse Designs</h2>
+<div class="figure">
+  <img src="figures/03_mask_vs_gather.svg" alt="3. Mask vs Gather: Alternative Sparse Designs">
+  <div class="caption">
+<p>KNN mask via scatter (building an N×N mask with KNN structure and using EfficientAttention)
+is 7.9× faster than gather at N=256. Dense FlashAttention remains 1.3× faster than mask_knn.</p>
+            </div>
+</div>
+<h2 id="memory">4. Memory Footprint</h2>
+<div class="figure">
+  <img src="figures/04_memory_vs_n.svg" alt="4. Memory Footprint">
+  <div class="caption">
+<p>Sparse attention uses less memory at large N (120MB vs 2200MB at N=8192 for K=4).
+At N=256, the gap narrows: 4.3MB vs 3.9MB.</p>
+            </div>
+</div>
+<h2 id="convergence">5. Convergence: All Models Behave Identically</h2>
+<div class="figure">
+  <img src="figures/05_convergence.svg" alt="5. Convergence: All Models Behave Identically">
+  <div class="caption">
+<p>All 5 models produce overlapping validation loss curves. Bold lines: rolling mean (window=21). Faint lines: raw per-epoch values. Configs differ only in knn_neighbors (verified: 60 of 63 keys identical).</p>
+            </div>
+</div>
+<h2 id="per_epoch">6. Per-Epoch Training Time</h2>
+<div class="figure">
+  <img src="figures/09_per_epoch_time.svg" alt="6. Per-Epoch Training Time">
+  <div class="caption">
+<p>All models train at 1.62–1.64 min/epoch — no per-epoch difference between dense and sparse attention.
+At N ≈ 200, the attention mechanism is a small fraction of total training time.</p>
+            </div>
+</div>
+<h2 id="accuracy">7. Tracking Accuracy (TRA & AOGM)</h2>
+<div class="figure">
+  <img src="figures/06_tra.svg" alt="7. Tracking Accuracy (TRA & AOGM)">
+  <div class="subfig"><img src="figures/07_aogm.svg" alt=""></div>
+  <div class="caption">
+<p>K=16: TRA 0.9972, AOGM 37.7 (baseline: 0.9963 / 51.0). All sparse variants within ±0.001 TRA
+of baseline. K=16 and K=64 show higher edge and division F1 than baseline.</p>
+            </div>
+</div>
+<h2 id="ssl">8. SSL Pretraining (Negative Result)</h2>
+<div class="figure">
+  <img src="figures/13_ssl_negative.svg" alt="8. SSL Pretraining (Negative Result)">
+  <div class="caption">
+<p>Both identity BCE and NT-Xent contrastive SSL fail. Identity BCE: val_loss 0.404 vs baseline 0.416
+after 100-epoch finetune on 10% labels (no improvement). NT-Xent: collapse (cosine sim 0.89,
+TRA 65.1% vs random 64.8%). Root cause: 7-dim regionprops bottleneck.</p>
+            </div>
+</div>
+<h2 id="profiler">10. Profiler: Why Gather Fails</h2>
+<div class="figure">
+  <img src="figures/11_profiler_breakdown.svg" alt="10. Profiler: Why Gather Fails">
+  <div class="caption">
+<p>Measured on local GPU via <code>torch.profiler</code>. Gather: 1084μs (49% SDPA q_len=1, 26% index copy, 19% reshape).
+Scatter: 97μs (37% EfficientAttn, 38% proj, 13% mask fill, 11% scatter_). Dense Flash: 54μs (31% FlashAttn, 69% proj).</p>
+<p><b>Gather (347):</b> <code>k[B_idx, H_idx, idx, :]</code> — 277μs for 8MB scattered copy<br>
+<b>Scatter (541):</b> <code>mask.scatter_(3, src, 0.0)</code> — 11μs in-place fill, O(NK)</p>
+            </div>
+</div>
+<h2 id="edge_div">11. Edge & Division Quality</h2>
+<div class="figure">
+  <img src="figures/08_edge_div_f1.svg" alt="11. Edge & Division Quality">
+  <div class="caption">
+<p>K=16: Edge F1 0.9929, Division F1 0.9757. Differences across K values are small (&lt;0.006 F1).</p>
+            </div>
+</div>
+<h2 id="speedup_heatmap">12. Speedup Heatmap: All N × K Combinations</h2>
+<div class="figure">
+  <img src="figures/10_speedup_heatmap.svg" alt="12. Speedup Heatmap: All N × K Combinations">
+  <div class="caption">
+<p>Left: vs the original masked dense baseline — shows 5.87× at N=8192, K=4.
+Right: vs dense FlashAttention — sparse is slower (speedup &lt; 1) across all N and K.
+Only at N=8192 does sparse approach parity (0.43× for K=4).</p>
+            </div>
+</div>
+<h2 id="resolution">Conclusion</h2>
+<div class="figure"><div class="caption">
+<div style="background:#f5f5f5; padding:15px; border-radius:8px;">
+<h3>Hypothesis vs Outcome</h3>
+<p><b>Hypothesis:</b> Replacing dense masked SDPA with KNN gather attention enables FlashAttention
+and yields speedup via O(NK) complexity.</p>
+<p><b>At large N (8192):</b> Sparse K=4 achieves 6.5× vs the masked dense baseline. However, against
+unmasked dense FlashAttention, sparse is 2.5× slower.</p>
+<p><b>At the cell counts of the analysis datasets (vanvliet / DeepCell):</b> Sparse gather is
+slower than dense FlashAttention. The gather overhead exceeds the compute savings.</p>
+<p><b>Unexpected finding:</b> The real bottleneck was per-layer <code>cdist</code> mask computation
+(82% of attention time), not the N² attention itself. <strong>CachedDistAttention</strong> (compute
+cdist once, share across L layers) provides ~2× attention speedup with identical semantics.</p>
+<p><b>On accuracy:</b> K=16 achieves TRA 0.9972 and AOGM 37.7 (vs baseline 0.9963 / 51.0). Sparse
+attention variants maintain or slightly improve tracking quality across all K values.</p>
+</div>
+            </div></div>
+
+<div class="meta">
+Generated from <code>curated/generate_report.py</code> —
+2026-08-05 22:30<br>
+Data sources: <code>benchmark_attn/results/full_bench_a500.csv</code>,
+<code>benchmark_sparse_results.csv</code>,
+<code>benchmark_small_n_results.csv</code>,
+<code>benchmark_mask_vs_gather.csv</code>,
+<code>results/knn_sweep/convergence.csv</code>,
+<code>results/knn_sweep/results_*.csv</code>
+</div>
+</body>
+</html>
