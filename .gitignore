@@ -96,3 +96,12 @@ progress_roadmap*.html
 reproduction.md
 requirements.txt
 generate_roadmap.py
+
+# Generated HTML dashboards / progress reports (personal tracking, not public)
+benchmark_combined/*.html
+benchmark_ssl/*.html
+benchmark_ssl/runs/*/*.html
+**/benchmark_sparse.html
+eval_traccuracy/*.html
+profiler_out/*.html
+benchmark_attn/*.html
