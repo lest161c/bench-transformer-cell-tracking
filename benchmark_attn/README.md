@@ -151,55 +151,70 @@ python analysis/make_report.py
 ## Structure
 
 ```
-├── model_parts.py                        # Core attention modules (GatherSparseAttention, RelativePositionalAttention, etc.)
-├── config.yaml                           # Default hyperparameters
-├── pyproject.toml                        # Dependencies
-├── uv.lock                               # Lockfile
+├── model_parts.py               # Core attention modules (GatherSparseAttention, RelativePositionalAttention, etc.)
+├── config.yaml                  # Default hyperparameters
+├── pyproject.toml               # Dependencies
+├── README.md                    # Project overview
+├── README_knn_methods.md        # KNN methods documentation
+├── README_pure_attn.md          # Pure attention documentation
+├── README_sdpa_backends.md      # SDPA backends documentation
+├── README_system_impact.md      # System impact documentation
+├── REPRODUCTION.md              # Benchmark reproduction guide
+├── results_analysis.md          # Results analysis notes
+├── uv.lock                      # Lockfile (gitignored)
+├── validate_prompt.md           # Prompt validation notes (pending removal)
 │
-├── benchmarks/benchmark_sparse.py                   # Dense vs sparse benchmark (N up to 16384, K 4-128)
-├── benchmark_full.py                     # Unified benchmark: all methods × all N
-├── benchmark_reorder_real_vs_random.py   # Reorder speedup: real centroids vs random
-├── benchmark_pure_attn.py                # Pure attention variants
-├── benchmark_knn_methods.py              # KNN method comparison
-├── benchmark_flash_with_cutoff.py        # FlashAttention with learned cutoff
-├── benchmark_soft_decay.py               # Soft decay vs hard cutoff
-├── benchmark_no_bias_flashattn.py        # No-bias FlashAttention
-├── benchmark_no_mask_soft_decay.py       # No-mask soft decay
-├── benchmark_all_spatial_methods.py      # Unified spatial methods benchmark
-├── benchmark_spatial_block_partition.py  # Block partition strategies
-├── benchmark_spatial_flash.py            # Spatial FlashAttention
-├── benchmark_flex_spatial.py             # Flexible spatial
-├── benchmark_spatial_cutoff_verification.py # Cutoff verification
-├── benchmark_system_impact.py            # System impact breakdown
-├── benchmark_blockwise_norm.py           # Blockwise norm
-├── benchmark_data_pipeline.py            # Data pipeline
-├── benchmark_ffn_attention_ratio.py      # FFN vs attention ratio
-├── benchmark_sdpa_backends.py            # SDPA backend comparison
-├── benchmark_small_n.py                  # Small-N behavior
-├── benchmark_trackastra_inference.py     # Trackastra inference
-├── benchmark_dinov3_comparison.py        # Dinov3 comparison
-├── benchmark_dinov3_comparison_v2.py     # Dinov3 comparison v2
-├── benchmark_mask_vs_gather.py           # Mask vs gather benchmark
-├── benchmark_profiler.py                 # Profiler benchmark
+├── benchmarks/                           # 31 benchmark scripts (benchmark_*.py + profiler/validation helpers)
+│   ├── benchmark_all_spatial_methods.py            # Unified spatial methods benchmark
+│   ├── benchmark_blockwise_norm.py                 # Blockwise norm
+│   ├── benchmark_cached_dist.py                    # Cached distance benchmark
+│   ├── benchmark_data_pipeline.py                  # Data pipeline
+│   ├── benchmark_dinov3_comparison.py              # Dinov3 comparison
+│   ├── benchmark_dinov3_comparison_v2.py           # Dinov3 comparison v2
+│   ├── benchmark_ffn_attention_ratio.py            # FFN vs attention ratio
+│   ├── benchmark_flash_with_cutoff.py              # FlashAttention with learned cutoff
+│   ├── benchmark_flex_spatial.py                   # Flexible spatial
+│   ├── benchmark_full.py                           # Unified benchmark: all methods × all N
+│   ├── benchmark_gather_v3.py                      # Gather v3 benchmark
+│   ├── benchmark_knn_methods.py                    # KNN method comparison
+│   ├── benchmark_mask_vs_gather.py                 # Mask vs gather benchmark
+│   ├── benchmark_no_bias_flashattn.py              # No-bias FlashAttention
+│   ├── benchmark_no_mask_soft_decay.py             # No-mask soft decay
+│   ├── benchmark_profiler.py                       # Profiler benchmark
+│   ├── benchmark_pure_attn.py                      # Pure attention variants
+│   ├── benchmark_reorder_real_vs_random.py         # Reorder speedup: real centroids vs random
+│   ├── benchmark_sdpa_backends.py                  # SDPA backend comparison
+│   ├── benchmark_small_n.py                        # Small-N behavior
+│   ├── benchmark_soft_decay.py                     # Soft decay vs hard cutoff
+│   ├── benchmark_soft_decay_measure.py             # Soft decay measurement
+│   ├── benchmark_sparse.py                         # Dense vs sparse benchmark (N up to 16384, K 4-128)
+│   ├── benchmark_spatial_block_partition.py        # Block partition strategies
+│   ├── benchmark_spatial_cutoff_verification.py    # Cutoff verification
+│   ├── benchmark_spatial_flash.py                  # Spatial FlashAttention
+│   ├── benchmark_system_impact.py                  # System impact breakdown
+│   ├── benchmark_trackastra_inference.py           # Trackastra inference
+│   ├── profile_gather_sparse.py                    # Gather sparse profiler
+│   ├── profiler_recipe.py                          # Profiler recipe
+│   └── validate_mask_vs_gather.py                  # Equivalence verification
 │
-├── plot_sparse.py                        # Visualization → HTML
-├── make_report.py                        # HTML report generator
-├── validate_mask_vs_gather.py            # Equivalence verification
-├── verify_cudnn.py                       # CUDA backend verification
-├── tile_size_analysis.py                 # Tile size analysis
-├── cosine_histogram.py                   # Cosine histogram
-├── profiler_recipe.py                    # Profiler recipe
-├── profile_gather_sparse.py              # Gather sparse profiler
-├── tra_aogm_visualization.py             # AOGM visualization
-├── vis_collapse.py                       # Collapse visualization
+├── analysis/                             # Plotting / report / verification scripts
+│   ├── plot_sparse.py                  # Visualization → HTML
+│   ├── make_report.py                  # HTML report generator
+│   ├── verify_cudnn.py                 # CUDA backend verification
+│   ├── tile_size_analysis.py           # Tile size analysis
+│   ├── cosine_histogram.py             # Cosine histogram
+│   ├── tra_aogm_visualization.py       # AOGM visualization
+│   └── vis_collapse.py                 # Collapse visualization
 │
-├── run_full_bench.slurm                  # SLURM batch script
+├── slurm/                                # SLURM batch scripts
+│   └── run_full_bench.slurm       # SLURM batch script
 │
-├── benchmark_sparse_results.csv          # Benchmark output data
-├── ..._results.csv                       # Various benchmark result CSVs
-├── ..._analysis.png                      # Benchmark visualization PNGs
-├── comprehensive_report.html             # Full HTML report
-└── profiling_report.html                 # Profiling HTML report
+└── results/                              # Generated artifacts (gitignored)
+    ├── benchmark_sparse_results.csv       # Benchmark output data
+    ├── ..._results.csv                    # Various benchmark result CSVs
+    ├── ..._analysis.png                   # Benchmark visualization PNGs
+    ├── comprehensive_report.html          # Full HTML report
+    └── profiling_report.html              # Profiling HTML report
 ```
 
 ## Reference
