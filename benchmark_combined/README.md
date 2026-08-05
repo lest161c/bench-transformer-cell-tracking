@@ -12,12 +12,7 @@ SLURM submission scripts, configs, and analysis for Trackastra training runs on 
 | `run_sparse_k16.slurm` | Gather-sparse KNN, K=16 (best TRA: 0.9972) | 48h |
 | `run_sparse_k32.slurm` | Gather-sparse KNN, K=32 | 48h |
 | `run_sparse_k16_ssl.slurm` | K16 + SSL-pretrained init | 48h |
-| `run_ssl_only.slurm` | SSL pretraining only (no fine-tuning) | 6h |
 | **`run_ssl_dino_pretrain.slurm`** | **DINOv2 + contrastive SSL pretraining (new)** | **24h** |
-| `run_phase1_scaling.slurm` | Attention speed/memory benchmark (synthetic) | 2h |
-| `run_phase1_ssl.slurm` | SSL pretraining (phase 1) | 6h |
-| `run_phase1_sweep.slurm` | Label-fraction downstream evaluation | 4h |
-| `run_diag2.slurm` | Embedding collapse check | 10min |
 | `run_dist_ablation.slurm` | Distortion family ablation | 2h |
 
 ## Configs
@@ -27,9 +22,10 @@ SLURM submission scripts, configs, and analysis for Trackastra training runs on 
 | `vanvliet_baseline.yaml` | Dense training (d_model=320, 6L+6L, window=4) |
 | `vanvliet_sparse_k16.yaml` | KNN=16 training |
 | `vanvliet_sparse_k16_ssl.yaml` | K16 + SSL pretraining |
-| `cluster_configs/vanvliet_baseline.yaml` | Same, for cluster submission |
-| `cluster_configs/vanvliet_sparse_k16.yaml` | Same, K=16 |
-| `cluster_configs/vanvliet_sparse_k16_ssl.yaml` | Same, K16+SSL |
+
+> Note: the `cluster_configs/` variants and the phase-1 / quick-bench / diag slurm scripts
+> were removed as obsolete (2026-08-05); the current K-sweep configs and the multi-seed
+> harness live in the `bench-transformer-cell-tracking/benchmark_combined/` repo.
 
 ## Results summary (vanvliet)
 
