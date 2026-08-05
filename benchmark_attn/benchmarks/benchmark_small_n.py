@@ -2,6 +2,10 @@
 Measures forward-only time and memory. Outputs CSV + text summary.
 """
 
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 import torch
 import torch.utils.benchmark as benchmark
 import gc

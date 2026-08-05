@@ -22,7 +22,7 @@ Ampere). Only `run_full_bench.slurm` is a H100 (80 GB, TU Dresden Capella) job.
 
 | Environment | Hardware | GPU VRAM | Venv | Used for |
 |---|---|---|---|---|
-| Local (this repo) | NVIDIA RTX A500 Laptop | 4 GiB | `benchmark_attn/.venv/bin/python` | `benchmark_sparse.py`, `benchmark_full.py`, `benchmark_mask_vs_gather.py`, `benchmark_all_spatial_methods.py`, `benchmark_knn_methods.py`, `benchmark_cached_dist.py`, `benchmark_gather_v3.py`, `plot_sparse.py` |
+| Local (this repo) | NVIDIA RTX A500 Laptop | 4 GiB | `benchmark_attn/.venv/bin/python` | `benchmarks/benchmark_sparse.py`, `benchmarks/benchmark_full.py`, `benchmarks/benchmark_mask_vs_gather.py`, `benchmarks/benchmark_all_spatial_methods.py`, `benchmarks/benchmark_knn_methods.py`, `benchmarks/benchmark_cached_dist.py`, `benchmarks/benchmark_gather_v3.py`, `analysis/plot_sparse.py` |
 | Cluster (Capella) | NVIDIA H100 | 80 GiB | `$TRK/.venv` (see §3) | `run_full_bench.slurm` → `benchmark_full.py` → `full_bench_h100.csv` |
 
 All local benchmarks use fp16 on CUDA (`dtype = torch.float16`). Scripts assert
@@ -41,14 +41,14 @@ and the CSV paths resolve:
 
 ```bash
 cd benchmark_attn
-$V benchmark_sparse.py
+$V benchmarks/benchmark_sparse.py
 ```
 
 ---
 
 ## 2. Local (A500) experiments
 
-### 2.1 `benchmark_sparse.py` — dense vs gather-sparse sweep (incl. N=1024/4096, NSA)
+### 2.1 `benchmarks/benchmark_sparse.py` — dense vs gather-sparse sweep (incl. N=1024/4096, NSA)
 
 Purpose: forward time + incremental peak GPU memory for `dense`
 (RelativePositionalAttention), `dense_flash`, `nsa` (Native Sparse Attention),
@@ -58,7 +58,7 @@ over N and K, at L = 1 and L = 4 layers.
 Hardcoded config (B=2, d=256, h=4, coord_dim=3):
 
 ```python
-# benchmark_sparse.py
+# benchmarks/benchmark_sparse.py
 L_vals = [1, 4]                        # line 213
 N_vals = [128, 256, 512, 2048, 8192]   # line 214  <-- EDIT for full N range
 K_vals = [4, 16, 64]                   # line 215
@@ -85,7 +85,7 @@ sel=64 ≈ 1.5–2 GB (borderline on A500). Keep N ≤ 512 for NSA K=16/64.
 Invocation and outputs:
 
 ```bash
-cd benchmark_attn && $V benchmark_sparse.py
+cd benchmark_attn && $V benchmarks/benchmark_sparse.py
 # writes benchmark_sparse_results.csv  (columns: method,L,N,K,reorder,time_s,mem_mb,status)
 ```
 
@@ -114,7 +114,7 @@ layers; the timing difference is ~1.5× at L=12 (see `benchmark_cached_dist.py`)
 CLI:
 
 ```
-python benchmark_full.py [--d 320] [--nhead 8] [--warmup 5] [--rep 30]
+python benchmarks/benchmark_full.py [--d 320] [--nhead 8] [--warmup 5] [--rep 30]
                           [--out benchmark_full_results.csv]
                           [--mode none|bias|rope] [--dist-mode v0|v1]
 ```
@@ -162,7 +162,7 @@ via an importlib shim that avoids the heavy trackastra package init
 CLI (defaults from the script):
 
 ```
-python benchmark_cached_dist.py [--d 320] [--nhead 8] [--warmup 5] [--rep 30]
+python benchmarks/benchmark_cached_dist.py [--d 320] [--nhead 8] [--warmup 5] [--rep 30]
     [--out benchmark_attn/cached_dist_results.csv] [--layers 12]
     [--Ns 128,256,512,1024,2048,4096,8192] [--cutoff 256] [--dist-mode v1]
 ```
@@ -193,7 +193,7 @@ Purpose: compare the three gather variants head-to-head:
 CLI (defaults from the script):
 
 ```
-python benchmark_gather_v3.py [--d 320] [--nhead 8] [--warmup 5] [--rep 30]
+python benchmarks/benchmark_gather_v3.py [--d 320] [--nhead 8] [--warmup 5] [--rep 30]
     [--out benchmark_attn/gather_v3_results.csv]
     [--Ns 128,256,512,1024,2048,4096,8192] [--Ks 4,16,64]
 ```
@@ -222,7 +222,7 @@ baseline), `dense_flash`, `mask-KNN`, `gather-KNN`, `MiniMax`. This is an
 CLI:
 
 ```
-python benchmark_knn_methods.py [--out benchmark_attn/knn_methods_results.csv]
+python benchmarks/benchmark_knn_methods.py [--out benchmark_attn/knn_methods_results.csv]
                                 [--outdir benchmark_attn]
 ```
 
@@ -263,7 +263,7 @@ hard-mask baseline.
 CLI:
 
 ```
-python benchmark_all_spatial_methods.py [--outdir benchmark_attn] [--knn-k 16]
+python benchmarks/benchmark_all_spatial_methods.py [--outdir benchmark_attn] [--knn-k 16]
 ```
 
 ```bash
@@ -407,7 +407,7 @@ needed; NOT-NEEDED = de-prioritized by the Curation decision (2026-08-04).
 
 | Experiment | Script / Slurm | Status | Resources | Outputs |
 |---|---|---|---|---|
-| Dense vs sparse sweep (N incl. 1024/4096, NSA sel_blocks 16/64) | `benchmark_sparse.py` | **DONE** (2026-08-04, superset run) | A500, `benchmark_attn/.venv` | `benchmark_sparse_results.csv`, `benchmark_sparse.html` |
+| Dense vs sparse sweep (N incl. 1024/4096, NSA sel_blocks 16/64) | `benchmarks/benchmark_sparse.py` | **DONE** (2026-08-04, superset run) | A500, `benchmark_attn/.venv` | `benchmark_sparse_results.csv`, `benchmark_sparse.html` |
 | Full method set × N (dense_masked, dense_flash, gather/mask-KNN, NSA, KNN-RelPos) | `benchmark_full.py` | **DONE** (2026-06-17) | A500 | `full_bench_a500.csv` |
 | H100 full benchmark (same script, K sweep) | `run_full_bench.slurm` | **PENDING** (H100-only; not run) | H100, 90G, 8 CPUs, 1 h | `full_bench_h100.csv` (cluster) |
 | CachedDistAttention real measurement | `benchmark_cached_dist.py` | **DONE** (2026-08-03) | A500 + trackastra source | `cached_dist_results.csv` |
@@ -542,7 +542,7 @@ upper bound.
 
 ## 8. Known discrepancies / notes (found 2026-08-04)
 
-1. `benchmark_sparse.py` working tree currently has `N_vals` without 1024/4096
+1. `benchmarks/benchmark_sparse.py` working tree currently has `N_vals` without 1024/4096
    (line 214) and `sel_blocks = [2, 4, 8]` (line 244), but the on-disk
    `benchmark_sparse_results.csv` (Aug 4) covers N = 128…8192 and
    sel ∈ {2,4,8,16,64}. Reproduce the superset CSV by editing those two lines

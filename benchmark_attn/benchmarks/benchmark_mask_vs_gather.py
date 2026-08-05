@@ -1,6 +1,10 @@
 """Compare KNNMaskSparseAttention (new) vs GatherSparseAttention (old)
 vs DenseFlashAttention. All at N=128,256,512 with K=16 L=1 mode=none."""
 
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 import torch, torch.nn.functional as F, gc, csv
 from torch.profiler import profile, record_function, ProfilerActivity
 from torch.nn.attention import SDPBackend, sdpa_kernel

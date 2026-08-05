@@ -3,6 +3,10 @@ Expanded sweep: N up to 16384, K up to 128, with/without spatial reorder.
 OOM → marked in CSV.
 """
 
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 import torch
 import torch.utils.benchmark as benchmark
 import gc

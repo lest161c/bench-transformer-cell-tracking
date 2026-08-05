@@ -36,116 +36,116 @@ Requires Python ≥3.14, PyTorch ≥2.11 with CUDA.
 
 ```bash
 # Main sparse vs dense benchmark (N up to 16384, K 4-128)
-python benchmark_sparse.py
+python benchmarks/benchmarks/benchmark_sparse.py
 
 # Unified benchmark: all methods × all N, forward + peak memory
-python benchmark_full.py
+python benchmarks/benchmark_full.py
 
 # Reorder ablation with real centroids (requires data/vanvliet)
-python benchmark_reorder_real_vs_random.py
+python benchmarks/benchmark_reorder_real_vs_random.py
 
 # Plot main results → benchmark_sparse.html
-python plot_sparse.py
+python analysis/plot_sparse.py
 ```
 
 ### Attention mechanism benchmarks
 
 ```bash
 # Pure attention variants (no spatial component)
-python benchmark_pure_attn.py
+python benchmarks/benchmark_pure_attn.py
 
 # KNN method comparison (gather vs mask vs NSA)
-python benchmark_knn_methods.py
+python benchmarks/benchmark_knn_methods.py
 
 # FlashAttention with learned cutoff distance
-python benchmark_flash_with_cutoff.py
+python benchmarks/benchmark_flash_with_cutoff.py
 
 # Soft decay vs hard cutoff equivalence
-python benchmark_soft_decay.py
+python benchmarks/benchmark_soft_decay.py
 
 # No-bias FlashAttention verification
-python benchmark_no_bias_flashattn.py
+python benchmarks/benchmark_no_bias_flashattn.py
 
 # No-mask soft decay variant
-python benchmark_no_mask_soft_decay.py
+python benchmarks/benchmark_no_mask_soft_decay.py
 ```
 
 ### Spatial benchmarks
 
 ```bash
 # All spatial methods comparison
-python benchmark_all_spatial_methods.py
+python benchmarks/benchmark_all_spatial_methods.py
 
 # Spatial block partition strategies
-python benchmark_spatial_block_partition.py
+python benchmarks/benchmark_spatial_block_partition.py
 
 # Spatial FlashAttention solutions
-python benchmark_spatial_flash.py
+python benchmarks/benchmark_spatial_flash.py
 
 # Flexible spatial attention
-python benchmark_flex_spatial.py
+python benchmarks/benchmark_flex_spatial.py
 
 # Spatial cutoff verification
-python benchmark_spatial_cutoff_verification.py
+python benchmarks/benchmark_spatial_cutoff_verification.py
 ```
 
 ### System & profiling benchmarks
 
 ```bash
 # System impact breakdown
-python benchmark_system_impact.py
+python benchmarks/benchmark_system_impact.py
 
 # Blockwise norm measurement
-python benchmark_blockwise_norm.py
+python benchmarks/benchmark_blockwise_norm.py
 
 # Data pipeline breakdown
-python benchmark_data_pipeline.py
+python benchmarks/benchmark_data_pipeline.py
 
 # FFN vs attention ratio sweep
-python benchmark_ffn_attention_ratio.py
+python benchmarks/benchmark_ffn_attention_ratio.py
 
 # SDPA backend comparison (Math vs FlashAttention vs CuDNN)
-python benchmark_sdpa_backends.py
+python benchmarks/benchmark_sdpa_backends.py
 
 # Small-N behavior
-python benchmark_small_n.py
+python benchmarks/benchmark_small_n.py
 ```
 
 ### Additional tools
 
 ```bash
 # Mask vs gather equivalence verification
-python validate_mask_vs_gather.py
-python benchmark_mask_vs_gather.py
+python analysis/validate_mask_vs_gather.py
+python benchmarks/benchmark_mask_vs_gather.py
 
 # Tile size analysis
-python tile_size_analysis.py
+python analysis/tile_size_analysis.py
 
 # Cosine histogram analysis
-python cosine_histogram.py
+python analysis/cosine_histogram.py
 
 # Verify CUDA attention backends
-python verify_cudnn.py
+python analysis/verify_cudnn.py
 
 # Profiler recipe
-python profiler_recipe.py
-python benchmark_profiler.py
+python analysis/profiler_recipe.py
+python benchmarks/benchmark_profiler.py
 
 # Trackastra inference benchmark
-python benchmark_trackastra_inference.py
+python benchmarks/benchmark_trackastra_inference.py
 
 # Dinov3 comparison
-python benchmark_dinov3_comparison.py
-python benchmark_dinov3_comparison_v2.py
+python benchmarks/benchmark_dinov3_comparison.py
+python benchmarks/benchmark_dinov3_comparison_v2.py
 
 # Tra-AOGM visualization
-python tra_aogm_visualization.py
+python analysis/tra_aogm_visualization.py
 
 # Collapse visualization
-python vis_collapse.py
+python analysis/vis_collapse.py
 
 # Generate HTML reports
-python make_report.py
+python analysis/make_report.py
 ```
 
 ## Structure
@@ -156,7 +156,7 @@ python make_report.py
 ├── pyproject.toml                        # Dependencies
 ├── uv.lock                               # Lockfile
 │
-├── benchmark_sparse.py                   # Dense vs sparse benchmark (N up to 16384, K 4-128)
+├── benchmarks/benchmark_sparse.py                   # Dense vs sparse benchmark (N up to 16384, K 4-128)
 ├── benchmark_full.py                     # Unified benchmark: all methods × all N
 ├── benchmark_reorder_real_vs_random.py   # Reorder speedup: real centroids vs random
 ├── benchmark_pure_attn.py                # Pure attention variants

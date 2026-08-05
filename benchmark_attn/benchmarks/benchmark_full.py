@@ -21,6 +21,10 @@ Trackastra model's forward() which amortizes cdist across layers. The timing dif
 is ~1.5× at L=12 (see separate CachedDist benchmark).
 """
 
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 import argparse, csv, gc
 import torch, torch.nn.functional as F
 import torch.utils.benchmark as benchmark

@@ -34,7 +34,7 @@ import torch
 import torch.nn.functional as F
 import torch.utils.benchmark as benchmark
 
-_TRACKASTRA_MODEL_DIR = Path(__file__).resolve().parent.parent / "trackastra" / "trackastra" / "model"
+_TRACKASTRA_MODEL_DIR = Path(__file__).resolve().parents[2] / "trackastra" / "trackastra" / "model"
 
 
 def _load_trackastra_model_parts():

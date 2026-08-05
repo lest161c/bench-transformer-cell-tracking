@@ -8,6 +8,10 @@ Wraps benchmark functions with torch.profiler, outputs:
   - Combined HTML report with all figures
 """
 
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 import json
 import os
 import io

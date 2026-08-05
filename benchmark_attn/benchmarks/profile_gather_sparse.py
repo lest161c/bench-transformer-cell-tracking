@@ -3,6 +3,10 @@ Outputs per-operator CUDA time percentages, marks gather/contiguous vs SDPA.
 Profiles both forward-only and forward+backward.
 """
 
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 import os
 import json
 import base64
