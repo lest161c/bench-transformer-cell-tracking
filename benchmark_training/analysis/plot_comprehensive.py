@@ -13,7 +13,7 @@ RES = Path(__file__).resolve().parents[1] / "results"
 
 # === Load data ===
 conv_rows=[]
-with open(RES / "downstream_matched.csv") as f:
+with open(RES / "matched_downstream_ssl_results.csv") as f:
     for r in csv.DictReader(f):
         for k in r:
             try:r[k]=float(r[k])if r[k]else float("nan")
@@ -22,7 +22,7 @@ with open(RES / "downstream_matched.csv") as f:
 conv=pd.DataFrame(conv_rows)
 
 spd_rows=[]
-with open(RES / "speed_mem.csv") as f:
+with open(RES / "training_speed_memory_by_N_K.csv") as f:
     for r in csv.DictReader(f):
         for k in r:
             try:r[k]=float(r[k])if r[k]else float("nan")
@@ -184,6 +184,6 @@ for i,fig in enumerate(figures):
     html.append(f"<figure><figcaption>Figure {i+1}</figcaption><img src='data:image/png;base64,{b64(fig)}' /></figure>")
 html.append("</body></html>")
 
-with open(RES / "benchmark_comprehensive.html","w") as f:
+with open(RES / "comprehensive_training_report.html","w") as f:
     f.write("\n".join(html))
-print(f"Saved {RES / 'benchmark_comprehensive.html'} with {len(figures)} figures")
+print(f"Saved {RES / 'comprehensive_training_report.html'} with {len(figures)} figures")

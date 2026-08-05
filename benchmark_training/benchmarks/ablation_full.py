@@ -200,7 +200,7 @@ def run(use_wandb=False):
 
     outdir = ROOT / "benchmark_training" / "results"
     outdir.mkdir(parents=True, exist_ok=True)
-    csv_path = outdir / "ablation_full.csv"
+    csv_path = outdir / "full_attention_ablation_results.csv"
 
     D, H = 128, 4
 

@@ -1219,7 +1219,7 @@ speedup (~1.5x at L=12, small N) is qualified in labbook 2026-08-03 §1.4
 
 ### Local A500 artifacts in this directory
 
-- `results/speed_mem.csv` — full-model speed/memory table (fp32, fwd+bwd+AdamW)
+- `results/training_speed_memory_by_N_K.csv` — full-model speed/memory table (fp32, fwd+bwd+AdamW)
   produced by `benchmark_speed_mem.py` on 2026-08-04 (A500). K=64 @ N=512:
   194.1 ms / 1604.1 MB (fits A500); full K{0,4,8,16,32,64} x N{128,256,512}
   table present.

@@ -439,7 +439,7 @@ needed; NOT-NEEDED = de-prioritized by the Curation decision (2026-08-04).
 | All spatial-cutoff methods | `benchmark_all_spatial_methods.py` | **DONE** | A500 | `all_spatial_methods.csv` (gather_knn_ms broken) |
 | Sparse sweep visualization | `plot_sparse.py` | **DONE** | CPU only | `benchmark_sparse.html` |
 | Backward pass at N=8192 | `benchmark_backward/benchmark_sparse_backward.py` | **DONE** (2026-08-04) | A500 | `benchmark_backward/sparse_backward_results_8192.csv` |
-| Full-model speed/mem K=64 | `benchmark_training/benchmarks/benchmark_speed_mem.py` | **DONE** (2026-08-04) | A500 | `benchmark_training/results/speed_mem.csv`, copy at `benchmark_attn/speed_mem.csv` |
+| Full-model speed/mem K=64 | `benchmark_training/benchmarks/benchmark_speed_mem.py` | **DONE** (2026-08-04) | A500 | `benchmark_training/results/training_speed_memory_by_N_K.csv`, copy at `benchmark_attn/speed_mem.csv` |
 | DINOv3 comparison | `benchmark_dinov3_comparison*.py` | **NOT-NEEDED** (HTTP 403 — weights download blocked) | internet | `dinov3_comparison*.csv` |
 
 ### 5.2 Cluster experiments per the Curation decision (2026-08-04)

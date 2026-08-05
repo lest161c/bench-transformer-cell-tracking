@@ -13,7 +13,7 @@ figures = []
 RES = Path(__file__).resolve().parents[1] / "results"
 
 rows = []
-with open(RES / "combined_benchmark.csv") as f:
+with open(RES / "combined_attention_ssl_2x2.csv") as f:
     for r in csv.DictReader(f):
         for k in r:
             try: r[k] = float(r[k])
@@ -120,6 +120,6 @@ for i, fig in enumerate(figures):
     html.append(f"<figure><figcaption>Figure {i+1}</figcaption><img src='data:image/png;base64,{b64}' /></figure>")
 html.append("</body></html>")
 
-with open(RES / "benchmark_combined.html", "w") as f:
+with open(RES / "combined_attention_ssl_report.html", "w") as f:
     f.write("\n".join(html))
-print(f"Saved {RES / 'benchmark_combined.html'} with {len(figures)} figures")
+print(f"Saved {RES / 'combined_attention_ssl_report.html'} with {len(figures)} figures")

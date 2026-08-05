@@ -269,7 +269,7 @@ def run(config_path=None, n_epochs=15, use_wandb=False):
 
     outdir = ROOT / "benchmark_training" / "results"
     outdir.mkdir(parents=True, exist_ok=True)
-    csv_path = outdir / "combined_benchmark.csv"
+    csv_path = outdir / "combined_attention_ssl_2x2.csv"
 
     with open(csv_path, "w", newline="") as f:
         w = csv.writer(f)
