@@ -49,6 +49,10 @@ from tifffile import imread
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("analyze_signal")
 
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # benchmark_ssl root (sibling modules)
+
 # --- reuse ssl_pipeline + distortions from benchmark_ssl ---
 from ssl_pipeline import load_experiment_frames
 from rich_features import extract as extract_rich, FEATURE_DIMS, FEATURE_NAMES

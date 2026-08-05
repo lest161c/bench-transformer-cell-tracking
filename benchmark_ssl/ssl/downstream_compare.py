@@ -17,6 +17,8 @@ import torch.nn.functional as F
 from scipy.optimize import linear_sum_assignment
 from tqdm import tqdm
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # benchmark_ssl root (sibling modules)
+
 from ssl_pipeline import load_experiment_frames, features_from_frame
 from track_encoder import CellEmbedder
 

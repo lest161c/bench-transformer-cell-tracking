@@ -10,8 +10,8 @@ from pathlib import Path
 logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
 logger = logging.getLogger("test_local")
 
-ROOT = Path(__file__).resolve().parent.parent / "trackastra"
-DATA = Path(__file__).resolve().parent.parent / "data" / "vanvliet"
+ROOT = Path(__file__).resolve().parents[2] / "trackastra"
+DATA = Path(__file__).resolve().parents[2] / "data" / "vanvliet"
 
 if not DATA.exists():
     sys.exit(f"vanvliet data not found at {DATA}")

@@ -6,17 +6,24 @@ Diagnostic tools for self-supervised pretraining on vanvliet cell tracking data.
 
 | File | Purpose |
 |------|---------|
-| `ssl_pipeline.py` | Data loading, SSLDataset, collator for contrastive SSL |
-| `distortions.py` | 6 distortion families (affine, elastic, jitter, dropout, photometric, feature_noise) |
-| `track_encoder.py` | ASCENT-inspired CellEmbedder |
-| `pretrain.py` | NT-Xent contrastive SSL training with TensorBoard |
-| `analyze_signal.py` | **Data-level signal analysis** (no model). Tests if features carry sufficient signal for contrastive learning. **Run first.** |
-| `test_dino.py` | DINOv2 feature separation analysis. Tests DINO patch features as regionprops replacement. |
-| `ssl_convergence_test.py` | **Convergence predictor.** Micro-SSL training + generalization + hard-pipeline tests. Predicts if full-scale training will converge before HPC submission. |
-| `downstream_convergence.py` | Simulates fine-tuning: SSL-pretrained vs random init on real adjacent-frame pairs. |
-| `rich_features.py` | Extended feature extraction (shape descriptors, Hu moments, local image patches via PCA). |
+| `ssl_pipeline.py` | Data loading, SSLDataset, collator for contrastive SSL (shared module at repo root) |
+| `distortions.py` | 6 distortion families (affine, elastic, jitter, dropout, photometric, feature_noise) (shared module at repo root) |
+| `track_encoder.py` | ASCENT-inspired CellEmbedder (shared module at repo root) |
+| `ssl/pretrain.py` | NT-Xent contrastive SSL training with TensorBoard |
+| `ssl/analyze_signal.py` | **Data-level signal analysis** (no model). Tests if features carry sufficient signal for contrastive learning. **Run first.** |
+| `ssl/test_dino.py` | DINOv2 feature separation analysis. Tests DINO patch features as regionprops replacement. |
+| `ssl/ssl_convergence_test.py` | **Convergence predictor.** Micro-SSL training + generalization + hard-pipeline tests. Predicts if full-scale training will converge before HPC submission. |
+| `ssl/downstream_convergence.py` | Simulates fine-tuning: SSL-pretrained vs random init on real adjacent-frame pairs. |
+| `rich_features.py` | Extended feature extraction (shape descriptors, Hu moments, local image patches via PCA) (shared module at repo root). |
 | `config.yaml` | Hyperparameters for distortion pipeline + SSL training. |
-| `run_ssl_dino_pretrain.slurm` | HPC submission script for full DINO+SSL pretraining (24h, H100). |
+| `slurm/run_ssl_dino_pretrain.slurm` | HPC submission script for full DINO+SSL pretraining (24h, H100). |
+
+Additional runnable scripts live in `ssl/` (`ssl/pretrain_multi.py`, `ssl/train_ssl.py`,
+`ssl/downstream_compare.py`, `ssl/compare_dino_backbones.py`,
+`ssl/diagnose_coord_shortcut.py`, `ssl/diagnose_end_to_end.py`,
+`ssl/probe_features.py`), plotting/report scripts in `analysis/`
+(`analysis/plot_ssl.py`, `analysis/plot_expected_metrics.py`), and one-off tests in
+`exploratory/` (`exploratory/test_local.py`).
 
 ## Setup
 
@@ -28,31 +35,31 @@ uv sync
 
 ### 1. Data-level signal check (fast, no GPU needed)
 ```bash
-uv run python3 analyze_signal.py --conditions rpsM,recA,pheA,metA,cib,trpL --max-frames 500
+uv run python3 ssl/analyze_signal.py --conditions rpsM,recA,pheA,metA,cib,trpL --max-frames 500
 ```
 Reports separation gap between same-cell and different-cell features. `gap > 0.3` → strong signal for contrastive learning.
 
 ### 2. DINO feature test (GPU)
 ```bash
-uv run python3 test_dino.py
+uv run python3 ssl/test_dino.py
 ```
 Tests if DINOv2 patch features provide better separation than 7D regionprops (gap improved from 0.047 → 0.29).
 
 ### 3. Convergence predictor (GPU, ~30min)
 ```bash
-uv run python3 ssl_convergence_test.py --max-frames 200
+uv run python3 ssl/ssl_convergence_test.py --max-frames 200
 ```
 Runs 4 tests: gap-vs-distortion, micro-SSL training, distortion ranking, PCA. Outputs HTML + CSVs.
 
 ### 4. Downstream convergence test (GPU, ~15min)
 ```bash
-uv run python3 downstream_convergence.py --max-pairs 60 --epochs 20
+uv run python3 ssl/downstream_convergence.py --max-pairs 60 --epochs 20
 ```
 Compares SSL-pretrained vs random init on real tracking pairs.
 
 ### 5. HPC full pretraining
 ```bash
-sbatch run_ssl_dino_pretrain.slurm
+sbatch slurm/run_ssl_dino_pretrain.slurm
 ```
 
 ## Key findings (vanvliet)

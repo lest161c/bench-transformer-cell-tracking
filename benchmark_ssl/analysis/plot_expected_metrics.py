@@ -16,7 +16,7 @@ from pathlib import Path
 sns.set_theme(style="whitegrid")
 plt.rcParams["figure.dpi"] = 120
 
-OUT = Path(__file__).parent / "expected_metrics.html"
+OUT = Path(__file__).resolve().parents[1] / "expected_metrics.html"
 N_EPOCHS = 100
 N_SSL = 5
 

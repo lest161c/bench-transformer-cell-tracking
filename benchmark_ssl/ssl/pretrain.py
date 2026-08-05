@@ -19,6 +19,8 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # benchmark_ssl root (sibling modules)
+
 from distortions import DistortionPipeline
 from ssl_pipeline import load_experiment_frames, SSLDataset, collate_ssl
 from track_encoder import CellEmbedder

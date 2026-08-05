@@ -16,7 +16,7 @@ from the result files on disk in `benchmark_ssl/runs/`.
 | Scope | Hardware | Where the code lives | Environment |
 |---|---|---|---|
 | **Local SSL experiments** (`benchmark_ssl/runs/*`) | NVIDIA RTX A500 Laptop, 4096 MiB, compute cap 8.6 (Ampere) | this directory (`benchmark_ssl/`) | `benchmark_ssl/.venv` (Python 3.14.4, torch 2.12.0+cu130, lightly 1.5.25, scikit-learn 1.9.0) |
-| **Full DINOv2 SSL pretraining** (`run_ssl_dino_pretrain.slurm`) | H100 (80 GB, TU Dresden Capella, SLURM partition `gpu-h100`, account `p_scads_celltracking`, 1 GPU per node) | trackastra checkout at `$TRK` | `$TRK/.venv` (built inside the slurm script) |
+| **Full DINOv2 SSL pretraining** (`slurm/run_ssl_dino_pretrain.slurm`) | H100 (80 GB, TU Dresden Capella, SLURM partition `gpu-h100`, account `p_scads_celltracking`, 1 GPU per node) | trackastra checkout at `$TRK` | `$TRK/.venv` (built inside the slurm script) |
 
 Local data: `data/vanvliet/` (3.1 GB; conditions `rpsM, recA, pheA, metA, cib, trpL`,
 33 experiment dirs total — `rpsM` 8, `recA` 7, `pheA` 5, `metA` 5, `cib` 2, `trpL` 6).
@@ -33,15 +33,15 @@ decision (see section 5).
 
 | Producing script | Produced run directories |
 |---|---|
-| `pretrain.py` (identity-BCE variant of 2026-05-19) | `runs/ssl_v1` |
-| `pretrain_multi.py` | `runs/ssl_dense`, `runs/ssl_K=4`, `runs/ssl_K=8`, `runs/ssl_K=16`, `runs/ssl_K=32` |
-| `downstream_compare.py` (earlier fine-tuning variant) | `runs/downstream_compare` |
-| `analyze_signal.py` | `runs/feature_signal`, `runs/feature_signal_full`, `runs/feature_signal_shape`, `runs/feature_signal_hu`, `runs/feature_signal_patch` |
-| `ssl_convergence_test.py` | `runs/convergence_prediction`, `runs/generalization_test`, `runs/hard_test` |
-| `downstream_convergence.py` | `runs/downstream_convergence` |
-| `compare_dino_backbones.py` | `runs/dino_comparison` |
-| `diagnose_coord_shortcut.py` | `runs/diagnose_coord_shortcut`, `runs/diagnose_coord_shortcut_jitter4` |
-| `diagnose_end_to_end.py` | `runs/diagnose_end_to_end` |
+| `ssl/pretrain.py` (identity-BCE variant of 2026-05-19) | `runs/ssl_v1` |
+| `ssl/pretrain_multi.py` | `runs/ssl_dense`, `runs/ssl_K=4`, `runs/ssl_K=8`, `runs/ssl_K=16`, `runs/ssl_K=32` |
+| `ssl/downstream_compare.py` (earlier fine-tuning variant) | `runs/downstream_compare` |
+| `ssl/analyze_signal.py` | `runs/feature_signal`, `runs/feature_signal_full`, `runs/feature_signal_shape`, `runs/feature_signal_hu`, `runs/feature_signal_patch` |
+| `ssl/ssl_convergence_test.py` | `runs/convergence_prediction`, `runs/generalization_test`, `runs/hard_test` |
+| `ssl/downstream_convergence.py` | `runs/downstream_convergence` |
+| `ssl/compare_dino_backbones.py` | `runs/dino_comparison` |
+| `ssl/diagnose_coord_shortcut.py` | `runs/diagnose_coord_shortcut`, `runs/diagnose_coord_shortcut_jitter4` |
+| `ssl/diagnose_end_to_end.py` | `runs/diagnose_end_to_end` |
 
 Run all local scripts with `benchmark_ssl/.venv/bin/python` (from the `benchmark_ssl/`
 directory unless stated otherwise).
@@ -82,15 +82,15 @@ the runs also need `lightly` and `edt` for some producers.
 
 ### 4.1 `runs/ssl_v1` — identity-BCE mini SSL
 
-- **Producing script:** `pretrain.py` (identity-BCE variant that produced the run on
-  2026-05-19; the currently checked-in `pretrain.py` is the NT-Xent rewrite and does
+- **Producing script:** `ssl/pretrain.py` (identity-BCE variant that produced the run on
+  2026-05-19; the currently checked-in `ssl/pretrain.py` is the NT-Xent rewrite and does
   NOT write the on-disk `training_log.csv`). The labbook inventory classifies this run
   as "ssl_v1 (identity-BCE mini)".
 - **Exact CLI:**
   ```bash
   V=benchmark_ssl/.venv/bin/python
   cd benchmark_ssl
-  $V pretrain.py runs/ssl_v1/config.yaml
+  $V ssl/pretrain.py runs/ssl_v1/config.yaml
   ```
   The run writes a copy of the active config to `runs/ssl_v1/config.yaml` — that file
   is the authoritative record of the exact hyperparameters.
@@ -105,20 +105,20 @@ the runs also need `lightly` and `edt` for some producers.
   `runs/ssl_v1/training_log.csv`, `runs/ssl_v1/config.yaml`,
   `runs/ssl_v1/events.out.tfevents.1779185392.MI-DD-CN24021L.213240.0`
   (host `MI-DD-CN24021L` = the A500 laptop; the TensorBoard event confirms the
-  `pretrain.py`-family trainer).
+  `ssl/pretrain.py`-family trainer).
 - **Status:** DONE (A500, 2026-05-19). Analyzed in `results_analysis.md` sections 1–5.
 - **Key result:** train loss 0.4967 → 0.1549, val loss 0.3706 → 0.1678, train acc
   0.8944 → 0.9699, val acc 0.9111 → 0.9678 over 5 epochs; no overfitting.
 
 ### 4.2 `runs/ssl_dense` + `runs/ssl_K=4/8/16/32` — attention K-sweep SSL
 
-- **Producing script:** `pretrain_multi.py` (BCE association head, pos_weight 10.0,
+- **Producing script:** `ssl/pretrain_multi.py` (BCE association head, pos_weight 10.0,
   dense vs `GatherSparseAttention` with KNN K).
 - **Exact CLI:**
   ```bash
   V=benchmark_ssl/.venv/bin/python
   cd <repo root>   # required: pretrain_multi.py resolves ROOT/data/vanvliet and ROOT/benchmark_ssl/runs
-  $V benchmark_ssl/pretrain_multi.py
+  $V benchmark_ssl/ssl/pretrain_multi.py
   ```
   The `__main__` block loops `for k in [None, 4, 8, 16, 32]`, i.e. it produces
   `ssl_dense` (K=None) and `ssl_K=4/8/16/32` in a single invocation.
@@ -134,22 +134,22 @@ the runs also need `lightly` and `edt` for some producers.
   Only `best_model.pt` is persisted (the per-epoch numbers went to stdout/stderr logs,
   which are not archived).
 - **Status:** DONE (A500, 2026-05-19).
-- **Reproducibility caveat:** the checked-in `pretrain_multi.py` references an
+- **Reproducibility caveat:** the checked-in `ssl/pretrain_multi.py` references an
   undefined `ROOT` global (`ROOT / "data/vanvliet"`, `ROOT / "benchmark_ssl" / "runs"`)
   — it will raise `NameError` unless `ROOT` is injected (repo root). The run was made
   with a working version of this file.
 
 ### 4.3 `runs/downstream_compare` — SSL-pretrained vs random-init fine-tuning
 
-- **Producing script:** `downstream_compare.py` (earlier variant that fine-tuned
+- **Producing script:** `ssl/downstream_compare.py` (earlier variant that fine-tuned
   SSL-pretrained vs random-init `CellEmbedder` on real adjacent-frame pairs). The
-  currently checked-in `downstream_compare.py` is a rewrite (embedding + Hungarian
+  currently checked-in `ssl/downstream_compare.py` is a rewrite (embedding + Hungarian
   tracking, writes different CSV columns) — see section 10.
 - **Exact CLI (at the time):**
   ```bash
   V=benchmark_ssl/.venv/bin/python
   cd benchmark_ssl
-  $V downstream_compare.py runs/ssl_v1/best_model.pt
+  $V ssl/downstream_compare.py runs/ssl_v1/best_model.pt
   ```
 - **Data inputs:** `data/vanvliet` (all 6 conditions from `config.yaml`), consecutive
   frame pairs within each experiment, 90/10 pair split (seed 42), 15 epochs.
@@ -162,20 +162,20 @@ the runs also need `lightly` and `edt` for some producers.
 
 ### 4.4 `runs/feature_signal*` — data-level signal analysis
 
-- **Producing script:** `analyze_signal.py` (no model; measures whether distorted
+- **Producing script:** `ssl/analyze_signal.py` (no model; measures whether distorted
   features carry enough same-cell/different-cell separation for contrastive SSL).
 - **Exact CLI (one per run; only `--feature-set` and `--outdir` differ):**
   ```bash
   V=benchmark_ssl/.venv/bin/python
   cd benchmark_ssl
-  $V analyze_signal.py --conditions rpsM,recA,pheA,metA,cib,trpL --max-frames 500 \
+  $V ssl/analyze_signal.py --conditions rpsM,recA,pheA,metA,cib,trpL --max-frames 500 \
       --feature-set basic --outdir runs/feature_signal
-  $V analyze_signal.py --feature-set basic --outdir runs/feature_signal_full
-  $V analyze_signal.py --feature-set shape --outdir runs/feature_signal_shape
-  $V analyze_signal.py --feature-set hu    --outdir runs/feature_signal_hu
-  $V analyze_signal.py --feature-set patch --outdir runs/feature_signal_patch
+  $V ssl/analyze_signal.py --feature-set basic --outdir runs/feature_signal_full
+  $V ssl/analyze_signal.py --feature-set shape --outdir runs/feature_signal_shape
+  $V ssl/analyze_signal.py --feature-set hu    --outdir runs/feature_signal_hu
+  $V ssl/analyze_signal.py --feature-set patch --outdir runs/feature_signal_patch
   ```
-  (README reference command: `uv run python3 analyze_signal.py --conditions
+  (README reference command: `uv run python3 ssl/analyze_signal.py --conditions
   rpsM,recA,pheA,metA,cib,trpL --max-frames 500`.) The exact flag values used on
   2026-06-15 are not persisted; the feature set per run is confirmed by the CSV
   columns (`basic` 7D, `shape` +shape descriptors, `hu` +Hu moments, `patch` +36 PCA
@@ -192,18 +192,18 @@ the runs also need `lightly` and `edt` for some producers.
 
 ### 4.5 `runs/convergence_prediction`, `runs/generalization_test`, `runs/hard_test` — convergence predictor
 
-- **Producing script:** `ssl_convergence_test.py` (micro-SSL + generalization +
+- **Producing script:** `ssl/ssl_convergence_test.py` (micro-SSL + generalization +
   hard-pipeline tests to predict full-scale SSL convergence before HPC submission).
 - **Exact CLI:**
   ```bash
   V=benchmark_ssl/.venv/bin/python
   cd benchmark_ssl
   # full battery (all 6 tests)
-  $V ssl_convergence_test.py --max-frames 200 --outdir runs/convergence_prediction
+  $V ssl/ssl_convergence_test.py --max-frames 200 --outdir runs/convergence_prediction
   # generalization-only run (wrote into its own dir)
-  $V ssl_convergence_test.py --test generalization --outdir runs/generalization_test
+  $V ssl/ssl_convergence_test.py --test generalization --outdir runs/generalization_test
   # hard-pipeline-only run
-  $V ssl_convergence_test.py --test hard --outdir runs/hard_test
+  $V ssl/ssl_convergence_test.py --test hard --outdir runs/hard_test
   ```
   Defaults: `--data-root ../data/vanvliet`, `--conditions
   rpsM,recA,pheA,metA,cib,trpL`, `--max-frames 200`, `--test all`, `--outdir
@@ -225,13 +225,13 @@ the runs also need `lightly` and `edt` for some producers.
 
 ### 4.6 `runs/downstream_convergence` — downstream convergence test
 
-- **Producing script:** `downstream_convergence.py` (micro-SSL pretrain a projection
+- **Producing script:** `ssl/downstream_convergence.py` (micro-SSL pretrain a projection
   head, then fine-tune SSL-pretrained vs random-init on real adjacent-frame pairs).
 - **Exact CLI:**
   ```bash
   V=benchmark_ssl/.venv/bin/python
   cd benchmark_ssl
-  $V downstream_convergence.py --max-pairs 60 --epochs 20
+  $V ssl/downstream_convergence.py --max-pairs 60 --epochs 20
   ```
   Defaults: `--data-root ../data/vanvliet`, `--conditions
   rpsM,recA,pheA,metA,cib,trpL`, `--max-pairs 100`, `--epochs 30`, `--outdir
@@ -248,13 +248,13 @@ the runs also need `lightly` and `edt` for some producers.
 
 ### 4.7 `runs/dino_comparison` — DINO backbone comparison
 
-- **Producing script:** `compare_dino_backbones.py` (DINOv2 vits14 vs vitb14 feature
+- **Producing script:** `ssl/compare_dino_backbones.py` (DINOv2 vits14 vs vitb14 feature
   separation on vanvliet bacteria).
 - **Exact CLI:**
   ```bash
   V=benchmark_ssl/.venv/bin/python
   cd benchmark_ssl
-  $V compare_dino_backbones.py --data-root ../data/vanvliet --outdir runs/dino_comparison
+  $V ssl/compare_dino_backbones.py --data-root ../data/vanvliet --outdir runs/dino_comparison
   ```
   Defaults: `--conditions rpsM recA pheA metA cib trpL`, `--max-frames 40`,
   `--jitter-std 4.0`, `--seed 42`.
@@ -270,16 +270,16 @@ the runs also need `lightly` and `edt` for some producers.
 
 ### 4.8 `runs/diagnose_coord_shortcut` + `runs/diagnose_coord_shortcut_jitter4` — coordinate shortcut diagnostic
 
-- **Producing script:** `diagnose_coord_shortcut.py` (three modes: A PE+coords+DINO,
+- **Producing script:** `ssl/diagnose_coord_shortcut.py` (three modes: A PE+coords+DINO,
   B PE+noise+DINO, C PE+coords ONLY — is NT-Xent solvable from position alone?).
 - **Exact CLI:**
   ```bash
   V=benchmark_ssl/.venv/bin/python
   cd benchmark_ssl
   # full distortion pipeline (defaults)
-  $V diagnose_coord_shortcut.py
+  $V ssl/diagnose_coord_shortcut.py
   # jitter4-only distortion, separate outdir
-  $V diagnose_coord_shortcut.py --distortion jitter4 --outdir runs/diagnose_coord_shortcut_jitter4
+  $V ssl/diagnose_coord_shortcut.py --distortion jitter4 --outdir runs/diagnose_coord_shortcut_jitter4
   ```
   Defaults: `--data-root ../data/vanvliet`, `--conditions rpsM`, `--max-frames 30`,
   `--steps 300`, `--lr 1e-3`, `--d-model 256`, `--pos-per-dim 32`, `--distortion
@@ -296,13 +296,13 @@ the runs also need `lightly` and `edt` for some producers.
 
 ### 4.9 `runs/diagnose_end_to_end` — end-to-end SSL → downstream transfer
 
-- **Producing script:** `diagnose_end_to_end.py` (micro-SSL then downstream
+- **Producing script:** `ssl/diagnose_end_to_end.py` (micro-SSL then downstream
   fine-tuning on real pairs, modes R/A/B/C).
 - **Exact CLI:**
   ```bash
   V=benchmark_ssl/.venv/bin/python
   cd benchmark_ssl
-  $V diagnose_end_to_end.py
+  $V ssl/diagnose_end_to_end.py
   ```
   Defaults: `--data-root ../data/vanvliet`, `--conditions rpsM`, `--max-frames 25`,
   `--max-pairs 20`, `--ssl-steps 200`, `--ssl-lr 1e-3`, `--downstream-steps 100`,
@@ -319,7 +319,7 @@ the runs also need `lightly` and `edt` for some producers.
 
 ---
 
-## 5. Cluster (H100) experiment: `run_ssl_dino_pretrain.slurm`
+## 5. Cluster (H100) experiment: `slurm/run_ssl_dino_pretrain.slurm`
 
 Full DINOv2-feature SSL pretraining (24 h budget). **Code-ready, never completed,
 status NOT-NEEDED** (curation decision 2026-08-04: micro-tests gap 0.292→0.040 under
@@ -408,12 +408,12 @@ Setting `TEST=1` (env var) runs only the environment smoke test (pip installs,
 
 ### 5.8 Submission
 ```bash
-sbatch run_ssl_dino_pretrain.slurm
+sbatch slurm/run_ssl_dino_pretrain.slurm
 ```
 
 ### 5.9 Status
 **NOT-NEEDED** (curation decision 2026-08-04). Do not resubmit for the current
-report. The A500 micro-tests (`ssl_convergence_test.py`, `test_dino.py`) and the
+report. The A500 micro-tests (`ssl/ssl_convergence_test.py`, `ssl/test_dino.py`) and the
 edge-probe ceiling (DINOv2 0.896 vs regionprops 0.860 balanced accuracy) already
 support the report's conclusion.
 
@@ -455,7 +455,7 @@ Local equivalents:
 | `runs/diagnose_coord_shortcut` (+ `_jitter4`) | DONE (A500) | 1× RTX A500, DINOv2 vits14, `data/vanvliet` (rpsM) | `mode_{A,B,C}.csv`, `summary.csv`, `summary.txt`, PNG |
 | `runs/diagnose_end_to_end` | DONE (A500) | 1× RTX A500, DINOv2 vits14, `data/vanvliet` (rpsM) | `downstream_{R,A,B,C}.csv`, `end_to_end.png`, `verdict.txt` |
 | Unified edge probe (5-fold CV) | DONE (A500, 2026-08-04) | 1× RTX A500, DINOv2 + CNN checkpoints, `data/vanvliet` | `results/unified_probe_results_cv.json` |
-| DINOv2 full SSL pretraining (`run_ssl_dino_pretrain.slurm`, 24 h) | **NOT-NEEDED** | 1× H100, 90 GB, 8 CPU, 24 h, `$TRK/.venv` | `$TRK/runs/ssl_dino_pretrain/` (never produced) |
+| DINOv2 full SSL pretraining (`slurm/run_ssl_dino_pretrain.slurm`, 24 h) | **NOT-NEEDED** | 1× H100, 90 GB, 8 CPU, 24 h, `$TRK/.venv` | `$TRK/runs/ssl_dino_pretrain/` (never produced) |
 | Low-label regime sweep (12 h, H100) | **NOT-NEEDED** | H100 | — (SSL already showed zero improvement at 10% labels) |
 | `ssl_d2d` (diagnostic) | **NOT-NEEDED** | — | — (earlier exploratory; not required) |
 | Multi-seed K-sweep (42/43/44 × 5 K, 15 jobs) | PENDING (cluster, NECESSARY) | 15× H100, 48 h each (`benchmark_combined`) | `results/knn_sweep/` variance estimates, K=4/K=64 checkpoints |
@@ -515,7 +515,7 @@ demonstrated convergence within 200 steps, so no A500 training run needs full ep
 - Test D (gap vs distortion): none 0.292; jitter 4 px 0.217; jitter 8 px 0.214;
   jitter 16 px 0.072; rotation 10° 0.137; rotation 25° 0.031.
 
-### 9.4 Feature-signal analysis (`analyze_signal.py`, on-disk CSVs, 2026-06-15)
+### 9.4 Feature-signal analysis (`ssl/analyze_signal.py`, on-disk CSVs, 2026-06-15)
 - `feature_signal` (basic 7D): all-condition separation gap 0.0452, recall@1 0.2131,
   effective dim 3 (FAIL, gap < 0.1).
 - `feature_signal_full`: gap 0.0467, recall@1 0.2151, effective dim 3.
@@ -523,7 +523,7 @@ demonstrated convergence within 200 steps, so no A500 training run needs full ep
   `feature_signal_patch`: gap 0.0455 — richer features do not raise the gap
   (labbook: "All gave gap ≈ 0.047, effective dim = 3").
 
-### 9.5 Convergence predictor (`ssl_convergence_test.py`, on-disk CSVs, 2026-06-15)
+### 9.5 Convergence predictor (`ssl/ssl_convergence_test.py`, on-disk CSVs, 2026-06-15)
 - `gap_vs_strength.csv`: none 0.2916; jitter 4 0.2417; jitter 8 0.2144; jitter 16
   0.1440; rotation 10 0.0344; rotation 25 0.0022.
 - `micro_ssl.csv`: val_gap 0.561 → 0.698 in 200 steps (train_loss 0.130 → 3.4e-6).
@@ -533,19 +533,19 @@ demonstrated convergence within 200 steps, so no A500 training run needs full ep
   rotation_30 0.0049 / 0.24; affine_strong 0.0007 / 0.18.
 - `pca_analysis.csv`: PC1 22.8%, PC1–20 cumulative 75.1%.
 
-### 9.6 Downstream convergence (`downstream_convergence.py`, on-disk CSV, 2026-06-15)
+### 9.6 Downstream convergence (`ssl/downstream_convergence.py`, on-disk CSV, 2026-06-15)
 - SSL-pretrained vs Random-init over 20 epochs (0–19) on real adjacent-frame pairs:
   final (epoch 19) val_acc 0.504 vs 0.498, val_loss 1.460 vs 1.471 — no downstream
   advantage at this scale (consistent with `diagnose_end_to_end` verdict).
 
-### 9.7 Coordinate shortcut (`diagnose_coord_shortcut.py`, on-disk summaries, 2026-06-23)
+### 9.7 Coordinate shortcut (`ssl/diagnose_coord_shortcut.py`, on-disk summaries, 2026-06-23)
 - `full`: Mode C (PE only) converges at step 2 (final train gap 0.849); Mode A
   (PE+coords+DINO) conv step 3; Mode B (PE+noise+DINO) conv step 42. "SMOKING GUN:
   COORDINATE SHORTCUT EXISTS ... The model solves NT-Xent using POSITION ALONE."
 - `jitter4`: Mode C conv step 3 (final gap 0.836); Mode B achieves +0.228 better
   final val gap than Mode A.
 
-### 9.8 End-to-end transfer (`diagnose_end_to_end.py`, on-disk verdict, 2026-06-23)
+### 9.8 End-to-end transfer (`ssl/diagnose_end_to_end.py`, on-disk verdict, 2026-06-23)
 - Random init val acc 0.750 → 0.750 (never reaches 0.8; val loss 0.5225).
 - PE+coords+DINO: 0.750 → 0.969, steps to acc>0.8 = 10, val loss 0.1084.
 - PE+noise+DINO: 0.719 → 0.969, steps = 10, val loss 0.0752.
@@ -553,7 +553,7 @@ demonstrated convergence within 200 steps, so no A500 training run needs full ep
 - Verdict: "SSL does not help downstream convergence at this scale. The coordinate
   shortcut exists but fixing it alone is insufficient."
 
-### 9.9 DINO backbone comparison (`compare_dino_backbones.py`, on-disk CSV, 2026-06-23)
+### 9.9 DINO backbone comparison (`ssl/compare_dino_backbones.py`, on-disk CSV, 2026-06-23)
 | backbone | dim | params (M) | intra | inter | gap | recall@1 | eff. rank | cells/s | VRAM (MiB) |
 |---|---|---|---|---|---|---|---|---|---|
 | DINOv2-vits14 | 384 | 22.1 | 0.9465 | 0.703 | 0.2435 | 0.9715 | 100 | 115.9 | 263 |
@@ -583,17 +583,17 @@ demonstrated convergence within 200 steps, so no A500 training run needs full ep
 
 ## 10. Discrepancies & reproducibility notes
 
-1. **`pretrain_multi.py` references an undefined `ROOT`** (lines 155, 162, 178). The
+1. **`ssl/pretrain_multi.py` references an undefined `ROOT`** (lines 155, 162, 178). The
    checked-in file raises `NameError`; the 2026-05-19 run used a working version.
    Inject `ROOT = <repo root>` (the directory containing `benchmark_ssl/` and `data/`)
    to re-run.
-2. **`downstream_compare.py` is a rewrite.** The on-disk `runs/downstream_compare/
+2. **`ssl/downstream_compare.py` is a rewrite.** The on-disk `runs/downstream_compare/
    comparison.csv` (columns `epoch,model,train_loss,train_acc,val_loss,val_acc`, a
    15-epoch fine-tuning comparison) was produced by the earlier version. The current
    file performs embedding + Hungarian tracking and writes different columns.
-3. **`pretrain.py` is a rewrite.** `runs/ssl_v1/training_log.csv` (columns including
+3. **`ssl/pretrain.py` is a rewrite.** `runs/ssl_v1/training_log.csv` (columns including
    `train_acc, train_f1, val_prec, val_rec`) and the TensorBoard event were produced
-   by the 2026-05-19 identity-BCE variant; the current `pretrain.py` is NT-Xent and
+   by the 2026-05-19 identity-BCE variant; the current `ssl/pretrain.py` is NT-Xent and
    writes neither `training_log.csv` nor acc/F1 metrics. `results_analysis.md` states
    `d_model=64, nhead=2` but the archived `runs/ssl_v1/config.yaml` says `d_model=128,
    nhead=4` — treat the archived config as authoritative.
@@ -605,6 +605,6 @@ demonstrated convergence within 200 steps, so no A500 training run needs full ep
 6. **Feature-set flags for the `runs/feature_signal*` runs are not persisted** in the
    output files; the CSV columns confirm which `--feature-set` produced each run.
 7. The `runs/generalization_test` and `runs/hard_test` outputs were written by
-   separate `ssl_convergence_test.py` invocations (`--test generalization`,
+   separate `ssl/ssl_convergence_test.py` invocations (`--test generalization`,
    `--test hard`), not by the `--test all` run that populated
    `runs/convergence_prediction`.
