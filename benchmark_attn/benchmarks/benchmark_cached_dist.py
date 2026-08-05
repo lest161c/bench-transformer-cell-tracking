@@ -1,4 +1,4 @@
-"""CachedDistAttention — real measurement of the Trackastra dense baseline.
+"""CachedDistAttention — real measurement of the dense attention baseline.
 
 The report claims a "~2x speedup" for CachedDistAttention over the per-layer
 RelativePositionalAttention baseline by computing the 2D pairwise distance
@@ -6,8 +6,8 @@ matrix once and sharing it across all L transformer layers. Until now this was
 only backed by an *analytical* model (benchmark_knn_methods.py, cached_dense).
 This script measures the REAL classes:
 
-  dense_masked  = RelativePositionalAttention (trackastra) — per-layer 2D cdist
-  cached_dist   = CachedDistAttention (trackastra)          — uses precomputed dist_2d
+  dense_masked  = RelativePositionalAttention — per-layer 2D cdist
+  cached_dist   = CachedDistAttention          — uses precomputed dist_2d
   cdist_2d      = the one-time 2D torch.cdist cost (amortized once per model)
 
 It reports per-layer forward time and peak memory for N = [128..8192], then
@@ -23,32 +23,20 @@ Usage:
         [--cutoff 256] [--dist-mode v1]
 
 N=8192 (fp16, mask N*N) exceeds the A500 4 GB VRAM and is recorded as OOM.
-The class is imported from the trackastra source via importlib to avoid the
-heavy trackastra package init (which transitively imports dask et al.).
+Both attention classes are self-contained copies in the local model_parts.py
+(no trackastra dependency).
 """
 
-import argparse, csv, gc, importlib, importlib.util, sys, types
+import argparse, csv, gc, sys
 from pathlib import Path
 
 import torch
 import torch.nn.functional as F
 import torch.utils.benchmark as benchmark
 
-_TRACKASTRA_MODEL_DIR = Path(__file__).resolve().parents[2] / "trackastra" / "trackastra" / "model"
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-
-def _load_trackastra_model_parts():
-    """Load trackastra's model_parts.py as a standalone module (no dask)."""
-    base = str(_TRACKASTRA_MODEL_DIR)
-    pkg = types.ModuleType("mp")
-    pkg.__path__ = [base]
-    sys.modules["mp"] = pkg
-    for name, fname in [("rope", "rope.py"), ("model_parts", "model_parts.py")]:
-        spec = importlib.util.spec_from_file_location("mp." + name, str(Path(base) / fname))
-        m = importlib.util.module_from_spec(spec)
-        sys.modules["mp." + name] = m
-        spec.loader.exec_module(m)
-    return sys.modules["mp.model_parts"]
+from model_parts import CachedDistAttention, RelativePositionalAttention
 
 
 def measure(fn, warmup=5, min_run_time=0.3):
@@ -68,7 +56,7 @@ def measure(fn, warmup=5, min_run_time=0.3):
     return t_mean, mem
 
 
-def run(mp, device, dtype, d_model, n_head, coord_dim, Ns, warmup, rep,
+def run(device, dtype, d_model, n_head, coord_dim, Ns, warmup, rep,
         cutoff_spatial, dist_mode, layers):
     rows = []
     print(f"{'N':>5} | {'dense_masked':>14} {'mem':>8} | {'cached_dist':>13} {'mem':>8} | {'cdist_2d':>10} | {'speedup':>8} (per-layer) | {'total L={}':>8}"
@@ -87,7 +75,7 @@ def run(mp, device, dtype, d_model, n_head, coord_dim, Ns, warmup, rep,
         t_dense = t_cached = t_cdist = None
         mem_dense = mem_cached = None
         try:
-            attn = mp.RelativePositionalAttention(
+            attn = RelativePositionalAttention(
                 coord_dim, d_model, n_head, cutoff_spatial=cutoff_spatial,
                 mode="none", attn_dist_mode=dist_mode,
             ).to(device, dtype)
@@ -99,7 +87,7 @@ def run(mp, device, dtype, d_model, n_head, coord_dim, Ns, warmup, rep,
 
         # (B) cached_dist = CachedDistAttention with precomputed dist_2d
         try:
-            attn = mp.CachedDistAttention(
+            attn = CachedDistAttention(
                 coord_dim, d_model, n_head, cutoff_spatial=cutoff_spatial,
                 mode="none", attn_dist_mode=dist_mode,
             ).to(device, dtype)
@@ -162,8 +150,7 @@ def main():
     print(f"flash={torch.backends.cuda.flash_sdp_enabled()}  layers={args.layers}")
     print(f"N = {Ns}  cutoff_spatial={args.cutoff}  dist_mode={args.dist_mode}\n")
 
-    mp = _load_trackastra_model_parts()
-    rows = run(mp, device, dtype, args.d, args.nhead, 2, Ns, args.warmup,
+    rows = run(device, dtype, args.d, args.nhead, 2, Ns, args.warmup,
                args.rep, args.cutoff, args.dist_mode, args.layers)
 
     header = ["method", "N", "time_ms", "memory_mb", "error"]

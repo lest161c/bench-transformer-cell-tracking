@@ -153,11 +153,10 @@ total_baseline = L * t_dense_masked
 total_cached   = t_cdist_2d + L * t_cached_dist
 ```
 
-The classes are imported from the Trackastra source
-(`trackastra/trackastra/model/model_parts.py`, `CachedDistAttention` at
-line 453, instantiated in `trackastra/trackastra/model/model.py` at line 427)
-via an importlib shim that avoids the heavy trackastra package init
-(transitive dask import).
+The classes are self-contained copies in the local `model_parts.py`
+(`CachedDistAttention`, `RelativePositionalAttention`) — `benchmark_cached_dist.py`
+has NO trackastra dependency (the earlier importlib shim that loaded the classes
+from the trackastra source was removed 2026-08-05).
 
 CLI (defaults from the script):
 
@@ -433,7 +432,7 @@ needed; NOT-NEEDED = de-prioritized by the Curation decision (2026-08-04).
 | Dense vs sparse sweep (N incl. 1024/4096, NSA sel_blocks 16/64) | `benchmarks/benchmark_sparse.py` | **DONE** (2026-08-04, superset run) | A500, `benchmark_attn/.venv` | `benchmark_sparse_results.csv`, `benchmark_sparse.html` |
 | Full method set × N (dense_masked, dense_flash, gather/mask-KNN, NSA, KNN-RelPos) | `benchmark_full.py` | **DONE** (2026-06-17) | A500 | `full_bench_a500.csv` |
 | H100 full benchmark (same script, K sweep) | `run_full_bench.slurm` | **PENDING** (H100-only; not run) | H100, 90G, 8 CPUs, 1 h | `full_bench_h100.csv` (cluster) |
-| CachedDistAttention real measurement | `benchmark_cached_dist.py` | **DONE** (2026-08-03) | A500 + trackastra source | `cached_dist_results.csv` |
+| CachedDistAttention real measurement | `benchmark_cached_dist.py` | **DONE** (2026-08-03) | A500 (classes in local `model_parts.py`) | `cached_dist_results.csv` |
 | GatherSparseAttention V1/V2/V3 | `benchmark_gather_v3.py` | **DONE** (2026-08-03) | A500 | `gather_v3_results.csv` |
 | KNN method comparison (analytical) | `benchmark_knn_methods.py` | **DONE** (analytical only) | CPU only | `knn_methods_results.csv` + PNGs |
 | Mask vs gather (N≤512) | `benchmark_mask_vs_gather.py` | **DONE** (superseded) | A500 | `benchmark_mask_vs_gather.csv` |

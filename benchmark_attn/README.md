@@ -44,7 +44,7 @@ python benchmarks/benchmark_sparse.py
 # Unified benchmark: all methods × all N, forward + peak memory (mask-KNN at N>=2048)
 python benchmarks/benchmark_full.py
 
-# CachedDistAttention real measurement (imports trackastra model_parts via shim)
+# CachedDistAttention real measurement (classes in local model_parts.py)
 python benchmarks/benchmark_cached_dist.py
 
 # GatherSparseAttention V1/V2/V3 comparison
@@ -140,9 +140,6 @@ python analysis/make_report.py
 ├── README_sdpa_backends.md      # SDPA backends documentation
 ├── README_system_impact.md      # System impact documentation
 ├── REPRODUCTION.md              # Benchmark reproduction guide
-├── results_analysis.md          # Results analysis notes
-├── uv.lock                      # Lockfile (gitignored)
-├── validate_prompt.md           # Prompt validation notes (pending removal)
 │
 ├── benchmarks/                           # Load-bearing + superseded benchmark scripts
 │   ├── benchmark_all_spatial_methods.py            # Unified spatial methods (gather_knn_ms column broken)
