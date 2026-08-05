@@ -20,20 +20,15 @@ Sparse attention benchmarks and CNN feature injection experiments for transforme
 
 ---
 
-## Key Results
+## Results
 
-| Experiment | Finding | Metric |
-|---|---|---|
-| **Baseline (no CNN)** | Best overall model | val_loss = **0.003** |
-| CNN CONCAT + Dropout | Best CNN injection variant | val_loss = **0.011** |
-| Sparse Attention K=16 vs Dense | Matches dense convergence; 5.9× speedup at N=8192 | TRA = **0.997** (best) |
-| Edge Probe: DINOv2 MLP | Strongest probe signal | Balanced accuracy = **0.896 ± 0.044** |
-| Edge Probe: Regionprops MLP | Competitive probe signal | Balanced accuracy = **0.860 ± 0.014** |
-| DeepCell: Baseline (no CNN) | Strong cross-dataset generalization | TRA = **0.990**, cHOTA = **0.956** |
-| DeepCell: vanilla_cnn | Slightly reduced vs baseline | TRA = 0.988, cHOTA = 0.913 |
-| DeepCell: cnn_trainable | Catastrophic forgetting | TRA = 0.909 |
+Detailed results are kept in the per-experiment documentation next to the code:
 
-> **Main finding:** CNN features do not help the tracking transformer on this dataset — the transformer's learned position embeddings already capture the relevant spatial information, and injecting pretrained CNN features (DINOv2, SSL) offers no benefit over the dense-attention baseline.
+| Area | Where results live |
+|---|---|
+| Sparse attention micro-benchmarks (dense vs gather vs mask-KNN, CachedDistAttention, GatherV3, backward, speed/memory) | `benchmark_attn/REPRODUCTION.md` |
+| CNN feature injection, edge probing, DeepCell cross-dataset | `benchmark_ssl/REPRODUCTION.md` and `benchmark_ssl/cnn_encoder/REPRODUCTION.md` |
+| Clean K-sweep training (convergence, TRA/AOGM) | `benchmark_combined/REPRODUCTION.md` |
 
 ---
 
