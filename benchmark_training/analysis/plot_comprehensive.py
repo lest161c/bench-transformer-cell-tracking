@@ -1,6 +1,7 @@
 """Comprehensive: convergence + speed + memory. All K × init × N."""
 
 import csv,io,base64
+from pathlib import Path
 import pandas as pd
 import seaborn as sns
 import matplotlib;matplotlib.use("Agg")
@@ -8,10 +9,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 sns.set_theme(style="whitegrid"); figures=[]
+RES = Path(__file__).resolve().parents[1] / "results"
 
 # === Load data ===
 conv_rows=[]
-with open("results/downstream_matched.csv") as f:
+with open(RES / "downstream_matched.csv") as f:
     for r in csv.DictReader(f):
         for k in r:
             try:r[k]=float(r[k])if r[k]else float("nan")
@@ -20,7 +22,7 @@ with open("results/downstream_matched.csv") as f:
 conv=pd.DataFrame(conv_rows)
 
 spd_rows=[]
-with open("results/speed_mem.csv") as f:
+with open(RES / "speed_mem.csv") as f:
     for r in csv.DictReader(f):
         for k in r:
             try:r[k]=float(r[k])if r[k]else float("nan")
@@ -182,6 +184,6 @@ for i,fig in enumerate(figures):
     html.append(f"<figure><figcaption>Figure {i+1}</figcaption><img src='data:image/png;base64,{b64(fig)}' /></figure>")
 html.append("</body></html>")
 
-with open("benchmark_comprehensive.html","w") as f:
+with open(RES / "benchmark_comprehensive.html","w") as f:
     f.write("\n".join(html))
-print(f"Saved benchmark_comprehensive.html with {len(figures)} figures")
+print(f"Saved {RES / 'benchmark_comprehensive.html'} with {len(figures)} figures")

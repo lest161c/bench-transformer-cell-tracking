@@ -25,7 +25,7 @@ from tqdm import tqdm
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
-ROOT = Path(__file__).parent.parent
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "benchmark_attn"))
 sys.path.insert(0, str(ROOT / "benchmark_ssl"))
 
@@ -284,7 +284,7 @@ def run():
         ssl_state = torch.load(SSL_PATH, map_location="cpu", weights_only=False)["model_state_dict"]
         logger.info(f"SSL checkpoint loaded ({len(ssl_state)} keys)")
 
-    outdir = ROOT / "benchmark_combined" / "results"
+    outdir = ROOT / "benchmark_training" / "results"
     outdir.mkdir(parents=True, exist_ok=True)
     csv_path = outdir / "ssl_reinvestigation.csv"
 

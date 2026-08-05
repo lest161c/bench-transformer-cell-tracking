@@ -14,7 +14,7 @@ A benchmark suite for efficient attention and feature-injection methods in trans
 |---|---|
 | `benchmark_attn/` | Standalone sparse attention micro-benchmarks (dense vs gather vs mask-KNN vs spatial-flash) |
 | `benchmark_ssl/` | CNN encoder training (DINO, MAE), edge probing, cross-dataset downstream evaluation |
-| `benchmark_combined/` | End-to-end training benchmarks, convergence experiments, local SLURM launchers (the clean K-sweep harness and multi-seed configs live in the separate `bench-transformer-cell-tracking/` checkout) |
+| `benchmark_training/` | End-to-end training benchmarks, convergence experiments, local SLURM launchers (the clean K-sweep harness and multi-seed configs live in the separate `bench-transformer-cell-tracking/` checkout) |
 | `configs/` | YAML configs for all training runs (baseline, CNN variants, lambda-schedule) |
 
 ---
@@ -27,7 +27,7 @@ Detailed results are kept in the per-experiment documentation next to the code:
 |---|---|
 | Sparse attention micro-benchmarks (dense vs gather vs mask-KNN, CachedDistAttention, GatherV3, backward, speed/memory) | `benchmark_attn/REPRODUCTION.md` |
 | CNN feature injection, edge probing, DeepCell cross-dataset | `benchmark_ssl/REPRODUCTION.md` and `benchmark_ssl/cnn_encoder/REPRODUCTION.md` |
-| Clean K-sweep training (convergence, TRA/AOGM) | `benchmark_combined/REPRODUCTION.md` |
+| Clean K-sweep training (convergence, TRA/AOGM) | `benchmark_training/REPRODUCTION.md` |
 
 ---
 

@@ -24,7 +24,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 logger = logging.getLogger(__name__)
 
 # --- Path setup ---
-ROOT = Path(__file__).parent.parent
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "benchmark_attn"))
 sys.path.insert(0, str(ROOT / "benchmark_ssl"))
 
@@ -267,7 +267,7 @@ def run(config_path=None, n_epochs=15, use_wandb=False):
         ("sparseK16+ssl",  lambda: UnifiedModel(SparseEncoder(D, H, L, knn_k=16), d_model=D), True),
     ]
 
-    outdir = ROOT / "benchmark_combined" / "results"
+    outdir = ROOT / "benchmark_training" / "results"
     outdir.mkdir(parents=True, exist_ok=True)
     csv_path = outdir / "combined_benchmark.csv"
 

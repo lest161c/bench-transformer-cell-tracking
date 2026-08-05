@@ -24,7 +24,7 @@ from tqdm import tqdm
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
-ROOT = Path(__file__).parent.parent
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "benchmark_attn"))
 sys.path.insert(0, str(ROOT / "benchmark_ssl"))
 
@@ -301,7 +301,7 @@ def run(use_wandb=False):
     train_pool = all_pairs[40:]
     logger.info(f"Real pairs: {len(train_pool)} train + {len(val_pairs)} val")
 
-    outdir = ROOT / "benchmark_combined" / "results"
+    outdir = ROOT / "benchmark_training" / "results"
     outdir.mkdir(parents=True, exist_ok=True)
     csv_path = outdir / "ssl_realdata.csv"
 

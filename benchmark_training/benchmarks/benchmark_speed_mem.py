@@ -8,7 +8,7 @@ import wandb
 
 logging.basicConfig(level=logging.INFO,format="%(asctime)s %(levelname)s %(message)s")
 logger=logging.getLogger(__name__)
-ROOT=Path(__file__).parent.parent
+ROOT=Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(ROOT/"benchmark_attn")); sys.path.insert(0,str(ROOT/"benchmark_ssl"))
 from model_parts import GatherSparseAttention
 class AgentCentricNormalization(nn.Module):
@@ -92,7 +92,7 @@ def bench(use_wandb=False):
             Ns="128,256,512", Ks="0,4,8,16,32", device=str(device),
         ))
 
-    csv_path=ROOT/"benchmark_combined"/"results"/"speed_mem.csv"
+    csv_path=ROOT/"benchmark_training"/"results"/"speed_mem.csv"
     csv_path.parent.mkdir(parents=True,exist_ok=True)
     with open(csv_path,"w",newline="") as f:
         csv.writer(f).writerow(["K","N","time_ms","mem_mb","status"])

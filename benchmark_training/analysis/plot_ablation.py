@@ -1,6 +1,7 @@
 """Comprehensive ablation plots from ablation_full.csv."""
 
 import csv, io, base64
+from pathlib import Path
 import pandas as pd
 import seaborn as sns
 import matplotlib; matplotlib.use("Agg")
@@ -9,9 +10,10 @@ import numpy as np
 
 sns.set_theme(style="whitegrid")
 figures = []
+RES = Path(__file__).resolve().parents[1] / "results"
 
 rows = []
-with open("results/ablation_full.csv") as f:
+with open(RES / "ablation_full.csv") as f:
     for r in csv.DictReader(f):
         for k in r:
             try: r[k] = float(r[k]) if r[k] else float("nan")
@@ -172,6 +174,6 @@ for i, fig in enumerate(figures):
     html.append(f"<figure><figcaption>Figure {i+1}</figcaption><img src='data:image/png;base64,{b64}' /></figure>")
 html.append("</body></html>")
 
-with open("ablation_full.html", "w") as f:
+with open(RES / "ablation_full.html", "w") as f:
     f.write("\n".join(html))
-print(f"Saved ablation_full.html with {len(figures)} figures")
+print(f"Saved {RES / 'ablation_full.html'} with {len(figures)} figures")

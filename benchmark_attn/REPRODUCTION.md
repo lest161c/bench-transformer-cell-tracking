@@ -439,7 +439,7 @@ needed; NOT-NEEDED = de-prioritized by the Curation decision (2026-08-04).
 | All spatial-cutoff methods | `benchmark_all_spatial_methods.py` | **DONE** | A500 | `all_spatial_methods.csv` (gather_knn_ms broken) |
 | Sparse sweep visualization | `plot_sparse.py` | **DONE** | CPU only | `benchmark_sparse.html` |
 | Backward pass at N=8192 | `benchmark_backward/benchmark_sparse_backward.py` | **DONE** (2026-08-04) | A500 | `benchmark_backward/sparse_backward_results_8192.csv` |
-| Full-model speed/mem K=64 | `benchmark_combined/benchmark_speed_mem.py` | **DONE** (2026-08-04) | A500 | `benchmark_combined/results/speed_mem.csv`, copy at `benchmark_attn/speed_mem.csv` |
+| Full-model speed/mem K=64 | `benchmark_training/benchmarks/benchmark_speed_mem.py` | **DONE** (2026-08-04) | A500 | `benchmark_training/results/speed_mem.csv`, copy at `benchmark_attn/speed_mem.csv` |
 | DINOv3 comparison | `benchmark_dinov3_comparison*.py` | **NOT-NEEDED** (HTTP 403 — weights download blocked) | internet | `dinov3_comparison*.csv` |
 
 ### 5.2 Cluster experiments per the Curation decision (2026-08-04)
@@ -544,7 +544,7 @@ was overwritten by the run.
 
 Full-model fp32 fwd+bwd+AdamW table for K {0,4,8,16,32,64} × N {128,256,512}.
 Headline: **K=64, N=512 = 194 ms / 1604 MB** (fits A500). FIX APPLIED to
-`benchmark_combined/benchmark_speed_mem.py`: the broken
+`benchmark_training/benchmarks/benchmark_speed_mem.py`: the broken
 `from track_encoder import AgentCentricNormalization` import was resolved by
 inlining the class; `wandb` was installed into `benchmark_attn/.venv`.
 

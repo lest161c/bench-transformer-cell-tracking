@@ -23,7 +23,7 @@ unset PYTHONHOME
 
 TRK=/data/cat/ws/lest161c-cell_tracking/lest161c-ssl_cell_tracking-1778979601/trackastra
 ENV_DIR="$TRK/.venv"
-CFG_DIR="$SLURM_SUBMIT_DIR/benchmark_combined"
+CFG_DIR="$SLURM_SUBMIT_DIR/benchmark_training/configs"
 
 # --- Quick test mode: sbatch --export=TEST=1 run_cached_dist.slurm ---
 if [ "$TEST" = "1" ]; then

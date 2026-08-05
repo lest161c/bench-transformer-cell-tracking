@@ -13,7 +13,7 @@ from torch.optim import AdamW
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
-ROOT = Path(__file__).parent.parent
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "benchmark_attn"))
 sys.path.insert(0, str(ROOT / "benchmark_ssl"))
 from ssl_pipeline import load_experiment_frames, features_from_frame
@@ -125,7 +125,7 @@ def run(use_wandb=False):
     val_pairs=all_pairs[:40]; train_pool=all_pairs[40:]
     logger.info(f"Pairs: {len(train_pool)} train, {len(val_pairs)} val")
 
-    csv_path=ROOT/"benchmark_combined"/"results"/"downstream_matched.csv"
+    csv_path=ROOT/"benchmark_training"/"results"/"downstream_matched.csv"
     csv_path.parent.mkdir(parents=True,exist_ok=True)
     with open(csv_path,"w",newline="") as f:
         csv.writer(f).writerow(["K","init","frac","epoch","train_loss","val_loss","train_acc","val_acc","time_s"])

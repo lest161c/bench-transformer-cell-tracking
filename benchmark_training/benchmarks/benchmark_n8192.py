@@ -6,7 +6,7 @@ import torch,torch.nn as nn,torch.nn.functional as F
 from torch.optim import AdamW
 logging.basicConfig(level=logging.INFO,format="%(asctime)s %(levelname)s %(message)s")
 logger=logging.getLogger(__name__)
-ROOT=Path(__file__).parent.parent
+ROOT=Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(ROOT/"benchmark_attn"));sys.path.insert(0,str(ROOT/"benchmark_ssl"))
 from model_parts import GatherSparseAttention
 from track_encoder import AgentCentricNormalization
@@ -72,7 +72,7 @@ def init_ssl(m):
 def run():
     device=torch.device("cuda");logger.info(f"{torch.cuda.get_device_name(0)}")
     N=1024;E=5;B=1
-    csv_path=Path(ROOT/"benchmark_combined"/"results"/"n8192.csv");csv_path.parent.mkdir(parents=True,exist_ok=True)
+    csv_path=Path(ROOT/"benchmark_training"/"results"/"n8192.csv");csv_path.parent.mkdir(parents=True,exist_ok=True)
     with open(csv_path,"w",newline="") as f:w=csv.writer(f);w.writerow(["variant","epoch","tl","vl","t_ms","mem_mb","status"])
 
     cs=torch.randn(B,N,2,device=device)*100;ct=cs+torch.randn(B,N,2,device=device)*3

@@ -1,7 +1,13 @@
-# REPRODUCTION.md — benchmark_combined (cluster training experiments)
+# REPRODUCTION.md — benchmark_training (cluster training experiments)
+
+> Note (2026-08-05): this directory was renamed from `benchmark_combined/` to
+> `benchmark_training/` and restructured into `benchmarks/`, `analysis/`,
+> `slurm/`, `configs/`, `results/`. All command references below use the new
+> layout (`slurm/*.slurm`, `configs/*.yaml`). Text describing the mirror repo
+> (`bench-transformer-cell-tracking/benchmark_combined/`) is unchanged.
 
 Reproduction guide for every SLURM experiment script physically present in this
-directory (`benchmark_combined/`). Each entry gives the exact SBATCH resources,
+directory (`benchmark_training/slurm/`). Each entry gives the exact SBATCH resources,
 the verbatim command(s) from the script body, the required configs and input
 data, the outputs produced, and how to launch the job.
 
@@ -55,7 +61,7 @@ data, the outputs produced, and how to launch the job.
 | `DATA_DIR` | `/data/cat/ws/mawe985g-data/data/celltracking` |
 | vanvliet data | `$DATA_DIR/vanvliet` (6 conditions: `rpsM recA pheA metA cib trpL`) |
 | deepcell data | `$DATA_DIR/deepcell` (used by the eval harness in the mirror repo) |
-| `CFG_DIR` | `$SLURM_SUBMIT_DIR/benchmark_combined` (i.e. the scripts expect to be submitted from the bench-repo root, where `benchmark_combined/` is a subdirectory) |
+| `CFG_DIR` | `$SLURM_SUBMIT_DIR/benchmark_training/configs` (i.e. the scripts expect to be submitted from the bench-repo root, where `benchmark_training/configs/` is the config subdirectory) |
 
 ### Git branches pinned by the scripts
 
@@ -154,7 +160,7 @@ python scripts/train.py \
 Note: no `WANDB_DISABLED` export; wandb is enabled in this script.
 
 **Config / inputs**
-- Config: `benchmark_combined/vanvliet_baseline.yaml` (this directory). Key
+- Config: `benchmark_training/configs/vanvliet_baseline.yaml` (this directory). Key
   settings: `epochs: 500`, `warmup_epochs: 5`, `window: 4`, `attn_dist_mode: v1`,
   `delta_cutoff: 1`, `d_model: 320`, 6+6 layers, `dropout: 0.05`, `lr: 0.0001`,
   `batch_size: 48`, `max_tokens: 2048`, `crop_size: [320,320]`,
@@ -172,9 +178,9 @@ Note: no `WANDB_DISABLED` export; wandb is enabled in this script.
 
 **How to run**
 ```bash
-cd $WS/bench-transformer-cell-tracking            # so $SLURM_SUBMIT_DIR/benchmark_combined resolves
-sbatch benchmark_combined/run_baseline.slurm                         # normal
-sbatch --export=TEST=1 benchmark_combined/run_baseline.slurm         # env-only smoke test
+cd $WS/bench-transformer-cell-tracking            # so $SLURM_SUBMIT_DIR/benchmark_training/configs resolves
+sbatch benchmark_training/slurm/run_baseline.slurm                         # normal
+sbatch --export=TEST=1 benchmark_training/slurm/run_baseline.slurm         # env-only smoke test
 ```
 TEST mode: activates the venv, installs setuptools/torch/deps, pulls the branch,
 `pip install -e .`, then prints `trackastra OK:` + `CUDA:` and exits — it does
@@ -219,7 +225,7 @@ python scripts/train.py \
 ```
 
 **Config / inputs**
-- Same config as `run_baseline.slurm`: `benchmark_combined/vanvliet_baseline.yaml`
+- Same config as `run_baseline.slurm`: `benchmark_training/configs/vanvliet_baseline.yaml`
   (identical hyperparameters — the ONLY intended difference is the attention
   implementation from the `cached-dist-attn` branch).
 - Same 22 train + 2 val vanvliet experiments.
@@ -232,8 +238,8 @@ python scripts/train.py \
 **How to run**
 ```bash
 cd $WS/bench-transformer-cell-tracking
-sbatch benchmark_combined/run_cached_dist.slurm
-sbatch --export=TEST=1 benchmark_combined/run_cached_dist.slurm   # smoke test (also imports CachedDistAttention)
+sbatch benchmark_training/slurm/run_cached_dist.slurm
+sbatch --export=TEST=1 benchmark_training/slurm/run_cached_dist.slurm   # smoke test (also imports CachedDistAttention)
 ```
 TEST mode additionally verifies `from trackastra.model.model_parts import CachedDistAttention`.
 
@@ -303,8 +309,8 @@ python scripts/train.py \
 **How to run**
 ```bash
 cd $WS/bench-transformer-cell-tracking
-sbatch benchmark_combined/run_sparse_k4.slurm
-sbatch --export=TEST=1 benchmark_combined/run_sparse_k4.slurm   # smoke test
+sbatch benchmark_training/slurm/run_sparse_k4.slurm
+sbatch --export=TEST=1 benchmark_training/slurm/run_sparse_k4.slurm   # smoke test
 ```
 Note: `--window 10` and `--epochs 100` here differ from the clean K-sweep
 (window 4, epochs 500, `vanvliet_sparse_k4_clean.yaml` in the mirror repo). The
@@ -377,8 +383,8 @@ python scripts/train.py \
 **How to run**
 ```bash
 cd $WS/bench-transformer-cell-tracking
-sbatch benchmark_combined/run_sparse_k16.slurm
-sbatch --export=TEST=1 benchmark_combined/run_sparse_k16.slurm   # smoke test
+sbatch benchmark_training/slurm/run_sparse_k16.slurm
+sbatch --export=TEST=1 benchmark_training/slurm/run_sparse_k16.slurm   # smoke test
 ```
 Note: the TEST-mode comment inside the file says `run_baseline.slurm` — a
 cosmetic copy-paste artifact; the behavior is the standard env smoke test.
@@ -441,8 +447,8 @@ python scripts/train.py \
 **How to run**
 ```bash
 cd $WS/bench-transformer-cell-tracking
-sbatch benchmark_combined/run_sparse_k32.slurm
-sbatch --export=TEST=1 benchmark_combined/run_sparse_k32.slurm   # smoke test
+sbatch benchmark_training/slurm/run_sparse_k32.slurm
+sbatch --export=TEST=1 benchmark_training/slurm/run_sparse_k32.slurm   # smoke test
 ```
 
 ---
@@ -488,7 +494,7 @@ python scripts/train.py \
 ```
 
 **Config / inputs**
-- Config: `benchmark_combined/vanvliet_sparse_k16_ssl.yaml`. Key settings:
+- Config: `benchmark_training/configs/vanvliet_sparse_k16_ssl.yaml`. Key settings:
   `name: sparse_k16_ssl`, `epochs: 500`, `ssl_epochs: 10`,
   `ssl_conditions: [rpsM, recA, pheA, metA, cib, trpL]`, `window: 4`,
   `attn_dist_mode: v0`, `delta_cutoff: 1`, `d_model: 320`, 6+6 layers,
@@ -507,8 +513,8 @@ python scripts/train.py \
 **How to run**
 ```bash
 cd $WS/bench-transformer-cell-tracking
-sbatch benchmark_combined/run_sparse_k16_ssl.slurm
-sbatch --export=TEST=1 benchmark_combined/run_sparse_k16_ssl.slurm   # smoke test
+sbatch benchmark_training/slurm/run_sparse_k16_ssl.slurm
+sbatch --export=TEST=1 benchmark_training/slurm/run_sparse_k16_ssl.slurm   # smoke test
 ```
 
 ---
@@ -551,7 +557,7 @@ python scripts/train.py \
 ```
 
 **Config / inputs**
-- Config: `benchmark_combined/vanvliet_sparse_k16_ssl.yaml` (same as §6).
+- Config: `benchmark_training/configs/vanvliet_sparse_k16_ssl.yaml` (same as §6).
 - Data: vanvliet, `ssl_conditions` all 6 conditions.
 
 **Outputs / artifacts**
@@ -562,8 +568,8 @@ python scripts/train.py \
 **How to run**
 ```bash
 cd $WS/bench-transformer-cell-tracking
-sbatch benchmark_combined/run_ssl_only.slurm
-sbatch --export=TEST=1 benchmark_combined/run_ssl_only.slurm   # smoke test
+sbatch benchmark_training/slurm/run_ssl_only.slurm
+sbatch --export=TEST=1 benchmark_training/slurm/run_ssl_only.slurm   # smoke test
 ```
 Not needed for the report: SSL showed zero improvement at 10% labels and the
 SSL narrative is already covered by the completed identity-BCE / contrastive
@@ -592,7 +598,7 @@ experiments and the edge-probe ceiling.
 
 This is the only script that uses `uv pip` (`export UV_LINK_MODE=copy`; no
 `PIP_REQUIRE_VIRTUALENV`); it does NOT disable wandb, and `CFG_DIR` here is
-`$SLURM_SUBMIT_DIR/configs` (not `benchmark_combined`).
+`$SLURM_SUBMIT_DIR/configs` (not `benchmark_training/configs`).
 
 **Command (verbatim, normal mode)**
 ```bash
@@ -697,7 +703,7 @@ script body and is the executable spec):
 **How to run**
 ```bash
 cd $WS/bench-transformer-cell-tracking
-sbatch benchmark_combined/run_phase1_scaling.slurm
+sbatch benchmark_training/slurm/run_phase1_scaling.slurm
 ```
 Not needed for the report — superseded by the A500 real-attention benchmarks
 (`benchmark_attn/`).
@@ -774,7 +780,7 @@ echo "Job B (SSL pretrain) done."
 **How to run**
 ```bash
 cd $WS/bench-transformer-cell-tracking
-sbatch benchmark_combined/run_phase1_ssl.slurm
+sbatch benchmark_training/slurm/run_phase1_ssl.slurm
 ```
 Not needed for the report (diagnostic phase-1 pipeline).
 
@@ -842,7 +848,7 @@ The embedded Python (faithful summary — full source is in the script body):
 **How to run**
 ```bash
 cd $WS/bench-transformer-cell-tracking
-sbatch benchmark_combined/run_phase1_sweep.slurm
+sbatch benchmark_training/slurm/run_phase1_sweep.slurm
 ```
 Not needed for the report — the low-label regime already showed no SSL benefit
 at 10% labels (curation decision).
@@ -928,7 +934,7 @@ echo "=== All distortion ablations complete ==="
 **How to run**
 ```bash
 cd $WS/bench-transformer-cell-tracking
-sbatch benchmark_combined/run_dist_ablation.slurm
+sbatch benchmark_training/slurm/run_dist_ablation.slurm
 ```
 Not needed for the report (diagnostic distortion attribution).
 
@@ -1000,7 +1006,7 @@ nhead=4, num_layers=4, dim_feedforward=256`, distortions
 **How to run**
 ```bash
 cd $WS/bench-transformer-cell-tracking
-sbatch benchmark_combined/run_diag2.slurm
+sbatch benchmark_training/slurm/run_diag2.slurm
 ```
 Not needed for the report.
 
@@ -1052,7 +1058,7 @@ sacct -j $SLURM_JOB_ID --format=JobID,Elapsed,State,MaxRSS --noheader
 ```
 
 **Config / inputs**
-- Config: `benchmark_combined/vanvliet_baseline.yaml` (see §1), overridden with
+- Config: `benchmark_training/configs/vanvliet_baseline.yaml` (see §1), overridden with
   `--epochs 10 --name quick_bench_baseline`.
 
 **Outputs / artifacts**
@@ -1063,8 +1069,8 @@ sacct -j $SLURM_JOB_ID --format=JobID,Elapsed,State,MaxRSS --noheader
 **How to run**
 ```bash
 cd $WS/bench-transformer-cell-tracking
-sbatch benchmark_combined/run_quick_bench_baseline.slurm
-sbatch --export=TEST=1 benchmark_combined/run_quick_bench_baseline.slurm   # smoke test
+sbatch benchmark_training/slurm/run_quick_bench_baseline.slurm
+sbatch --export=TEST=1 benchmark_training/slurm/run_quick_bench_baseline.slurm   # smoke test
 ```
 
 ---
@@ -1115,7 +1121,7 @@ sacct -j $SLURM_JOB_ID --format=JobID,Elapsed,State,MaxRSS --noheader
 ```
 
 **Config / inputs**
-- Config: `benchmark_combined/vanvliet_baseline.yaml`, overridden with
+- Config: `benchmark_training/configs/vanvliet_baseline.yaml`, overridden with
   `--epochs 10 --name quick_bench_cached`; branch `cached-dist-attn`.
 
 **Outputs / artifacts**
@@ -1125,8 +1131,8 @@ sacct -j $SLURM_JOB_ID --format=JobID,Elapsed,State,MaxRSS --noheader
 **How to run**
 ```bash
 cd $WS/bench-transformer-cell-tracking
-sbatch benchmark_combined/run_quick_bench_cached.slurm
-sbatch --export=TEST=1 benchmark_combined/run_quick_bench_cached.slurm   # smoke test
+sbatch benchmark_training/slurm/run_quick_bench_cached.slurm
+sbatch --export=TEST=1 benchmark_training/slurm/run_quick_bench_cached.slurm   # smoke test
 ```
 
 ---
@@ -1176,7 +1182,7 @@ cross-dataset eval including KNN checkpoints — both live in the **mirror repo*
 
 ### Clean single-seed K-sweep (seed 42) — TRA/AOGM on 32 vanvliet experiments
 
-Source: `benchmark_combined/README.md` (matches `labbook/2026-06-02_experiment_completion_status.md`,
+Source: `benchmark_training/README.md` (matches `labbook/2026-06-02_experiment_completion_status.md`,
 rows verified: epochs x ~1.63 min/epoch = reported times).
 
 | Model | Mean TRA | Mean AOGM | Edge F1 | Div F1 | Epochs | Time (min / h) |
@@ -1236,7 +1242,7 @@ speedup (~1.5x at L=12, small N) is qualified in labbook 2026-08-03 §1.4
 
 1. **DINO slurm path:** labbook §2.5 and §6 reference the script as
    `benchmark_ssl/run_ssl_dino_pretain.slurm`; the file physically lives at
-   `benchmark_combined/run_ssl_dino_pretrain.slurm`.
+   `benchmark_training/slurm/run_ssl_dino_pretrain.slurm`.
 2. **`run_ssl_only.slurm` wall time:** `README.md` lists it as 6 h; the actual
    `#SBATCH --time=2:00:00` is 2 h.
 3. **K-sweep provenance:** the clean single-seed K-sweep results in the README

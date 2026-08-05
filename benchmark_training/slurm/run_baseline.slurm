@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --account=p_scads_celltracking
-#SBATCH --job-name=tr_sparse_k16_ssl
-#SBATCH --output=logs/slurm-sparse_k16_ssl-%j.out
-#SBATCH --error=logs/slurm-sparse_k16_ssl-%j.err
+#SBATCH --job-name=tr_baseline
+#SBATCH --output=logs/slurm-baseline-%j.out
+#SBATCH --error=logs/slurm-baseline-%j.err
 #SBATCH --time=48:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
@@ -15,18 +15,15 @@ export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
 export MKL_NUM_THREADS=$SLURM_CPUS_PER_TASK
 export NCCL_DEBUG=WARN
 export CUBLAS_WORKSPACE_CONFIG=:4096:8
-export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export PYTHONNOUSERSITE=1
 unset PYTHONPATH
-export WANDB_DISABLED=true
-export WANDB_MODE=disabled
 unset PYTHONHOME
 
 TRK=/data/cat/ws/lest161c-cell_tracking/lest161c-ssl_cell_tracking-1778979601/trackastra
 ENV_DIR="$TRK/.venv"
-CFG_DIR="$SLURM_SUBMIT_DIR/benchmark_combined"
+CFG_DIR="$SLURM_SUBMIT_DIR/benchmark_training/configs"
 
-# --- Quick test mode ---
+# --- Quick test mode: sbatch --export=TEST=1 run_baseline.slurm ---
 if [ "$TEST" = "1" ]; then
     echo "=== TEST MODE: env setup only ==="
     . "$ENV_DIR/bin/activate"
@@ -43,10 +40,7 @@ fi
 
 # --- Normal mode ---
 . "$ENV_DIR/bin/activate"
-python -m pip install --upgrade --force-reinstall setuptools
 python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
-export WANDB_DISABLED=true
-export WANDB_MODE=disabled
 python -m pip install lightning pandas scikit-image tifffile edt tqdm configargparse wandb tensorboard dask joblib
 cd "$TRK"
 git pull origin feature/sparse-attention-gather
@@ -54,5 +48,4 @@ python -m pip install -e .
 mkdir -p logs
 
 python scripts/train.py \
-    --config "$CFG_DIR/vanvliet_sparse_k16_ssl.yaml" \
-    --ssl_pretrain True
+    --config "$CFG_DIR/vanvliet_baseline.yaml"
