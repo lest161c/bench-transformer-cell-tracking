@@ -77,6 +77,22 @@ This repo tracks **benchmark code only.** The following artifacts are maintained
 
 ---
 
+## AI Disclosure
+
+This repository was created with substantial assistance from an AI coding agent.
+The **opencode** agent (https://opencode.ai) running **DeepSeek-V4**
+(model `deepseek/deepseek-v4-flash`, DeepSeek-AI — https://github.com/deepseek-ai)
+was used to write and refactor benchmark code, run and analyze experiments,
+draft the LaTeX report, and create the git commits in this repository.
+
+All AI-generated output was reviewed and verified by the author before inclusion.
+The author takes full responsibility for the correctness and integrity of the
+code, results, and text in this repository, in line with the DeepSeek Model
+License ("You are accountable for the Output you generate",
+https://github.com/deepseek-ai/DeepSeek-V3/blob/main/LICENSE-MODEL) and GitHub's
+AI-feature terms (Output must be reviewed, tested, and validated before use,
+https://docs.github.com/en/site-policy/github-terms/github-terms-of-service).
+
 ## Citation
 
 If you use Trackastra in your research, cite the original work:
@@ -104,6 +120,21 @@ Key references for this project:
   author={Oquab, Maxime and others},
   journal={arXiv:2304.07193},
   year={2023}
+}
+```
+
+The code and analysis in this repository were produced with the assistance of
+the DeepSeek-V4 model (via the opencode agent). Cite DeepSeek as follows:
+
+```bibtex
+@misc{deepseekai2024deepseekv3technicalreport,
+  title={DeepSeek-V3 Technical Report},
+  author={DeepSeek-AI},
+  year={2024},
+  eprint={2412.19437},
+  archivePrefix={arXiv},
+  primaryClass={cs.CL},
+  url={https://arxiv.org/abs/2412.19437},
 }
 ```
 
