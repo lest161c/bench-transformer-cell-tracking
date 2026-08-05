@@ -4,8 +4,7 @@
 [![ECCV 2024](https://img.shields.io/badge/ECCV-2024-4b44ce.svg)](https://github.com/weigertlab/trackastra)
 [![arXiv](https://img.shields.io/badge/arXiv-2405.15700-b31b1b.svg)](https://arxiv.org/abs/2405.15700)
 
-Sparse attention benchmarks and CNN feature injection experiments for transformer-based cell tracking (Trackastra, ECCV 2024).
-**Bottom line:** Dense attention outperforms all CNN-injection variants; sparse attention matches dense convergence at K=16 with up to 5.9× speedup at long sequences.
+A benchmark suite for efficient attention and feature-injection methods in transformer-based cell tracking, built on [Trackastra](https://github.com/weigertlab/trackastra) (ECCV 2024). It evaluates sparse attention architectures (dense, gather-/mask-KNN, FlashAttention, NSA) and CNN feature encoders across tracking accuracy, convergence, and throughput.
 
 ---
 
