@@ -19,6 +19,11 @@ import torch.nn.functional as F
 from skimage.measure import regionprops_table
 from tifffile import imread
 
+from lightly.loss import NegativeCosineSimilarity
+from lightly.models.modules import BYOLProjectionHead, BYOLPredictionHead
+from lightly.models.utils import deactivate_requires_grad, update_momentum
+import copy
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("cnn_ssl")
 
@@ -303,9 +308,22 @@ def compute_effective_rank(z):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def run_ssl(frames, cnn, args):
-    """Train ScaledCNN with NT-Xent on distorted patches."""
+    """Train ScaledCNN with specified loss (NT-Xent or BYOL) on distorted patches."""
     cnn = cnn.to(device)
-    opt = torch.optim.Adam(cnn.parameters(), lr=args.lr)
+
+    # ── BYOL setup ──────────────────────────────────────────────────────────
+    if args.loss == "byol":
+        target_encoder = copy.deepcopy(cnn)
+        deactivate_requires_grad(target_encoder)
+        predictor = BYOLPredictionHead(128, 256, 128).to(device)
+        projector = BYOLProjectionHead(128, 256, 128).to(device)
+        # Optimizer: online_encoder (cnn) + predictor
+        opt = torch.optim.Adam(list(cnn.parameters()) + list(predictor.parameters()),
+                               lr=args.lr)
+        logger.info("BYOL setup: online_encoder + predictor optimised, "
+                    f"target_encoder frozen (momentum=0.99)")
+    else:
+        opt = torch.optim.Adam(cnn.parameters(), lr=args.lr)
 
     # Get distortion parameters for the chosen strength
     dist_params = get_distortion_params(args.distortion_strength)
@@ -356,12 +374,15 @@ def run_ssl(frames, cnn, args):
     logger.info(f"Train frames: {len(train_data)}, Validation frames: {len(val_data)}")
 
     logger.info(f"\nStarting SSL pretraining: {args.steps} steps, "
-                f"lr={args.lr}, scale={args.scale}")
+                f"lr={args.lr}, scale={args.scale}, loss={args.loss}")
     logger.info(f"  CNN params: {sum(p.numel() for p in cnn.parameters()):,}")
 
     history = []
     for step in range(args.steps):
         cnn.train()
+        if args.loss == "byol":
+            predictor.train()
+            target_encoder.eval()  # target is always in eval mode (no grad/bn)
         losses = []
         intra_list, inter_list = [], []
 
@@ -395,21 +416,47 @@ def run_ssl(frames, cnn, args):
             po = p_orig[idx_orig][sort_orig][:n].unsqueeze(1).to(device)   # (N, 1, 64, 64)
             pd = p_dist[idx_dist][sort_dist][:n].unsqueeze(1).to(device)
 
-            # Forward
-            e_orig = cnn(po)      # (N, out_dim)
-            e_dist = cnn(pd)      # (N, out_dim)
+            # ── Forward pass ──────────────────────────────────────────────
+            if args.loss == "byol":
+                # Online path: encoder → predictor
+                z1_online = cnn(po)   # (N, 128)
+                z2_online = cnn(pd)
+                p1 = predictor(z1_online)
+                p2 = predictor(z2_online)
 
-            z = torch.cat([e_orig, e_dist], dim=0)  # (2N, out_dim)
-            loss = nt_xent_loss(z)
+                # Target path: encoder → projector (no grad)
+                with torch.no_grad():
+                    z1_target = projector(target_encoder(po))
+                    z2_target = projector(target_encoder(pd))
+
+                criterion = NegativeCosineSimilarity()
+                loss = 0.5 * criterion(p1, z2_target) + 0.5 * criterion(p2, z1_target)
+
+                # Momentum update
+                update_momentum(cnn, target_encoder, m=0.99)
+
+                # For gap metrics, use online encoder embeddings
+                e_orig = z1_online
+                e_dist = z2_online
+            else:
+                # NT-Xent forward
+                e_orig = cnn(po)      # (N, out_dim)
+                e_dist = cnn(pd)      # (N, out_dim)
+                z = torch.cat([e_orig, e_dist], dim=0)  # (2N, out_dim)
+                loss = nt_xent_loss(z)
 
             opt.zero_grad()
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(cnn.parameters(), 1.0)
+            if args.loss == "byol":
+                torch.nn.utils.clip_grad_norm_(
+                    list(cnn.parameters()) + list(predictor.parameters()), 1.0)
+            else:
+                torch.nn.utils.clip_grad_norm_(cnn.parameters(), 1.0)
             opt.step()
 
             losses.append(loss.item())
 
-            # Compute gap metrics on this frame
+            # Compute gap metrics on this frame (using online encoder embeddings)
             with torch.no_grad():
                 ze = torch.cat([F.normalize(e_orig, dim=-1),
                                 F.normalize(e_dist, dim=-1)], dim=0)
@@ -483,10 +530,10 @@ def run_ssl(frames, cnn, args):
                             f"val_eff_rank={val_eff_rank:.2f}")
             logger.info(log_msg)
 
-    # Save checkpoint (scale-specific name to avoid overwriting)
-    ckpt_dir = Path("probe")
+    # Save checkpoint (loss+scale-specific name to avoid overwriting)
+    ckpt_dir = Path(args.outdir)
     ckpt_dir.mkdir(parents=True, exist_ok=True)
-    ckpt_path = ckpt_dir / f"cnn_ntxent_{args.scale}.pt"
+    ckpt_path = ckpt_dir / f"cnn_{args.loss}_{args.scale}.pt"
     torch.save({
         "model_state_dict": cnn.state_dict(),
         "scale": args.scale,
@@ -502,6 +549,7 @@ def run_ssl(frames, cnn, args):
     print("=" * 60)
     print("SSL PRETRAINING SUMMARY")
     print("=" * 60)
+    print(f"  Loss type:   {args.loss}")
     print(f"  Scale:       {args.scale}")
     print(f"  Params:      {sum(p.numel() for p in cnn.parameters()):,}")
     print(f"  Steps:       {args.steps}")
@@ -524,19 +572,24 @@ def run_ssl(frames, cnn, args):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="NT-Xent pretraining of ScaledCNN on distorted bacteria patches"
+        description="SSL pretraining of ScaledCNN on distorted bacteria patches"
     )
+    parser.add_argument("--loss", choices=["ntxent", "byol"], default="ntxent",
+                        help="Loss function: NT-Xent or BYOL")
     parser.add_argument("--data-dirs", default="../../data/vanvliet",
                         help="Comma-separated list of data directories")
     parser.add_argument("--conditions", default="rpsM,recA,pheA,metA,cib,trpL")
     parser.add_argument("--max-frames", type=int, default=40)
     parser.add_argument("--steps", type=int, default=1000)
-    parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument("--lr", type=float, default=None,
+                        help="Learning rate (default: 1e-3 for NT-Xent, 3e-4 for BYOL)")
     parser.add_argument("--scale", choices=["small", "medium", "large"], default="large")
     parser.add_argument("--distortion-strength", choices=["mild", "medium", "strong"],
                         default="strong",
                         help="Strength of data augmentations")
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--outdir", type=str, default="probe",
+                        help="Output directory for checkpoints")
     args = parser.parse_args()
 
     global SEED
@@ -546,6 +599,10 @@ def main():
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(SEED)
 
+    # Set default learning rate based on loss type
+    if args.lr is None:
+        args.lr = 3e-4 if args.loss == "byol" else 1e-3
+
     # Parse multiple data directories
     data_dirs = [d.strip() for d in args.data_dirs.split(",")]
     conditions = [c.strip() for c in args.conditions.split(",")]
@@ -553,6 +610,7 @@ def main():
     logger.info(f"Data dirs: {data_dirs}")
     logger.info(f"Conditions: {conditions}")
     logger.info(f"Max frames: {args.max_frames}, Steps: {args.steps}")
+    logger.info(f"Loss: {args.loss}, LR: {args.lr}")
     logger.info(f"Scale: {args.scale}, Distortion: {args.distortion_strength}, Device: {device}")
 
     # Scan frames from all data directories, pool together

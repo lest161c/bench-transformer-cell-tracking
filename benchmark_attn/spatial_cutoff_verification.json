@@ -1,6 +1,0 @@
-{
-  "hard_mask_enforces_cutoff": true,
-  "soft_decay_suppression": 0.002853,
-  "no_bias_no_suppression": true,
-  "conclusion": "Only hard mask and soft decay enforce spatial constraints. No-bias FlashAttn gives EQUAL weight to all cells regardless of distance."
-}

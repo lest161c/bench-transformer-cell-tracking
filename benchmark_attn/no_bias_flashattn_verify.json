@@ -1,8 +1,0 @@
-{
-  "flash_dispatched": true,
-  "t_256_ms": 0.0274,
-  "t_512_ms": 0.0611,
-  "scaling_ratio": 2.23,
-  "expected_flash_ratio": "2.0-2.5\u00d7",
-  "expected_cudnn_ratio": "~4\u00d7"
-}

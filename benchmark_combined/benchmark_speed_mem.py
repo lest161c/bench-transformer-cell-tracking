@@ -11,7 +11,18 @@ logger=logging.getLogger(__name__)
 ROOT=Path(__file__).parent.parent
 sys.path.insert(0,str(ROOT/"benchmark_attn")); sys.path.insert(0,str(ROOT/"benchmark_ssl"))
 from model_parts import GatherSparseAttention
-from track_encoder import AgentCentricNormalization
+class AgentCentricNormalization(nn.Module):
+    def __init__(self, ndim=2):
+        super().__init__()
+        self.ndim = ndim
+    def forward(self, coords_src, coords_tgt):
+        B, N_src, D = coords_src.shape
+        _, N_tgt, _ = coords_tgt.shape
+        disp = coords_tgt[:, None, :, :] - coords_src[:, :, None, :]
+        dist = torch.norm(disp, dim=-1, keepdim=True)
+        dir_vec = F.normalize(disp + 1e-8, dim=-1)
+        return torch.cat([disp, dir_vec, dist], dim=-1)
+
 
 class SinusoidalPE(nn.Module):
     def __init__(self,d_model,max_len=2048):
@@ -87,7 +98,7 @@ def bench(use_wandb=False):
         csv.writer(f).writerow(["K","N","time_ms","mem_mb","status"])
 
     Ns=[128,256,512]
-    Ks=[0,4,8,16,32]
+    Ks=[0,4,8,16,32,64]
 
     for K in Ks:
         tag="dense" if K==0 else f"K={K}"

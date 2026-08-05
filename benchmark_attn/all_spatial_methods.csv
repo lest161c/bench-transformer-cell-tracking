@@ -1,7 +1,0 @@
-N,hard_cudnn_ms,mask_knn_ms,gather_knn_ms,gather_knn_error,flex_ms,cos_mask_vs_hard,cos_flex_vs_hard
-128,0.0246,0.0237,-1,"shape '[1, 8, 128, 40]' is invalid for input of size 655360",0.0839,0.966,1.0
-256,0.0431,0.0421,-1,"shape '[1, 8, 256, 40]' is invalid for input of size 1310720",0.1165,0.9058,1.0
-512,0.1021,0.1031,-1,"shape '[1, 8, 512, 40]' is invalid for input of size 2621440",0.184,0.8222,1.0
-1024,0.3151,0.302,-1,CUDA out of memory. Tried to allocate 4.00 GiB. GPU 0 has a total capacity of 3.,0.5151,0.6924,1.0
-2048,1.1889,1.3748,-1,CUDA out of memory. Tried to allocate 16.00 GiB. GPU 0 has a total capacity of 3,1.8141,0.5624,1.0
-4096,5.4975,5.3083,-1,CUDA out of memory. Tried to allocate 64.00 GiB. GPU 0 has a total capacity of 3,7.0934,0.4336,1.0
