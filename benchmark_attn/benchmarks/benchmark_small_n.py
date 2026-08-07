@@ -21,6 +21,20 @@ from model_parts import (
 
 
 def bench_dense(N, B, d, h, coord_dim, device, dtype):
+    """Build a closure that runs RelativePositionalAttention (dense masked).
+
+    Args:
+        N: Sequence length.
+        B: Batch size.
+        d: Embedding dimension.
+        h: Number of attention heads.
+        coord_dim: Number of coordinate dimensions.
+        device: torch device.
+        dtype: torch dtype.
+
+    Returns:
+        A callable ``fn()`` that runs the forward pass.
+    """
     layer = RelativePositionalAttention(
         coord_dim=coord_dim, embed_dim=d, n_head=h,
         cutoff_spatial=128.0, mode="none", attn_dist_mode="v0",
@@ -34,6 +48,20 @@ def bench_dense(N, B, d, h, coord_dim, device, dtype):
 
 
 def bench_dense_flash(N, B, d, h, coord_dim, device, dtype):
+    """Build a closure that runs DenseFlashAttention (no mask, no KNN).
+
+    Args:
+        N: Sequence length.
+        B: Batch size.
+        d: Embedding dimension.
+        h: Number of attention heads.
+        coord_dim: Unused; kept for interface consistency.
+        device: torch device.
+        dtype: torch dtype.
+
+    Returns:
+        A callable ``fn()`` that runs the forward pass.
+    """
     layer = DenseFlashAttention(embed_dim=d, n_head=h).to(device).to(dtype)
     q = torch.randn(B, N, d, device=device, dtype=dtype)
 
@@ -43,6 +71,21 @@ def bench_dense_flash(N, B, d, h, coord_dim, device, dtype):
 
 
 def bench_sparse_v1(N, K, B, d, h, coord_dim, device, dtype):
+    """Build a closure that runs GatherSparseAttention (V1: SDPA gather).
+
+    Args:
+        N: Sequence length.
+        K: Number of KNN neighbors.
+        B: Batch size.
+        d: Embedding dimension.
+        h: Number of attention heads.
+        coord_dim: Number of coordinate dimensions.
+        device: torch device.
+        dtype: torch dtype.
+
+    Returns:
+        A callable ``fn()`` that runs the forward pass.
+    """
     layer = GatherSparseAttention(embed_dim=d, n_head=h, knn_neighbors=K, mode="none").to(device).to(dtype)
     q = torch.randn(B, N, d, device=device, dtype=dtype)
     coords = torch.randn(B, N, coord_dim, device=device, dtype=dtype)
@@ -56,6 +99,23 @@ def bench_sparse_v1(N, K, B, d, h, coord_dim, device, dtype):
 
 
 def bench_sparse_v2(N, K, B, d, h, coord_dim, device, dtype):
+    """Build a closure that runs GatherSparseAttentionV2 (optimised gather).
+
+    V2 eliminates unnecessary copies via view+unsqueeze for flat_query.
+
+    Args:
+        N: Sequence length.
+        K: Number of KNN neighbors.
+        B: Batch size.
+        d: Embedding dimension.
+        h: Number of attention heads.
+        coord_dim: Number of coordinate dimensions.
+        device: torch device.
+        dtype: torch dtype.
+
+    Returns:
+        A callable ``fn()`` that runs the forward pass.
+    """
     layer = GatherSparseAttentionV2(embed_dim=d, n_head=h, knn_neighbors=K, mode="none").to(device).to(dtype)
     q = torch.randn(B, N, d, device=device, dtype=dtype)
     coords = torch.randn(B, N, coord_dim, device=device, dtype=dtype)
@@ -69,6 +129,16 @@ def bench_sparse_v2(N, K, B, d, h, coord_dim, device, dtype):
 
 
 def measure(fn, warmup=10, min_run_time=1.0):
+    """Benchmark a callable, returning (mean_time_s, incremental_peak_mem_mb).
+
+    Args:
+        fn: Callable to benchmark.
+        warmup: Number of warmup iterations.
+        min_run_time: Minimum run time for the benchmark timer.
+
+    Returns:
+        Tuple (mean_time_s, peak_memory_mb).
+    """
     for _ in range(warmup):
         fn()
     if torch.cuda.is_available():
@@ -93,6 +163,12 @@ def measure(fn, warmup=10, min_run_time=1.0):
 
 
 def main():
+    """Run small-N benchmark (N=128,256,512) for all attention variants.
+
+    Compares dense, dense_flash, sparse_v1, and sparse_v2 at K=16.
+    Writes results to ``benchmark_small_n_results.csv`` and prints
+    a speedup summary.
+    """
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     dtype = torch.float16 if torch.cuda.is_available() else torch.float32
     print(f"Device: {device}, dtype: {dtype}")
