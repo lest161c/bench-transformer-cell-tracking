@@ -41,6 +41,15 @@ from model_parts import (
 
 
 def knn_indices(coords, K):
+    """Compute K-nearest-neighbor indices from spatial coordinates.
+
+    Args:
+        coords: Coordinate tensor of shape (B, N, coord_dim).
+        K: Number of nearest neighbors.
+
+    Returns:
+        KNN index tensor of shape (B, N, K).
+    """
     yx = coords[..., 1:].float()
     dist = torch.cdist(yx, yx)
     _, knn = torch.topk(dist, k=K, dim=-1, largest=False)
@@ -48,6 +57,16 @@ def knn_indices(coords, K):
 
 
 def measure(fn, warmup=5, min_run_time=0.3):
+    """Benchmark a callable, returning (mean_time_s, incremental_peak_mem_mb).
+
+    Args:
+        fn: Callable to benchmark.
+        warmup: Number of warmup iterations.
+        min_run_time: Minimum run time for the benchmark timer.
+
+    Returns:
+        Tuple (mean_time_s, peak_memory_mb).
+    """
     for _ in range(warmup):
         fn()
     torch.cuda.synchronize()
@@ -65,6 +84,27 @@ def measure(fn, warmup=5, min_run_time=0.3):
 
 
 def run(device, dtype, d_model, n_head, coord_dim, Ns, Ks, mode, dist_mode, warmup, rep):
+    """Run the full benchmark sweep across all methods and sequence lengths.
+
+    For each N in Ns, benchmarks: dense_masked, dense_flash, gather-KNN,
+    mask-KNN, NSA, KNN-RelPos, and MiniMax with various block sizes.
+
+    Args:
+        device: torch device.
+        dtype: torch dtype.
+        d_model: Embedding dimension.
+        n_head: Number of attention heads.
+        coord_dim: Number of coordinate dimensions.
+        Ns: List of sequence lengths to benchmark.
+        Ks: List of KNN neighbor counts.
+        mode: Positional encoding mode ("none", "bias", "rope").
+        dist_mode: Distance decay mode ("v0" or "v1").
+        warmup: Number of warmup iterations.
+        rep: Minimum run time in milliseconds for the benchmark timer.
+
+    Returns:
+        List of result rows [method, N, time_ms, memory_mb, error?].
+    """
     rows = []
 
     for N in Ns:
@@ -156,6 +196,12 @@ def run(device, dtype, d_model, n_head, coord_dim, Ns, Ks, mode, dist_mode, warm
 
 
 def main():
+    """Parse CLI arguments and run the full benchmark suite.
+
+    Sweeps over N=[128..8192] and K=[4,16,32,64,128], comparing all
+    attention methods. Results are written to the specified CSV file
+    and a summary table is printed to stdout.
+    """
     p = argparse.ArgumentParser()
     p.add_argument("--d", type=int, default=320)
     p.add_argument("--nhead", type=int, default=8)

@@ -16,6 +16,16 @@ from model_parts import (
 )
 
 def measure(fn, warmup=5, min_run_time=0.5):
+    """Benchmark a callable, returning (mean_time_s, incremental_peak_mem_mb).
+
+    Args:
+        fn: Callable to benchmark.
+        warmup: Number of warmup iterations.
+        min_run_time: Minimum run time for the benchmark timer.
+
+    Returns:
+        Tuple (mean_time_s, peak_memory_mb).
+    """
     for _ in range(warmup): fn()
     torch.cuda.synchronize()
     gc.collect(); torch.cuda.empty_cache()
@@ -28,6 +38,18 @@ def measure(fn, warmup=5, min_run_time=0.5):
     return t.blocked_autorange(min_run_time=min_run_time).mean, mem
 
 def profile_sdpa_backend(name, q, k, v, mask=None):
+    """Profile which SDPA backend is dispatched for the given tensors.
+
+    Args:
+        name: Label for the profiled operation.
+        q: Query tensor.
+        k: Key tensor.
+        v: Value tensor.
+        mask: Optional attention mask.
+
+    Returns:
+        Tuple (backend_name, device_time_total_us).
+    """
     for _ in range(3): F.scaled_dot_product_attention(q,k,v,attn_mask=mask,scale=0.125)
     torch.cuda.synchronize()
     with profile(activities=[ProfilerActivity.CPU,ProfilerActivity.CUDA]) as prof:
@@ -40,6 +62,12 @@ def profile_sdpa_backend(name, q, k, v, mask=None):
     return "unknown", 0
 
 def main():
+    """Run mask vs gather benchmark and write results to CSV.
+
+    Benchmarks KNNMaskSparseAttention, GatherSparseAttention,
+    DenseFlashAttention, and RelativePositionalAttention at N=128,256,512.
+    Also profiles which SDPA backend is dispatched for each method.
+    """
     device = torch.device("cuda"); dtype = torch.float16
     print(f"Device: {device}, dtype: {dtype}")
     print(f"flash={torch.backends.cuda.flash_sdp_enabled()}  mem_eff={torch.backends.cuda.mem_efficient_sdp_enabled()}  cudnn={torch.backends.cuda.cudnn_sdp_enabled()}\n")

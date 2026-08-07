@@ -1,3 +1,19 @@
+"""Validate that KNNMaskSparseAttention and GatherSparseAttention are equivalent.
+
+Tests forward pass equivalence (fp16, rtol=1e-2, atol=1e-3) and
+backward pass gradient equivalence across multiple seeds, sequence
+lengths, and KNN neighbor counts.
+
+If all configurations pass, Mask-KNN inherits Gather-KNN's tracking
+accuracy and the two can be used interchangeably.
+
+Usage::
+
+    python validate_mask_vs_gather.py
+
+Requires CUDA.  Outputs a summary table to stdout.
+"""
+
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -127,30 +143,37 @@ for N in NS:
 
 torch.cuda.empty_cache()
 
-print()
-print("=" * 84)
-print("Mask-KNN vs Gather-KNN Equivalence Test")
-print("=" * 84)
-print(f"dtype: float16, device: {device}")
-print()
 
-header = f"{'Configuration':<20} {'FW':<6} {'BW':<6} {'Max |d|':<12} {'GradRel':<10} {'Mean|d|':<12} {'CosSim':<8} {'Verdict'}"
-print(header)
-print("-" * 88)
-for (N, K, seed, fw, bw, fw_delta, bw_delta, bw_rel, mean_d, cos, status) in results:
-    cfg = f"N={N:<4d} K={K:<2d} seed={seed}"
-    print(f"{cfg:<20} {fw:<6} {bw:<6} {fw_delta:<12.2e} {bw_rel:<10.2e} {mean_d:<12.2e} {cos:<8.4f} {status}")
+def main():
+    """Run the mask vs gather equivalence validation and print results."""
+    print()
+    print("=" * 84)
+    print("Mask-KNN vs Gather-KNN Equivalence Test")
+    print("=" * 84)
+    print(f"dtype: float16, device: {device}")
+    print()
 
-print("-" * 88)
+    header = f"{'Configuration':<20} {'FW':<6} {'BW':<6} {'Max |d|':<12} {'GradRel':<10} {'Mean|d|':<12} {'CosSim':<8} {'Verdict'}"
+    print(header)
+    print("-" * 88)
+    for (N, K, seed, fw, bw, fw_delta, bw_delta, bw_rel, mean_d, cos, status) in results:
+        cfg = f"N={N:<4d} K={K:<2d} seed={seed}"
+        print(f"{cfg:<20} {fw:<6} {bw:<6} {fw_delta:<12.2e} {bw_rel:<10.2e} {mean_d:<12.2e} {cos:<8.4f} {status}")
 
-pass_count = sum(1 for r in results if r[-1] == "EQUIVALENT")
-fail_count = sum(1 for r in results if r[-1] == "MISMATCH")
-print(f"\nPASS: {pass_count}/{len(results)}, FAIL: {fail_count}/{len(results)}")
+    print("-" * 88)
 
-if fail_count == 0:
-    print("\nVerdict: ALL CONFIGURATIONS PASS - Mask-KNN and Gather-KNN are")
-    print("approximately equivalent in both forward and backward passes.")
-    print("Mask-KNN inherits Gather-KNN's tracking accuracy.")
-else:
-    print("\nVerdict: NOT ALL CONFIGURATIONS PASS - see details above.")
-    print("Mask-KNN does NOT reliably inherit Gather-KNN's accuracy.")
+    pass_count = sum(1 for r in results if r[-1] == "EQUIVALENT")
+    fail_count = sum(1 for r in results if r[-1] == "MISMATCH")
+    print(f"\nPASS: {pass_count}/{len(results)}, FAIL: {fail_count}/{len(results)}")
+
+    if fail_count == 0:
+        print("\nVerdict: ALL CONFIGURATIONS PASS - Mask-KNN and Gather-KNN are")
+        print("approximately equivalent in both forward and backward passes.")
+        print("Mask-KNN inherits Gather-KNN's tracking accuracy.")
+    else:
+        print("\nVerdict: NOT ALL CONFIGURATIONS PASS - see details above.")
+        print("Mask-KNN does NOT reliably inherit Gather-KNN's accuracy.")
+
+
+if __name__ == "__main__":
+    main()
