@@ -50,6 +50,17 @@ def attn_memory(N, n_head=8, dtype_bytes=2):
 
 
 def run_analysis():
+    """Compute FFN vs attention GMACs, memory, and checkpointing impact.
+
+    Sweeps N=[32..2048] and for each N computes:
+      - FFN and attention per-layer GMACs
+      - FFN and attention per-layer memory
+      - 12-layer totals with and without gradient checkpointing
+
+    Returns:
+        Tuple (rows, Ns) where rows is a list of dicts with
+        ffn_per_layer_gmacs, attn_per_layer_gmacs, total_mem_12L_mb, etc.
+    """
     Ns = [32, 64, 100, 128, 200, 256, 300, 400, 512, 1024, 2048]
     rows = []
 
@@ -88,6 +99,13 @@ def run_analysis():
 
 
 def generate_figures(rows, Ns, outdir="benchmark_attn"):
+    """Generate 4-panel figure: GMACs, FFN %, memory, checkpointing.
+
+    Args:
+        rows: List of result dicts from :func:`run_analysis`.
+        Ns: List of sequence lengths.
+        outdir: Output directory for PNG files.
+    """
     outdir = Path(outdir)
 
     fig, axes = plt.subplots(2, 2, figsize=(16, 13))
@@ -184,6 +202,12 @@ def generate_figures(rows, Ns, outdir="benchmark_attn"):
 
 
 def save_csv(rows, path):
+    """Save benchmark results to a CSV file.
+
+    Args:
+        rows: List of result dicts.
+        path: Output CSV path.
+    """
     fieldnames = list(rows[0].keys())
     with open(path, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fieldnames)
@@ -193,6 +217,12 @@ def save_csv(rows, path):
 
 
 def main():
+    """Run the FFN vs attention ratio analysis, save CSV and figures.
+
+    Analytical model comparing FFN and attention compute (GMACs) and
+    memory across N=[32..2048]. Includes gradient checkpointing analysis
+    showing ~75% memory savings with 33% recompute overhead.
+    """
     p = argparse.ArgumentParser()
     p.add_argument("--out", default="benchmark_attn/ffn_attention_ratio_results.csv")
     p.add_argument("--outdir", default="benchmark_attn")
