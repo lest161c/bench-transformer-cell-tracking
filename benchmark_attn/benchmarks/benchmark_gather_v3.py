@@ -26,7 +26,7 @@ from model_parts import (
 )
 
 
-def knn_indices(coords, K):
+def knn_indices(coords, knn_neighbors):
     """Compute K-nearest-neighbor indices from spatial coordinates.
 
     Args:
@@ -38,7 +38,7 @@ def knn_indices(coords, K):
     """
     yx = coords[..., 1:].float()
     dist = torch.cdist(yx, yx)
-    _, knn = torch.topk(dist, k=K, dim=-1, largest=False)
+    _, knn = torch.topk(dist, k=knn_neighbors, dim=-1, largest=False)
     return knn
 
 
@@ -63,10 +63,10 @@ def measure(fn, warmup=5, min_run_time=0.3):
     _ = fn()
     torch.cuda.synchronize()
     peak = torch.cuda.max_memory_allocated()
-    mem = (peak - baseline) / (1024 ** 2)
-    t = benchmark.Timer("fn()", globals={"fn": fn}, num_threads=1)
-    t_mean = t.blocked_autorange(min_run_time=min_run_time).mean
-    return t_mean, mem
+    memory_mb = (peak - baseline) / (1024 ** 2)
+    timer = benchmark.Timer("fn()", globals={"fn": fn}, num_threads=1)
+    t_mean = timer.blocked_autorange(min_run_time=min_run_time).mean
+    return t_mean, memory_mb
 
 
 def run(device, dtype, d_model, n_head, coord_dim, Ns, Ks, warmup, rep, seed=42):
@@ -115,12 +115,12 @@ def run(device, dtype, d_model, n_head, coord_dim, Ns, Ks, warmup, rep, seed=42)
                 try:
                     attn = cls(d_model, n_head, knn_neighbors=K,
                                coord_dim=coord_dim, mode="none").to(device, dtype)
-                    t, mem = measure(
+                    time_s, memory_mb = measure(
                         lambda: attn(x, x, x, knn_indices=kidx, coords=coords),
                         warmup=warmup, min_run_time=rep / 1000,
                     )
-                    row[label] = (t * 1000, mem)
-                    rows.append([f"gather-{label}", N, K, t * 1000, mem])
+                    row[label] = (time_s * 1000, memory_mb)
+                    rows.append([f"gather-{label}", N, K, time_s * 1000, memory_mb])
                 except RuntimeError as e:
                     rows.append([f"gather-{label}", N, K, None, None, str(e)[:120]])
                     row[label] = None
@@ -142,20 +142,20 @@ def main():
     GatherSparseAttention variants for forward time and peak memory.
     Results are written to a CSV file.
     """
-    p = argparse.ArgumentParser()
-    p.add_argument("--d", type=int, default=320)
-    p.add_argument("--nhead", type=int, default=8)
-    p.add_argument("--warmup", type=int, default=5)
-    p.add_argument("--rep", type=int, default=30)
-    p.add_argument("--out", default=str(Path(__file__).resolve().parents[1] / "results" / "gather_v3_results.csv"))
-    p.add_argument("--Ns", default="128,256,512,1024,2048,4096,8192")
-    p.add_argument("--Ks", default="4,16,64")
-    p.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
-    args = p.parse_args()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--d", type=int, default=320)
+    parser.add_argument("--nhead", type=int, default=8)
+    parser.add_argument("--warmup", type=int, default=5)
+    parser.add_argument("--rep", type=int, default=30)
+    parser.add_argument("--out", default=str(Path(__file__).resolve().parents[1] / "results" / "gather_v3_results.csv"))
+    parser.add_argument("--Ns", default="128,256,512,1024,2048,4096,8192")
+    parser.add_argument("--Ks", default="4,16,64")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
+    args = parser.parse_args()
 
     assert torch.cuda.is_available()
     device = torch.device("cuda"); dtype = torch.float16
-    Ns = [int(n) for n in args.Ns.split(",")]
+    Ns = [int(seq_len) for seq_len in args.Ns.split(",")]
     Ks = [int(k) for k in args.Ks.split(",")]
 
     print(f"Device: {device}  dtype: {dtype}  d={args.d}  nhead={args.nhead}")
@@ -165,11 +165,11 @@ def main():
     rows = run(device, dtype, args.d, args.nhead, 2, Ns, Ks, args.warmup, args.rep, seed=args.seed)
 
     header = ["method", "N", "K", "time_ms", "memory_mb", "error"]
-    with open(args.out, "w", newline="") as f:
-        w = csv.writer(f); w.writerow(header)
-        for r in rows:
-            while len(r) < len(header): r.append("")
-            w.writerow(r)
+    with open(args.out, "w", newline="") as file_handle:
+        w = csv.writer(file_handle); w.writerow(header)
+        for row in rows:
+            while len(row) < len(header): row.append("")
+            w.writerow(row)
     print(f"\nWrote {len(rows)} rows -> {args.out}")
 
 

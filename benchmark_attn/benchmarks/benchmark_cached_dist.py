@@ -60,10 +60,10 @@ def measure(fn, warmup=5, min_run_time=0.3):
     _ = fn()
     torch.cuda.synchronize()
     peak = torch.cuda.max_memory_allocated()
-    mem = (peak - baseline) / (1024 ** 2)
-    t = benchmark.Timer("fn()", globals={"fn": fn}, num_threads=1)
-    t_mean = t.blocked_autorange(min_run_time=min_run_time).mean
-    return t_mean, mem
+    memory_mb = (peak - baseline) / (1024 ** 2)
+    timer = benchmark.Timer("fn()", globals={"fn": fn}, num_threads=1)
+    time_s = timer.blocked_autorange(min_run_time=min_run_time).mean
+    return time_s, memory_mb
 
 
 def run(device, dtype, d_model, n_head, coord_dim, Ns, warmup, rep,
@@ -106,16 +106,16 @@ def run(device, dtype, d_model, n_head, coord_dim, Ns, warmup, rep,
         dist_2d_m = dist_2d.to(dtype)
 
         # (A) dense_masked = RelativePositionalAttention (per-layer cdist)
-        t_dense = t_cached = t_cdist = None
-        mem_dense = mem_cached = None
+        time_s_dense = time_s_cached = time_s_cdist = None
+        memory_mb_dense = memory_mb_cached = None
         try:
             attn = RelativePositionalAttention(
                 coord_dim, d_model, n_head, cutoff_spatial=cutoff_spatial,
                 mode="none", attn_dist_mode=dist_mode,
             ).to(device, dtype)
-            t, mem = measure(lambda: attn(x, x, x, coords), warmup=warmup, min_run_time=rep / 1000)
-            t_dense, mem_dense = t, mem
-            rows.append(["dense_masked", N, t * 1000, mem])
+            time_s, memory_mb = measure(lambda: attn(x, x, x, coords), warmup=warmup, min_run_time=rep / 1000)
+            time_s_dense, memory_mb_dense = time_s, memory_mb
+            rows.append(["dense_masked", N, time_s * 1000, memory_mb])
         except RuntimeError as e:
             rows.append(["dense_masked", N, None, None, str(e)[:120]])
 
@@ -125,37 +125,37 @@ def run(device, dtype, d_model, n_head, coord_dim, Ns, warmup, rep,
                 coord_dim, d_model, n_head, cutoff_spatial=cutoff_spatial,
                 mode="none", attn_dist_mode=dist_mode,
             ).to(device, dtype)
-            t, mem = measure(
+            time_s, memory_mb = measure(
                 lambda: attn(x, x, x, coords, dist_2d=dist_2d_m),
                 warmup=warmup, min_run_time=rep / 1000,
             )
-            t_cached, mem_cached = t, mem
-            rows.append(["cached_dist", N, t * 1000, mem])
+            time_s_cached, memory_mb_cached = time_s, memory_mb
+            rows.append(["cached_dist", N, time_s * 1000, memory_mb])
         except RuntimeError as e:
             rows.append(["cached_dist", N, None, None, str(e)[:120]])
 
         # (C) one-time 2D cdist cost (amortized once per full model forward)
         try:
-            t, _ = measure(
+            time_s, _ = measure(
                 lambda: torch.cdist(coords[..., 1:].float(), coords[..., 1:].float()),
                 warmup=warmup, min_run_time=rep / 1000,
             )
-            t_cdist = t
-            rows.append(["cdist_2d", N, t * 1000, None])
+            time_s_cdist = time_s
+            rows.append(["cdist_2d", N, time_s * 1000, None])
         except RuntimeError as e:
             rows.append(["cdist_2d", N, None, None, str(e)[:120]])
 
-        if t_dense is not None and t_cached is not None:
-            per = t_dense / t_cached if t_cached > 0 else float("nan")
-            total_baseline = layers * t_dense
-            total_cached = (t_cdist or 0) + layers * t_cached
+        if time_s_dense is not None and time_s_cached is not None:
+            per = time_s_dense / time_s_cached if time_s_cached > 0 else float("nan")
+            total_baseline = layers * time_s_dense
+            total_cached = (time_s_cdist or 0) + layers * time_s_cached
             tot = total_baseline / total_cached if total_cached > 0 else float("nan")
-            print(f"{N:>5} | {t_dense*1000:>9.2f}ms {mem_dense or 0:>6.1f}MB | "
-                  f"{t_cached*1000:>9.2f}ms {mem_cached or 0:>6.1f}MB | "
-                  f"{(t_cdist or 0)*1000:>7.2f}ms | {per:>6.2f}x | L={layers} total {tot:>6.2f}x",
+            print(f"{N:>5} | {time_s_dense*1000:>9.2f}ms {memory_mb_dense or 0:>6.1f}MB | "
+                  f"{time_s_cached*1000:>9.2f}ms {memory_mb_cached or 0:>6.1f}MB | "
+                  f"{(time_s_cdist or 0)*1000:>7.2f}ms | {per:>6.2f}x | L={layers} total {tot:>6.2f}x",
                   flush=True)
         else:
-            errs = [r[4] for r in rows[-2:] if len(r) > 4 and r[4]]
+            errs = [row[4] for row in rows[-2:] if len(row) > 4 and row[4]]
             tag = "OOM" if any("out of memory" in str(e).lower() for e in errs) else "ERR"
             print(f"{N:>5} | {tag}", flush=True)
 
@@ -163,19 +163,19 @@ def run(device, dtype, d_model, n_head, coord_dim, Ns, warmup, rep,
 
 
 def main():
-    p = argparse.ArgumentParser()
-    p.add_argument("--d", type=int, default=320)
-    p.add_argument("--nhead", type=int, default=8)
-    p.add_argument("--warmup", type=int, default=5)
-    p.add_argument("--rep", type=int, default=30)
-    p.add_argument("--out", default=str(Path(__file__).resolve().parents[1] / "results" / "cached_dist_results.csv"))
-    p.add_argument("--layers", type=int, default=12,
-                   help="encoder+decoder layers for the amortized total (default 12)")
-    p.add_argument("--Ns", default="128,256,512,1024,2048,4096,8192")
-    p.add_argument("--cutoff", type=float, default=256)
-    p.add_argument("--dist-mode", default="v1", choices=["v0", "v1"])
-    p.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
-    args = p.parse_args()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--d", type=int, default=320)
+    parser.add_argument("--nhead", type=int, default=8)
+    parser.add_argument("--warmup", type=int, default=5)
+    parser.add_argument("--rep", type=int, default=30)
+    parser.add_argument("--out", default=str(Path(__file__).resolve().parents[1] / "results" / "cached_dist_results.csv"))
+    parser.add_argument("--layers", type=int, default=12,
+                        help="encoder+decoder layers for the amortized total (default 12)")
+    parser.add_argument("--Ns", default="128,256,512,1024,2048,4096,8192")
+    parser.add_argument("--cutoff", type=float, default=256)
+    parser.add_argument("--dist-mode", default="v1", choices=["v0", "v1"])
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
+    args = parser.parse_args()
 
     assert torch.cuda.is_available()
     device = torch.device("cuda"); dtype = torch.float16
@@ -189,11 +189,11 @@ def main():
                args.rep, args.cutoff, args.dist_mode, args.layers, seed=args.seed)
 
     header = ["method", "N", "time_ms", "memory_mb", "error"]
-    with open(args.out, "w", newline="") as f:
-        w = csv.writer(f); w.writerow(header)
-        for r in rows:
-            while len(r) < len(header): r.append("")
-            w.writerow(r)
+    with open(args.out, "w", newline="") as file_handle:
+        w = csv.writer(file_handle); w.writerow(header)
+        for row in rows:
+            while len(row) < len(header): row.append("")
+            w.writerow(row)
     print(f"\nWrote {len(rows)} rows -> {args.out}")
 
 
