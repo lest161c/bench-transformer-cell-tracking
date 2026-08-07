@@ -27,6 +27,15 @@ from model_parts import (
 
 
 def knn_indices(coords, K):
+    """Compute K-nearest-neighbor indices from spatial coordinates.
+
+    Args:
+        coords: Coordinate tensor of shape (B, N, coord_dim).
+        K: Number of nearest neighbors.
+
+    Returns:
+        KNN index tensor of shape (B, N, K).
+    """
     yx = coords[..., 1:].float()
     dist = torch.cdist(yx, yx)
     _, knn = torch.topk(dist, k=K, dim=-1, largest=False)
@@ -34,6 +43,16 @@ def knn_indices(coords, K):
 
 
 def measure(fn, warmup=5, min_run_time=0.3):
+    """Benchmark a callable, returning (mean_time_s, incremental_peak_mem_mb).
+
+    Args:
+        fn: Callable to benchmark.
+        warmup: Number of warmup iterations.
+        min_run_time: Minimum run time for the benchmark timer.
+
+    Returns:
+        Tuple (mean_time_s, peak_memory_mb).
+    """
     for _ in range(warmup):
         fn()
     torch.cuda.synchronize()
@@ -51,6 +70,27 @@ def measure(fn, warmup=5, min_run_time=0.3):
 
 
 def run(device, dtype, d_model, n_head, coord_dim, Ns, Ks, warmup, rep):
+    """Run the V1/V2/V3 gather-sparse attention benchmark.
+
+    For each N in Ns and K in Ks, benchmarks three variants:
+      - V1: GatherSparseAttention (SDPA on flattened 1×K tensors)
+      - V2: GatherSparseAttentionV2 (optimised, fewer copies)
+      - V3: GatherSparseAttentionV3 (manual matmul, no SDPA)
+
+    Args:
+        device: torch device.
+        dtype: torch dtype.
+        d_model: Embedding dimension.
+        n_head: Number of attention heads.
+        coord_dim: Number of coordinate dimensions.
+        Ns: List of sequence lengths.
+        Ks: List of KNN neighbor counts.
+        warmup: Number of warmup iterations.
+        rep: Minimum run time in milliseconds for the benchmark timer.
+
+    Returns:
+        List of result rows [method, N, K, time_ms, memory_mb, error?].
+    """
     rows = []
     print(f"{'N':>5} | {'K':>3} | {'V1 gather':>14} {'mem':>8} | {'V2 reorder':>14} {'mem':>8} | "
           f"{'V3 matmul':>14} {'mem':>8} | {'V3/V1':>8} | {'V3/V2':>8}")
@@ -96,6 +136,12 @@ def run(device, dtype, d_model, n_head, coord_dim, Ns, Ks, warmup, rep):
 
 
 def main():
+    """Parse CLI arguments and run the V1/V2/V3 gather benchmark.
+
+    Sweeps N=[128..8192] with K=[4,16,64], comparing three
+    GatherSparseAttention variants for forward time and peak memory.
+    Results are written to a CSV file.
+    """
     p = argparse.ArgumentParser()
     p.add_argument("--d", type=int, default=320)
     p.add_argument("--nhead", type=int, default=8)
