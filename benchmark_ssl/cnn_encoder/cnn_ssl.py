@@ -49,6 +49,7 @@ class ScaledCNN(nn.Module):
         out_dim: embedding dimension (default 128)
     """
     def __init__(self, scale='large', out_dim=128):
+        """Build the CNN; `scale` selects the channel widths per layer."""
         super().__init__()
         if scale == 'small':
             ch = [8, 16, 32]           # 3 conv layers
@@ -59,9 +60,9 @@ class ScaledCNN(nn.Module):
 
         layers = []
         in_ch = 1
-        for c in ch:
-            layers += [nn.Conv2d(in_ch, c, 3, padding=1), nn.ReLU(), nn.MaxPool2d(2)]
-            in_ch = c
+        for channel_dim in ch:
+            layers += [nn.Conv2d(in_ch, channel_dim, 3, padding=1), nn.ReLU(), nn.MaxPool2d(2)]
+            in_ch = channel_dim
         self.conv = nn.Sequential(*layers)
         # After pooling: small/medium: 64 → 32 → 16 → 8,  large: 64 → 32 → 16 → 8 → 4
         spatial = PATCH_SIZE // (2 ** len(ch))
@@ -75,9 +76,10 @@ class ScaledCNN(nn.Module):
         self._init_weights()
 
     def _init_weights(self):
-        for p in self.parameters():
-            if p.dim() > 1:
-                nn.init.xavier_uniform_(p, gain=0.5)
+        """Xavier-initialize all 2D weight tensors with reduced gain."""
+        for param in self.parameters():
+            if param.dim() > 1:
+                nn.init.xavier_uniform_(param, gain=0.5)
 
     def forward(self, patches):
         """patches: (N, 1, 64, 64) → embeddings: (N, out_dim)"""
@@ -113,8 +115,8 @@ def scan_frames(data_root, conditions, max_frames):
             img_dir = exp / "img"
             if not tra.exists() or not img_dir.exists():
                 continue
-            for m in sorted(tra.glob("man_track*.tif")):
-                stem = m.stem.replace("man_track", "")
+            for mask_path in sorted(tra.glob("man_track*.tif")):
+                stem = mask_path.stem.replace("man_track", "")
                 try:
                     fi = int(stem)
                 except ValueError:
@@ -129,33 +131,33 @@ def scan_frames(data_root, conditions, max_frames):
 
 def extract_patches(img, centroids, patch_size=PATCH_SIZE):
     """Extract square patches centered on centroids. Handles edge padding."""
-    h, w = img.shape[-2:]
+    height, width = img.shape[-2:]
     half = patch_size // 2
     patches = []
     for cy, cx in centroids:
         cy_i = int(round(float(cy)))
         cx_i = int(round(float(cx)))
-        cy_i = np.clip(cy_i, 0, h - 1)
-        cx_i = np.clip(cx_i, 0, w - 1)
+        cy_i = np.clip(cy_i, 0, height - 1)
+        cx_i = np.clip(cx_i, 0, width - 1)
         y1 = cy_i - half
         x1 = cx_i - half
         y2 = cy_i + half
         x2 = cx_i + half
         pt = max(0, -y1)
-        pb = max(0, y2 - h)
+        pb = max(0, y2 - height)
         pl = max(0, -x1)
-        pr = max(0, x2 - w)
+        pr = max(0, x2 - width)
         y1c = max(0, y1)
         x1c = max(0, x1)
-        y2c = min(h, y2)
-        x2c = min(w, x2)
+        y2c = min(height, y2)
+        x2c = min(width, x2)
         crop = img[y1c:y2c, x1c:x2c] if (y2c > y1c and x2c > x1c) else np.zeros((1, 1), dtype=np.float32)
         if pt or pb or pl or pr:
             crop = np.pad(crop, ((pt, pb), (pl, pr)), mode="reflect")
         if crop.shape != (patch_size, patch_size):
             crop = np.pad(
                 crop,
-                tuple((0, max(0, t)) for t in [patch_size - s for s in crop.shape]),
+                tuple((0, max(0, pad_amount)) for pad_amount in [patch_size - dim_size for dim_size in crop.shape]),
                 mode="reflect",
             )[:patch_size, :patch_size]
         patches.append(crop)
@@ -204,9 +206,9 @@ def apply_affine(coords, degrees=10, scale_range=(0.9, 1.1)):
     theta = np.random.uniform(-degrees, degrees) / 180 * np.pi
     sx = np.random.uniform(*scale_range)
     sy = np.random.uniform(*scale_range)
-    M = np.array([[sx * np.cos(theta), -sx * np.sin(theta)],
-                  [sy * np.sin(theta),  sy * np.cos(theta)]])
-    return coords @ M.T
+    transform_matrix = np.array([[sx * np.cos(theta), -sx * np.sin(theta)],
+                                 [sy * np.sin(theta),  sy * np.cos(theta)]])
+    return coords @ transform_matrix.T
 
 
 def apply_jitter(coords, std=4):
@@ -214,9 +216,9 @@ def apply_jitter(coords, std=4):
     return coords + np.random.randn(*coords.shape).astype(np.float32) * std
 
 
-def apply_dropout(coords, labels, p=0.1):
+def apply_dropout(coords, labels, dropout_prob=0.1):
     """Drop random subset of cells."""
-    keep = np.random.rand(len(labels)) > p
+    keep = np.random.rand(len(labels)) > dropout_prob
     return coords[keep], labels[keep]
 
 
@@ -230,53 +232,55 @@ def distort_coords(coords, labels, dist_params):
     Returns:
         (coords_distorted, labels_distorted)
     """
-    c = apply_affine(coords.copy(),
-                     degrees=dist_params['degrees'],
-                     scale_range=dist_params['scale_range'])
-    c = apply_jitter(c, std=dist_params['jitter_std'])
-    c, l = apply_dropout(c, labels.copy(), p=dist_params['dropout_p'])
-    return c, l
+    coords_distorted = apply_affine(coords.copy(),
+                                    degrees=dist_params['degrees'],
+                                    scale_range=dist_params['scale_range'])
+    coords_distorted = apply_jitter(coords_distorted, std=dist_params['jitter_std'])
+    coords_distorted, labels_distorted = apply_dropout(
+        coords_distorted, labels.copy(), dropout_prob=dist_params['dropout_p'])
+    return coords_distorted, labels_distorted
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  NT-Xent Loss & Metrics
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def nt_xent_loss(z, temperature=0.05):
+def nt_xent_loss(embeddings, temperature=0.05):
     """NT-Xent contrastive loss for paired views.
 
     Args:
-        z: (2*N, D) where first N = view1, last N = view2, corresponding order.
+        embeddings: (2*N, D) where first N = view1, last N = view2, corresponding order.
     Returns:
         Scalar loss.
     """
-    B = z.shape[0] // 2
-    z = F.normalize(z, dim=-1)
-    sim = z @ z.T / temperature
-    sim = sim - torch.eye(2 * B, device=sim.device) * 1e9
-    labels = torch.cat([torch.arange(B, 2 * B), torch.arange(0, B)]).to(z.device)
+    batch_size = embeddings.shape[0] // 2
+    embeddings = F.normalize(embeddings, dim=-1)
+    sim = embeddings @ embeddings.T / temperature
+    sim = sim - torch.eye(2 * batch_size, device=sim.device) * 1e9
+    labels = torch.cat([torch.arange(batch_size, 2 * batch_size),
+                        torch.arange(0, batch_size)]).to(embeddings.device)
     return F.cross_entropy(sim, labels)
 
 
-def compute_gap(z):
+def compute_gap(embeddings):
     """Compute intra-class vs inter-class cosine similarity gap.
 
-    Intra: cosine sim between matching pairs (first B pairs).
+    Intra: cosine sim between matching pairs (first batch_size pairs).
     Inter: cosine sim between non-matching pairs.
     Returns (intra_mean, inter_mean, gap).
     """
-    z = F.normalize(z, dim=-1)
-    B = z.shape[0] // 2
-    z1, z2 = z[:B], z[B:]
+    embeddings = F.normalize(embeddings, dim=-1)
+    batch_size = embeddings.shape[0] // 2
+    embeddings_view1, embeddings_view2 = embeddings[:batch_size], embeddings[batch_size:]
 
-    # Intra: diagonal of z1 @ z2.T
-    intra = (z1 * z2).sum(dim=-1).mean().item()
+    # Intra: diagonal of embeddings_view1 @ embeddings_view2.T
+    intra = (embeddings_view1 * embeddings_view2).sum(dim=-1).mean().item()
 
     # Inter: off-diagonal elements (excluding self-pairs)
-    sim = z1 @ z2.T  # (B, B)
-    n = B * B
+    sim = embeddings_view1 @ embeddings_view2.T  # (batch_size, batch_size)
+    n_total = batch_size * batch_size
     off_diag_sum = sim.sum() - sim.trace()
-    inter = off_diag_sum.item() / max(n - B, 1)
+    inter = off_diag_sum.item() / max(n_total - batch_size, 1)
 
     return intra, inter, intra - inter
 
@@ -289,16 +293,16 @@ def compute_effective_rank(z):
     dimensionality of the embedding distribution.
 
     Args:
-        z: (N, D) embedding matrix (will be L2-normalized internally).
+        embeddings: (N, D) embedding matrix (will be L2-normalized internally).
     Returns:
         Effective rank (scalar).
     """
-    z = F.normalize(z, dim=-1)
+    embeddings = F.normalize(embeddings, dim=-1)
     with torch.no_grad():
-        s = torch.linalg.svd(z, full_matrices=False)[1]
-        p = s / (s.sum() + 1e-10)
-        p = p[p > 0]
-        entropy = -(p * torch.log(p + 1e-10)).sum()
+        singular_values = torch.linalg.svd(embeddings, full_matrices=False)[1]
+        sv_weights = singular_values / (singular_values.sum() + 1e-10)
+        sv_weights = sv_weights[sv_weights > 0]
+        entropy = -(sv_weights * torch.log(sv_weights + 1e-10)).sum()
         eff_rank = torch.exp(entropy).item()
     return eff_rank
 
@@ -340,10 +344,10 @@ def run_ssl(frames, cnn, args):
     for mp, ip in frames:
         if n_loaded >= args.max_frames:
             break
-        r = load_frame(mp, ip)
-        if r is None:
+        result = load_frame(mp, ip)
+        if result is None:
             continue
-        coords, labels, img = r
+        coords, labels, img = result
 
         # Original patches at cell centroids
         patches_orig = extract_patches(img, coords)
@@ -405,7 +409,7 @@ def run_ssl(frames, cnn, args):
             idx_dist = [i for i, l in enumerate(l_dist) if l in shared]
 
             # Keep first min(len) cells
-            n = min(len(idx_orig), len(idx_dist))
+            n_shared = min(len(idx_orig), len(idx_dist))
 
             # Sort by label so matching cells are aligned
             labels_orig_shared = l_orig[idx_orig]
@@ -413,8 +417,8 @@ def run_ssl(frames, cnn, args):
             sort_orig = np.argsort(labels_orig_shared)
             sort_dist = np.argsort(labels_dist_shared)
 
-            po = p_orig[idx_orig][sort_orig][:n].unsqueeze(1).to(device)   # (N, 1, 64, 64)
-            pd = p_dist[idx_dist][sort_dist][:n].unsqueeze(1).to(device)
+            po = p_orig[idx_orig][sort_orig][:n_shared].unsqueeze(1).to(device)   # (N, 1, 64, 64)
+            pd = p_dist[idx_dist][sort_dist][:n_shared].unsqueeze(1).to(device)
 
             # ── Forward pass ──────────────────────────────────────────────
             if args.loss == "byol":
@@ -442,8 +446,8 @@ def run_ssl(frames, cnn, args):
                 # NT-Xent forward
                 e_orig = cnn(po)      # (N, out_dim)
                 e_dist = cnn(pd)      # (N, out_dim)
-                z = torch.cat([e_orig, e_dist], dim=0)  # (2N, out_dim)
-                loss = nt_xent_loss(z)
+                embeddings_cat = torch.cat([e_orig, e_dist], dim=0)  # (2N, out_dim)
+                loss = nt_xent_loss(embeddings_cat)
 
             opt.zero_grad()
             loss.backward()
@@ -489,15 +493,15 @@ def run_ssl(frames, cnn, args):
 
                     idx_orig = [i for i, l in enumerate(l_orig) if l in shared]
                     idx_dist = [i for i, l in enumerate(l_dist) if l in shared]
-                    n = min(len(idx_orig), len(idx_dist))
+                    n_shared = min(len(idx_orig), len(idx_dist))
 
                     labels_orig_shared = l_orig[idx_orig]
                     labels_dist_shared = l_dist[idx_dist]
                     sort_orig = np.argsort(labels_orig_shared)
                     sort_dist = np.argsort(labels_dist_shared)
 
-                    po = p_orig[idx_orig][sort_orig][:n].unsqueeze(1).to(device)
-                    pd = p_dist[idx_dist][sort_dist][:n].unsqueeze(1).to(device)
+                    po = p_orig[idx_orig][sort_orig][:n_shared].unsqueeze(1).to(device)
+                    pd = p_dist[idx_dist][sort_dist][:n_shared].unsqueeze(1).to(device)
 
                     e_orig = cnn(po)
                     e_dist = cnn(pd)
@@ -571,6 +575,9 @@ def run_ssl(frames, cnn, args):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def main():
+    """Run NT-Xent or BYOL self-supervised pretraining of ScaledCNN on
+    distorted bacteria patches: scan frames, build CNN, run_ssl, and save the
+    checkpoint to `--outdir`."""
     parser = argparse.ArgumentParser(
         description="SSL pretraining of ScaledCNN on distorted bacteria patches"
     )

@@ -261,11 +261,11 @@ def run_all_tests(samples, feat_names):
     # Q1: intra/inter similarity
     intra_all, inter_all, sep_all = [], [], []
     for s in samples:
-        r = compute_intra_inter_similarity(s["feats1"], s["feats2"], s["labels1"], s["labels2"])
-        if not (np.isnan(r.get("sep_gap", np.nan))):
-            intra_all.append(r["intra_sim"])
-            inter_all.append(r["inter_sim"])
-            sep_all.append(r["sep_gap"])
+        sim_result = compute_intra_inter_similarity(s["feats1"], s["feats2"], s["labels1"], s["labels2"])
+        if not (np.isnan(sim_result.get("sep_gap", np.nan))):
+            intra_all.append(sim_result["intra_sim"])
+            inter_all.append(sim_result["inter_sim"])
+            sep_all.append(sim_result["sep_gap"])
 
     q1 = {
         "intra_sim_mean": float(np.mean(intra_all)) if intra_all else np.nan,
@@ -327,9 +327,9 @@ def run_all_tests(samples, feat_names):
     # Q4: recall@k
     recall_list = {f"recall@{k}": [] for k in (1, 3, 5)}
     for s in samples:
-        r = compute_recall_at_k(s["feats1"], s["feats2"], s["labels1"], s["labels2"])
+        recall_result = compute_recall_at_k(s["feats1"], s["feats2"], s["labels1"], s["labels2"])
         for k in (1, 3, 5):
-            v = r.get(f"recall@{k}", np.nan)
+            v = recall_result.get(f"recall@{k}", np.nan)
             if not np.isnan(v):
                 recall_list[f"recall@{k}"].append(v)
     q4 = {k: float(np.mean(v)) if v else np.nan for k, v in recall_list.items()}
@@ -438,30 +438,43 @@ def interpret(results: dict) -> str:
 
 
 def _fig_to_b64(fig):
+    """Render a matplotlib figure to a base64-encoded PNG string for HTML embedding."""
     buf = io.BytesIO()
     fig.savefig(buf, format="png", dpi=130, bbox_inches="tight")
     buf.seek(0)
     return base64.b64encode(buf.read()).decode()
 
 
-def _clean_var(v, default="N/A", fmt=".4f"):
-    if isinstance(v, (float, np.floating)) and np.isnan(v):
+def _clean_var(value, default="N/A", fmt=".4f"):
+    """Format a result value for HTML display, mapping NaN to a default string.
+
+    Args:
+        value: raw numeric or other value to format.
+        default: string used when value is NaN.
+        fmt: format specifier for float values.
+
+    Returns:
+        String representation suitable for an HTML table cell.
+    """
+    if isinstance(value, (float, np.floating)) and np.isnan(value):
         return default
-    if isinstance(v, (float, np.floating)):
-        return f"{v:{fmt}}"
-    if isinstance(v, np.integer):
-        return f"{v}"
-    return str(v)
+    if isinstance(value, (float, np.floating)):
+        return f"{value:{fmt}}"
+    if isinstance(value, np.integer):
+        return f"{value}"
+    return str(value)
 
 
 def _make_color(val, thresholds, colors):
-    for t, c in zip(thresholds, colors):
-        if val >= t:
-            return c
+    """Pick a color for a value by comparing against ordered thresholds."""
+    for threshold, color in zip(thresholds, colors):
+        if val >= threshold:
+            return color
     return colors[-1]
 
 
 def _make_table_html(rows, header):
+    """Build an HTML table string from a list of row lists and a header list."""
     lines = ["<table>", "<tr>" + "".join(f"<th>{h}</th>" for h in header) + "</tr>"]
     for row in rows:
         lines.append("<tr>" + "".join(f"<td>{c}</td>" for c in row) + "</tr>")
@@ -688,8 +701,8 @@ def generate_report(all_results, per_dist_results, interpret_output, save_path="
     html_parts.append("</body></html>")
     html = "\n".join(html_parts)
     Path(save_path).parent.mkdir(parents=True, exist_ok=True)
-    with open(save_path, "w") as f:
-        f.write(html)
+    with open(save_path, "w") as file_handle:
+        file_handle.write(html)
     logger.info(f"Report saved to {save_path}")
     return html
 
@@ -724,16 +737,23 @@ def save_csv(all_results, per_dist_results, csv_path):
 
 
 def main():
-    p = argparse.ArgumentParser(description="Feature signal analysis for contrastive SSL")
-    p.add_argument("--config", default="config.yaml", help="benchmark_ssl config")
-    p.add_argument("--conditions", default="rpsM", help="comma-separated conditions")
-    p.add_argument("--max-frames", type=int, default=200, help="frames per condition")
-    p.add_argument("--outdir", default="runs/feature_signal", help="output dir")
-    p.add_argument("--feature-set", default="basic", choices=["basic", "shape", "hu", "patch"],
-                   help="Feature richness level (proposal §4.4)")
-    p.add_argument("--interpret", action="store_true",
-                   help="Print interpretation verdict only (no analysis run)")
-    args = p.parse_args()
+    """CLI entry point: run the feature signal analyses and produce reports.
+
+    Parses command-line arguments, loads the config and experiment frames,
+    runs the full distortion-pipeline analysis plus per-distortion tests,
+    and writes the CSV + HTML report. With --interpret it only prints the
+    verdict from an existing results CSV.
+    """
+    parser = argparse.ArgumentParser(description="Feature signal analysis for contrastive SSL")
+    parser.add_argument("--config", default="config.yaml", help="benchmark_ssl config")
+    parser.add_argument("--conditions", default="rpsM", help="comma-separated conditions")
+    parser.add_argument("--max-frames", type=int, default=200, help="frames per condition")
+    parser.add_argument("--outdir", default="runs/feature_signal", help="output dir")
+    parser.add_argument("--feature-set", default="basic", choices=["basic", "shape", "hu", "patch"],
+                       help="Feature richness level (proposal §4.4)")
+    parser.add_argument("--interpret", action="store_true",
+                       help="Print interpretation verdict only (no analysis run)")
+    args = parser.parse_args()
 
     if args.interpret:
         csv_path = Path(args.outdir) / "feature_signal_results.csv"
@@ -768,8 +788,8 @@ def main():
     conditions = [c.strip() for c in args.conditions.split(",")]
 
     # Load config
-    with open(args.config) as f:
-        cfg = yaml.safe_load(f)
+    with open(args.config) as file_handle:
+        cfg = yaml.safe_load(file_handle)
     cfg["conditions"] = conditions
 
     # Load frames

@@ -39,6 +39,17 @@ class CellEmbedder(nn.Module):
         dim_feedforward=256,
         dropout=0.1,
     ):
+        """Build the feature/coordinate encoders, transformer, and head.
+
+        Args:
+            feat_dim: dimensionality of input features per cell.
+            coord_dim: spatial dimensionality of the coordinates.
+            d_model: transformer embedding dimension.
+            nhead: number of attention heads per transformer layer.
+            num_layers: number of transformer encoder layers.
+            dim_feedforward: hidden dimension of the transformer feedforward.
+            dropout: dropout probability inside the transformer layers.
+        """
         super().__init__()
 
         self.feat_proj = nn.Sequential(
@@ -74,9 +85,10 @@ class CellEmbedder(nn.Module):
         self._init_weights()
 
     def _init_weights(self):
-        for p in self.parameters():
-            if p.dim() > 1:
-                nn.init.xavier_uniform_(p, gain=0.5)
+        """Initialize all weight matrices with Xavier uniform (gain 0.5)."""
+        for param in self.parameters():
+            if param.dim() > 1:
+                nn.init.xavier_uniform_(param, gain=0.5)
 
     def forward(self, coords, features, padding_mask=None):
         """Encode a frame of cells into per-cell embeddings.
@@ -87,20 +99,24 @@ class CellEmbedder(nn.Module):
             padding_mask: (B, N) — True for padded positions
 
         Returns:
-            z: (B, N, d_model) — per-cell embeddings
+            embeddings: (B, N, d_model) — per-cell embeddings
         """
-        f = self.feat_proj(features)
-        c = self.coord_enc(coords)
-        h = f + c
+        feature_tokens = self.feat_proj(features)
+        coord_tokens = self.coord_enc(coords)
+        hidden = feature_tokens + coord_tokens
 
         for layer in self.layers:
-            h = layer(h, src_key_padding_mask=padding_mask)
-        h = self.enc_norm(h)
+            hidden = layer(hidden, src_key_padding_mask=padding_mask)
+        hidden = self.enc_norm(hidden)
 
-        z = self.embedding_head(h)
-        return z
+        embeddings = self.embedding_head(hidden)
+        return embeddings
 
     def encode(self, coords, features, padding_mask=None):
         """Alias for forward — produces L2-normalized embeddings for matching."""
-        z = self.forward(coords, features, padding_mask)
-        return F.normalize(z, dim=-1)
+        embeddings = self.forward(coords, features, padding_mask)
+        return F.normalize(embeddings, dim=-1)
+
+
+if __name__ == "__main__":
+    pass

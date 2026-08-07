@@ -55,9 +55,9 @@ class ScaledCNN(nn.Module):
 
         layers = []
         in_ch = 1
-        for c in ch:
-            layers += [nn.Conv2d(in_ch, c, 3, padding=1), nn.ReLU(), nn.MaxPool2d(2)]
-            in_ch = c
+        for channel_dim in ch:
+            layers += [nn.Conv2d(in_ch, channel_dim, 3, padding=1), nn.ReLU(), nn.MaxPool2d(2)]
+            in_ch = channel_dim
         self.conv = nn.Sequential(*layers)
         # After pooling: small: 64→8, medium: 64→8, large: 64→4
         spatial = PATCH_SIZE // (2 ** len(ch))
@@ -69,6 +69,7 @@ class ScaledCNN(nn.Module):
         )
 
     def forward(self, patches):
+        """patches: (N, 1, PATCH_SIZE, PATCH_SIZE) → embeddings: (N, out_dim)."""
         return self.fc(self.conv(patches))
 
 
@@ -128,33 +129,33 @@ def scan_consecutive_pairs(data_root, conditions, max_pairs):
 
 def extract_patches(img, centroids, patch_size=PATCH_SIZE):
     """Extract square patches centered on centroids. Handles edge padding."""
-    h, w = img.shape[-2:]
+    height, width = img.shape[-2:]
     half = patch_size // 2
     patches = []
     for cy, cx in centroids:
         cy_i = int(round(float(cy)))
         cx_i = int(round(float(cx)))
-        cy_i = np.clip(cy_i, 0, h - 1)
-        cx_i = np.clip(cx_i, 0, w - 1)
+        cy_i = np.clip(cy_i, 0, height - 1)
+        cx_i = np.clip(cx_i, 0, width - 1)
         y1 = cy_i - half
         x1 = cx_i - half
         y2 = cy_i + half
         x2 = cx_i + half
         pt = max(0, -y1)
-        pb = max(0, y2 - h)
+        pb = max(0, y2 - height)
         pl = max(0, -x1)
-        pr = max(0, x2 - w)
+        pr = max(0, x2 - width)
         y1c = max(0, y1)
         x1c = max(0, x1)
-        y2c = min(h, y2)
-        x2c = min(w, x2)
+        y2c = min(height, y2)
+        x2c = min(width, x2)
         crop = img[y1c:y2c, x1c:x2c] if (y2c > y1c and x2c > x1c) else np.zeros((1, 1), dtype=np.float32)
         if pt or pb or pl or pr:
             crop = np.pad(crop, ((pt, pb), (pl, pr)), mode="reflect")
         if crop.shape != (patch_size, patch_size):
             crop = np.pad(
                 crop,
-                tuple((0, max(0, t)) for t in [patch_size - s for s in crop.shape]),
+                tuple((0, max(0, pad_amount)) for pad_amount in [patch_size - dim_size for dim_size in crop.shape]),
                 mode="reflect",
             )[:patch_size, :patch_size]
         patches.append(crop)
@@ -177,8 +178,8 @@ def load_tracklets(man_track_path):
 
 def build_targets(labels_t, labels_n, tracklets):
     """Build edge target: 1 for same-cell OR parent→child, 0 otherwise."""
-    N1, N2 = len(labels_t), len(labels_n)
-    target = torch.zeros(N1, N2, dtype=torch.float32)
+    n_cells_t, n_cells_n = len(labels_t), len(labels_n)
+    target = torch.zeros(n_cells_t, n_cells_n, dtype=torch.float32)
     for i, lt in enumerate(labels_t):
         for j, ln in enumerate(labels_n):
             if lt == ln:
@@ -199,12 +200,12 @@ class LinearProbe(nn.Module):
         self.fc = nn.Linear(2 * feat_dim, 1)
 
     def forward(self, feat_t, feat_n):
-        N1, D = feat_t.shape
-        N2 = feat_n.shape[0]
-        feat_t_exp = feat_t.unsqueeze(1).expand(-1, N2, -1)
-        feat_n_exp = feat_n.unsqueeze(0).expand(N1, -1, -1)
+        n_cells_t, embed_dim = feat_t.shape
+        n_cells_n = feat_n.shape[0]
+        feat_t_exp = feat_t.unsqueeze(1).expand(-1, n_cells_n, -1)
+        feat_n_exp = feat_n.unsqueeze(0).expand(n_cells_t, -1, -1)
         pairs = torch.cat([feat_t_exp, feat_n_exp], dim=-1)
-        return self.fc(pairs.view(-1, 2 * D)).view(N1, N2)
+        return self.fc(pairs.view(-1, 2 * embed_dim)).view(n_cells_t, n_cells_n)
 
 
 class MLPProbe(nn.Module):
@@ -218,12 +219,12 @@ class MLPProbe(nn.Module):
         )
 
     def forward(self, feat_t, feat_n):
-        N1, D = feat_t.shape
-        N2 = feat_n.shape[0]
-        feat_t_exp = feat_t.unsqueeze(1).expand(-1, N2, -1)
-        feat_n_exp = feat_n.unsqueeze(0).expand(N1, -1, -1)
+        n_cells_t, embed_dim = feat_t.shape
+        n_cells_n = feat_n.shape[0]
+        feat_t_exp = feat_t.unsqueeze(1).expand(-1, n_cells_n, -1)
+        feat_n_exp = feat_n.unsqueeze(0).expand(n_cells_t, -1, -1)
         pairs = torch.cat([feat_t_exp, feat_n_exp], dim=-1)
-        return self.net(pairs.view(-1, 2 * D)).view(N1, N2)
+        return self.net(pairs.view(-1, 2 * embed_dim)).view(n_cells_t, n_cells_n)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -332,27 +333,27 @@ def build_cnn_edge_data(pairs, cnn_model, max_pairs=30):
         rn = load_frame(mn, in_)
         if rt is None or rn is None:
             continue
-        ct, lt, imgt, mask_t = rt
-        cn, ln, imgn, mask_n = rn
+        coords_t, labels_t, imgt, mask_t = rt
+        coords_n, labels_n, imgn, mask_n = rn
 
-        if len(lt) < 3 or len(ln) < 3:
+        if len(labels_t) < 3 or len(labels_n) < 3:
             continue
 
         tracklets = load_tracklets(man_txt)
 
         # Extract patches and compute CNN features
-        pt = extract_patches(imgt, ct)
-        pn = extract_patches(imgn, cn)
+        patches_t = extract_patches(imgt, coords_t)
+        patches_n = extract_patches(imgn, coords_n)
 
-        pt_t = torch.from_numpy(pt).float().unsqueeze(1).to(device)
-        pn_t = torch.from_numpy(pn).float().unsqueeze(1).to(device)
+        patches_t_tensor = torch.from_numpy(patches_t).float().unsqueeze(1).to(device)
+        patches_n_tensor = torch.from_numpy(patches_n).float().unsqueeze(1).to(device)
 
         with torch.no_grad():
-            feat_t = cnn_model(pt_t).cpu()
-            feat_n = cnn_model(pn_t).cpu()
+            feat_t = cnn_model(patches_t_tensor).cpu()
+            feat_n = cnn_model(patches_n_tensor).cpu()
 
         # Build target
-        target = build_targets(lt, ln, tracklets)
+        target = build_targets(labels_t, labels_n, tracklets)
         if target.sum() < 1:
             continue
 
@@ -411,6 +412,9 @@ def evaluate_cnn(label, cnn_model, pairs, args):
 
 
 def main():
+    """Run the probe benchmark: scan frame pairs, build CNN edge features,
+    train linear + MLP probes for the frozen NT-Xent and random CNNs, print
+    the comparison table, and save results to probe/cnn_probe_results.txt."""
     parser = argparse.ArgumentParser(
         description="Probe evaluation: frozen NT-Xent CNN vs random CNN"
     )
@@ -446,7 +450,7 @@ def main():
     # Build CNNs
     cnn_random = ScaledCNN(scale=args.scale, out_dim=OUT_DIM).to(device)
     cnn_random.eval()
-    logger.info(f"Random CNN: {sum(p.numel() for p in cnn_random.parameters()):,} params")
+    logger.info(f"Random CNN: {sum(param.numel() for param in cnn_random.parameters()):,} params")
 
     cnn_ntxent = ScaledCNN(scale=args.scale, out_dim=OUT_DIM).to(device)
     ckpt = torch.load(args.checkpoint, map_location=device)
@@ -472,14 +476,14 @@ def main():
             print(f"{label:<20} {'—':<8} {'—':<12} {'—':<12} {'—':<12}")
             continue
         for ptype in ["linear", "mlp"]:
-            r = results[ptype]
-            print(f"{label:<20} {ptype:<8} {r['final_bal_acc']:<12.4f} "
-                  f"{r['final_f1']:<12.4f} {r['final_acc']:<12.4f}")
+            result = results[ptype]
+            print(f"{label:<20} {ptype:<8} {result['final_bal_acc']:<12.4f} "
+                  f"{result['final_f1']:<12.4f} {result['final_acc']:<12.4f}")
             rows.append({
                 "CNN": label, "Probe": ptype,
-                "BalAcc": r["final_bal_acc"],
-                "F1": r["final_f1"],
-                "Acc": r["final_acc"],
+                "BalAcc": result["final_bal_acc"],
+                "F1": result["final_f1"],
+                "Acc": result["final_acc"],
             })
 
     print("-" * 70)
@@ -509,15 +513,15 @@ def main():
 
     # Save results
     out_path = Path("probe") / "cnn_probe_results.txt"
-    with open(out_path, "w") as f:
-        f.write("CNN Probe Benchmark Results\n")
-        f.write("=" * 70 + "\n")
-        f.write(f"{'CNN Variant':<20} {'Probe':<8} {'BalAcc':<12} {'F1':<12} {'Acc':<12}\n")
-        f.write("-" * 70 + "\n")
-        for r in rows:
-            f.write(f"{r['CNN']:<20} {r['Probe']:<8} {r['BalAcc']:<12.4f} "
-                    f"{r['F1']:<12.4f} {r['Acc']:<12.4f}\n")
-        f.write("\n" + "=" * 70 + "\n")
+    with open(out_path, "w") as file_handle:
+        file_handle.write("CNN Probe Benchmark Results\n")
+        file_handle.write("=" * 70 + "\n")
+        file_handle.write(f"{'CNN Variant':<20} {'Probe':<8} {'BalAcc':<12} {'F1':<12} {'Acc':<12}\n")
+        file_handle.write("-" * 70 + "\n")
+        for row in rows:
+            file_handle.write(f"{row['CNN']:<20} {row['Probe']:<8} {row['BalAcc']:<12.4f} "
+                              f"{row['F1']:<12.4f} {row['Acc']:<12.4f}\n")
+        file_handle.write("\n" + "=" * 70 + "\n")
     logger.info(f"Results saved: {out_path}")
 
     logger.info("Done.")

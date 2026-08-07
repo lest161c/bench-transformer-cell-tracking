@@ -7,7 +7,7 @@ embeddings and solving bipartite matching via Hungarian algorithm.
 Replaces old approach: training a BCE association head on pairwise logits.
 """
 
-import csv, logging, sys, yaml, time, os
+import argparse, csv, logging, sys, yaml, time, os
 from pathlib import Path
 from copy import deepcopy
 
@@ -35,14 +35,14 @@ def embed_frame(model, mask, img, ndim, device):
     coords, labels, feats_dict = result
     feats = np.concatenate(list(feats_dict.values()), axis=-1).astype(np.float32)
 
-    c = torch.from_numpy(coords).float().unsqueeze(0).to(device)
-    f = torch.from_numpy(feats).float().unsqueeze(0).to(device)
+    coords_tensor = torch.from_numpy(coords).float().unsqueeze(0).to(device)
+    feats_tensor = torch.from_numpy(feats).float().unsqueeze(0).to(device)
     pm = torch.zeros(1, len(labels), dtype=torch.bool, device=device)
 
     with torch.no_grad():
-        z = model.encode(c, f, pm)
+        embeddings = model.encode(coords_tensor, feats_tensor, pm)
 
-    return z.squeeze(0).cpu().numpy(), coords, labels
+    return embeddings.squeeze(0).cpu().numpy(), coords, labels
 
 
 def track_via_embedding(model, frame_pairs, ndim, device, max_distance=50.0):
@@ -93,10 +93,10 @@ def track_via_embedding(model, frame_pairs, ndim, device, max_distance=50.0):
         row_ind, col_ind = linear_sum_assignment(cost)
 
         matches = []
-        for r, c in zip(row_ind, col_ind):
-            dist = np.linalg.norm(coords_src[r] - coords_tgt[c])
+        for row_idx, col_idx in zip(row_ind, col_ind):
+            dist = np.linalg.norm(coords_src[row_idx] - coords_tgt[col_idx])
             if dist <= max_distance:
-                matches.append((int(labels_src[r]), int(labels_tgt[c]), r, c))
+                matches.append((int(labels_src[row_idx]), int(labels_tgt[col_idx]), row_idx, col_idx))
             else:
                 # Reject matches over distance threshold
                 pass
@@ -143,9 +143,16 @@ def build_frame_pairs(frames):
     return pairs
 
 
-def train_compare(ssl_ckpt_path, config_path="config.yaml"):
-    with open(config_path) as f:
-        cfg = yaml.safe_load(f)
+def train_compare(ssl_ckpt_path, config_path="config.yaml", seed=42):
+    """Evaluate CellEmbedder tracking accuracy for pretrained vs random init.
+
+    Loads the config for data paths and architecture, builds consecutive
+    frame pairs, splits them into val/test, and tracks cells with both a
+    checkpoint-loaded and a randomly initialized CellEmbedder. Writes a
+    comparison.csv into runs/downstream_compare/.
+    """
+    with open(config_path) as file_handle:
+        cfg = yaml.safe_load(file_handle)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"Device: {device}")
@@ -156,7 +163,7 @@ def train_compare(ssl_ckpt_path, config_path="config.yaml"):
     logger.info(f"Total frame pairs: {len(frame_pairs)}")
 
     # Split
-    np.random.seed(42)
+    np.random.seed(seed)
     idx = np.random.permutation(len(frame_pairs))
     n_val = max(1, int(len(idx) * 0.1))
     val_idx, test_idx = idx[:n_val], idx[n_val:]
@@ -215,20 +222,30 @@ def train_compare(ssl_ckpt_path, config_path="config.yaml"):
     outdir = Path("runs") / "downstream_compare"
     outdir.mkdir(parents=True, exist_ok=True)
     csv_path = outdir / "comparison.csv"
-    with open(csv_path, "w", newline="") as f:
-        w = csv.writer(f)
-        w.writerow(["model", "val_accuracy", "val_correct", "val_total",
+    with open(csv_path, "w", newline="") as file_handle:
+        csv_writer = csv.writer(file_handle)
+        csv_writer.writerow(["model", "val_accuracy", "val_correct", "val_total",
                     "test_accuracy", "test_correct", "test_total",
                     "test_mismatches", "test_misses"])
-        for label, r in results.items():
-            w.writerow([label, f"{r['val_accuracy']:.4f}", r['val_correct'], r['val_total'],
-                       f"{r['test_accuracy']:.4f}", r['test_correct'], r['test_total'],
-                       r['test_mismatches'], r['test_misses']])
+        for label, row in results.items():
+            csv_writer.writerow([label, f"{row['val_accuracy']:.4f}", row['val_correct'], row['val_total'],
+                       f"{row['test_accuracy']:.4f}", row['test_correct'], row['test_total'],
+                       row['test_mismatches'], row['test_misses']])
 
     logger.info(f"Results saved to {csv_path}")
     return results
 
 
 if __name__ == "__main__":
-    ckpt = sys.argv[1] if len(sys.argv) > 1 else "runs/ssl_contrastive/best_model.pt"
-    train_compare(ckpt)
+    parser = argparse.ArgumentParser(
+        description="Compare SSL-pretrained vs random-init CellEmbedder on cell tracking"
+    )
+    parser.add_argument(
+        "checkpoint", nargs="?",
+        default="runs/ssl_contrastive/best_model.pt",
+        help="Path to SSL checkpoint (default: runs/ssl_contrastive/best_model.pt)",
+    )
+    parser.add_argument("--config", default="config.yaml", help="Path to benchmark_ssl config")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
+    args = parser.parse_args()
+    train_compare(args.checkpoint, config_path=args.config, seed=args.seed)

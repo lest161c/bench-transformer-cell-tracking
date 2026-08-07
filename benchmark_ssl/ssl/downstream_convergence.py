@@ -38,6 +38,11 @@ PATCH_SIZE = 64
 # ─── data ──────────────────────────────────────────────────────────────────────
 
 def extract_patches(img, centroids):
+    """Extract square patches (PATCH_SIZE x PATCH_SIZE) centered on each centroid.
+
+    Out-of-bounds regions are padded by reflection; returns a stacked float32
+    array of shape (N, PATCH_SIZE, PATCH_SIZE).
+    """
     h, w = img.shape[-2:]
     half = PATCH_SIZE // 2
     patches = []
@@ -65,14 +70,16 @@ def extract_patches(img, centroids):
 
 @torch.no_grad()
 def compute_dino(patches_np):
+    """Compute 384D DINOv2 embeddings for a batch of normalized patches."""
     if len(patches_np) == 0: return np.zeros((0, DINO_DIM), dtype=np.float32)
     pn = (patches_np - patches_np.min(axis=(1,2), keepdims=True)) / (patches_np.max(axis=(1,2), keepdims=True) - patches_np.min(axis=(1,2), keepdims=True) + 1e-8)
-    t = F.interpolate(torch.from_numpy(pn).float().unsqueeze(1).to(device), size=(224,224), mode="bilinear", align_corners=False)
-    t = t.expand(-1, 3, -1, -1)
+    patch_tensor = F.interpolate(torch.from_numpy(pn).float().unsqueeze(1).to(device), size=(224,224), mode="bilinear", align_corners=False)
+    patch_tensor = patch_tensor.expand(-1, 3, -1, -1)
     mean, std = torch.tensor([0.485,0.456,0.406], device=device).view(1,3,1,1), torch.tensor([0.229,0.224,0.225], device=device).view(1,3,1,1)
-    return dino((t - mean) / std).cpu().numpy()
+    return dino((patch_tensor - mean) / std).cpu().numpy()
 
 def load_frame(mask_path, img_path):
+    """Load a mask+image frame and return coords, labels, and DINO embeddings for its cells."""
     mask = imread(mask_path)
     img = imread(img_path).astype(np.float32)
     p1, p998 = np.percentile(img, (1, 99.8))
@@ -110,12 +117,12 @@ def scan_pairs(data_root, conditions, max_pairs=200):
 
 def build_association(label_a, label_b):
     """Build association matrix: assoc[i,j] = 1 if label_a[i] == label_b[j]."""
-    n1, n2 = len(label_a), len(label_b)
-    assoc = np.zeros((n1, n2), dtype=np.float32)
+    n_src, n_tgt = len(label_a), len(label_b)
+    assoc = np.zeros((n_src, n_tgt), dtype=np.float32)
     lbl_to_b = {int(l): j for j, l in enumerate(label_b)}
-    for i, l in enumerate(label_a):
-        if int(l) in lbl_to_b:
-            assoc[i, lbl_to_b[int(l)]] = 1.0
+    for i, lbl in enumerate(label_a):
+        if int(lbl) in lbl_to_b:
+            assoc[i, lbl_to_b[int(lbl)]] = 1.0
     return assoc
 
 
@@ -124,6 +131,7 @@ def build_association(label_a, label_b):
 class SSLPretrainedProj(nn.Module):
     """MLP projection head from DINO dim → d_model. No BatchNorm (avoids state dict issues)."""
     def __init__(self, in_dim=DINO_DIM, hidden=128, out_dim=64):
+        """Build a 2-layer MLP mapping in_dim to out_dim."""
         super().__init__()
         self.net = nn.Sequential(
             nn.Linear(in_dim, hidden),
@@ -131,8 +139,9 @@ class SSLPretrainedProj(nn.Module):
             nn.Linear(hidden, out_dim),
         )
 
-    def forward(self, x):
-        return F.normalize(self.net(x), dim=-1)
+    def forward(self, features):
+        """Normalize the MLP-projected features to the unit sphere."""
+        return F.normalize(self.net(features), dim=-1)
 
 
 class SimpleTracker(nn.Module):
@@ -141,6 +150,7 @@ class SimpleTracker(nn.Module):
     Simulates Trackastra's downstream task: (src_emb, tgt_emb) → association logits.
     """
     def __init__(self, in_dim=64, d_model=64, nhead=4):
+        """Build projection, cross-attention, LayerNorm, and linear head modules."""
         super().__init__()
         self.proj = nn.Linear(in_dim, d_model)
         self.cross_attn = nn.MultiheadAttention(d_model, nhead, batch_first=True)
@@ -148,15 +158,16 @@ class SimpleTracker(nn.Module):
         self.head = nn.Linear(d_model, 1)
 
     def forward(self, src, tgt):
+        """Map (B, N_src, in_dim) x (B, N_tgt, in_dim) to association scores (B, N_src, N_tgt)."""
         # src, tgt: (B, N, in_dim)
-        s = self.proj(src)
-        t = self.proj(tgt)
-        out, _ = self.cross_attn(s, t, t)
-        out = self.norm(s + out)
+        src_proj = self.proj(src)
+        tgt_proj = self.proj(tgt)
+        out, _ = self.cross_attn(src_proj, tgt_proj, tgt_proj)
+        out = self.norm(src_proj + out)
         logits = self.head(out).squeeze(-1)  # (B, N)
         # For each src cell, compute match scores: (B, N_src, N_tgt) via outer product
-        A = torch.einsum("bnd,bmd->bnm", s, t)
-        return A
+        score_matrix = torch.einsum("bnd,bmd->bnm", src_proj, tgt_proj)
+        return score_matrix
 
 
 # ─── downstream training ──────────────────────────────────────────────────────

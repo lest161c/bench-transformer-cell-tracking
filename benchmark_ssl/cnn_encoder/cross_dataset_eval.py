@@ -47,6 +47,9 @@ TEST_SEQS = sorted(
 
 
 def main():
+    """Evaluate all trained vanvliet checkpoints on the held-out deepcell
+    dataset: run greedy tracking, save CTC predictions, compute TRA/cHOTA/AOGM
+    per sequence, aggregate, and write metrics + summary JSON files."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--device", choices=["cuda", "cpu"], default="cuda")
     parser.add_argument("--dry-run", action="store_true", help="Print plan and exit")
@@ -154,8 +157,8 @@ def main():
 
         # ── Save per-variant metrics ──────────────────────────────────────
         (OUTPUT_ROOT / variant).mkdir(parents=True, exist_ok=True)
-        with open(OUTPUT_ROOT / variant / "metrics.json", "w") as f:
-            json.dump(variant_results, f, indent=2)
+        with open(OUTPUT_ROOT / variant / "metrics.json", "w") as file_handle:
+            json.dump(variant_results, file_handle, indent=2)
 
         all_results[variant] = variant_results
 
@@ -167,15 +170,15 @@ def main():
 
         summary = {}
         for variant, var_results in all_results.items():
-            valid = [r for r in var_results.values() if "error" not in r]
+            valid = [result for result in var_results.values() if "error" not in result]
             if not valid:
                 summary[variant] = {"error": "all sequences failed"}
                 print(f"  {variant:20s}  ALL FAILED")
                 continue
 
-            tra_vals = [r["TRA"] for r in valid if r.get("TRA") is not None]
-            chota_vals = [r["cHOTA"] for r in valid if r.get("cHOTA") is not None]
-            aogm_vals = [r["AOGM"] for r in valid if r.get("AOGM") is not None]
+            tra_vals = [result["TRA"] for result in valid if result.get("TRA") is not None]
+            chota_vals = [result["cHOTA"] for result in valid if result.get("cHOTA") is not None]
+            aogm_vals = [result["AOGM"] for result in valid if result.get("AOGM") is not None]
 
             summary[variant] = {
                 "mean_TRA": float(np.mean(tra_vals)) if tra_vals else None,
@@ -191,8 +194,8 @@ def main():
                   f"cHOTA={summary[variant]['mean_cHOTA']:.4f}  "
                   f"AOGM={summary[variant]['mean_AOGM']:.4f}")
 
-        with open(OUTPUT_ROOT / "summary.json", "w") as f:
-            json.dump(summary, f, indent=2)
+        with open(OUTPUT_ROOT / "summary.json", "w") as file_handle:
+            json.dump(summary, file_handle, indent=2)
 
         print(f"\n  Results saved to: {OUTPUT_ROOT}/")
 

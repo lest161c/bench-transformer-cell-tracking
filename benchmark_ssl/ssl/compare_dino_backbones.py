@@ -41,6 +41,10 @@ IMAGENET_STD = torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1)
 # ─── data loading ───────────────────────────────────────────────────────────────
 
 def load_frame(mask_path, img_path):
+    """Load a mask+image frame and return cell centroids, labels, and the normalized image.
+
+    Returns (coords, labels, img) or None if the mask contains no cells.
+    """
     mask = imread(mask_path)
     img = imread(img_path).astype(np.float32)
     p1, p998 = np.percentile(img, (1, 99.8))
@@ -54,6 +58,11 @@ def load_frame(mask_path, img_path):
 
 
 def scan_frames(data_root, conditions, max_frames=200):
+    """Collect (mask_path, image_path) pairs across the requested conditions.
+
+    Walks each condition's experiment directories and returns up to max_frames
+    (mask, image) path tuples.
+    """
     frames = []
     dr = Path(data_root)
     for cond in conditions:
@@ -73,6 +82,11 @@ def scan_frames(data_root, conditions, max_frames=200):
 
 
 def extract_patches(img, centroids):
+    """Extract square patches (PATCH_SIZE x PATCH_SIZE) centered on each centroid.
+
+    Out-of-bounds regions are padded by reflection; returns a stacked float32
+    array of shape (N, PATCH_SIZE, PATCH_SIZE).
+    """
     h, w = img.shape[-2:]
     half = PATCH_SIZE // 2
     patches = []
@@ -104,12 +118,12 @@ def extract_patches(img, centroids):
 
 def load_dino(repo, model_name):
     """Load a DINO model, return (model, dim, n_params_M)."""
-    m = torch.hub.load(repo, model_name).to(device).eval()
-    dim = m.embed_dim if hasattr(m, 'embed_dim') else (m.dim if hasattr(m, 'dim') else 384)
-    n_params = sum(p.numel() for p in m.parameters())
-    for p in m.parameters():
-        p.requires_grad = False
-    return m, dim, n_params / 1e6
+    model = torch.hub.load(repo, model_name).to(device).eval()
+    dim = model.embed_dim if hasattr(model, 'embed_dim') else (model.dim if hasattr(model, 'dim') else 384)
+    n_params = sum(param.numel() for param in model.parameters())
+    for param in model.parameters():
+        param.requires_grad = False
+    return model, dim, n_params / 1e6
 
 
 @torch.no_grad()
@@ -130,19 +144,25 @@ def compute_dino_embs(patches_np, dino_model, batch_size=None):
     all_embs = []
     for start in range(0, len(pn), batch_size):
         batch = pn[start:start + batch_size]
-        t = torch.from_numpy(batch).float().unsqueeze(1).to(device)
-        t = F.interpolate(t, size=(DINO_INPUT_SIZE, DINO_INPUT_SIZE), mode="bilinear", align_corners=False)
-        t = t.expand(-1, 3, -1, -1)
+        patch_tensor = torch.from_numpy(batch).float().unsqueeze(1).to(device)
+        patch_tensor = F.interpolate(patch_tensor, size=(DINO_INPUT_SIZE, DINO_INPUT_SIZE), mode="bilinear", align_corners=False)
+        patch_tensor = patch_tensor.expand(-1, 3, -1, -1)
         mean = IMAGENET_MEAN.to(device)
         std = IMAGENET_STD.to(device)
-        t = (t - mean) / std
-        all_embs.append(dino_model(t).cpu().numpy())
+        patch_tensor = (patch_tensor - mean) / std
+        all_embs.append(dino_model(patch_tensor).cpu().numpy())
     return np.concatenate(all_embs, axis=0)
 
 
 # ─── metrics ────────────────────────────────────────────────────────────────────
 
 def compute_gap(embs_a, embs_b, labels_a, labels_b):
+    """Mean intra-cell vs inter-cell cosine similarity and their gap.
+
+    embs_a/embs_b are two views (e.g. original vs jittered) of the same cells;
+    labels_a/labels_b mark which cells correspond. Returns a dict with keys
+    intra, inter, gap.
+    """
     fa = embs_a / (np.linalg.norm(embs_a, axis=1, keepdims=True) + 1e-12)
     fb = embs_b / (np.linalg.norm(embs_b, axis=1, keepdims=True) + 1e-12)
     sim = fa @ fb.T
@@ -161,6 +181,7 @@ def compute_gap(embs_a, embs_b, labels_a, labels_b):
 
 
 def compute_recall(embs_a, embs_b, labels_a, labels_b, topk=1):
+    """Fraction of cells whose correct match appears in the top-k by cosine similarity."""
     fa = embs_a / (np.linalg.norm(embs_a, axis=1, keepdims=True) + 1e-12)
     fb = embs_b / (np.linalg.norm(embs_b, axis=1, keepdims=True) + 1e-12)
     sim = fa @ fb.T
@@ -212,6 +233,12 @@ BACKBONE_SPECS = [
 # ─── main ───────────────────────────────────────────────────────────────────────
 
 def main():
+    """Compare DINO backbones on vanvliet cell patches and write CSV/figure/verdict.
+
+    Scans frames, loads each backbone from BACKBONE_SPECS, benchmarks
+    throughput and VRAM, computes gap/recall/effective-rank metrics, and
+    saves comparison.csv, comparison.png, and verdict.txt into --outdir.
+    """
     parser = argparse.ArgumentParser(description="Compare DINO backbones on vanvliet bacteria")
     parser.add_argument("--data-root", default="../data/vanvliet", help="Path to vanvliet data")
     parser.add_argument("--outdir", default="runs/dino_comparison", help="Output directory")
@@ -236,9 +263,9 @@ def main():
     logger.info("Loading frames into memory...")
     all_data = []
     for mp, ip in frames:
-        r = load_frame(mp, ip)
-        if r is None: continue
-        coords, labels, img = r
+        frame_data = load_frame(mp, ip)
+        if frame_data is None: continue
+        coords, labels, img = frame_data
         if len(labels) < 2: continue
         # pre-extract patches (same for all backbones)
         patches = extract_patches(img, coords)
@@ -277,23 +304,23 @@ def main():
 
         # memory
         if device.type == "cuda":
-            mem = torch.cuda.max_memory_allocated() / 1024 ** 2
+            memory_mb = torch.cuda.max_memory_allocated() / 1024 ** 2
             torch.cuda.reset_peak_memory_stats()
         else:
-            mem = 0.0
-        logger.info(f"  Peak VRAM: {mem:.0f} MiB")
+            memory_mb = 0.0
+        logger.info(f"  Peak VRAM: {memory_mb:.0f} MiB")
 
         # compute gap per frame (original vs jittered)
         gaps, intra_sims, inter_sims, recalls = [], [], [], []
         for patches, jit_patches, labels, _ in all_data:
             emb_orig = compute_dino_embs(patches, dino_model)
             emb_jit = compute_dino_embs(jit_patches, dino_model)
-            g = compute_gap(emb_orig, emb_jit, labels, labels)
-            gaps.append(g["gap"])
-            intra_sims.append(g["intra"])
-            inter_sims.append(g["inter"])
-            r = compute_recall(emb_orig, emb_jit, labels, labels)
-            recalls.append(r)
+            gap_result = compute_gap(emb_orig, emb_jit, labels, labels)
+            gaps.append(gap_result["gap"])
+            intra_sims.append(gap_result["intra"])
+            inter_sims.append(gap_result["inter"])
+            recall = compute_recall(emb_orig, emb_jit, labels, labels)
+            recalls.append(recall)
 
         mean_gap = np.nanmean(gaps)
         mean_intra = np.nanmean(intra_sims)
@@ -317,7 +344,7 @@ def main():
             "recall_at_1": round(mean_recall, 4),
             "effective_rank": eff_rank,
             "throughput_pps": round(pps, 1),
-            "peak_vram_mib": round(mem, 0),
+            "peak_vram_mib": round(memory_mb, 0),
             "load_time_s": round(load_time, 1),
             "n_frames": len(all_data),
             "n_cells": sum(d[3] for d in all_data),
@@ -342,11 +369,11 @@ def main():
     fig, axes = plt.subplots(2, 3, figsize=(14, 9))
     fig.suptitle("DINO Backbone Comparison on vanvliet Bacteria", fontsize=13, fontweight="bold")
 
-    names = [r["short"] for r in results]
+    names = [row["short"] for row in results]
 
     # Gap
     ax = axes[0, 0]
-    gaps = [r["gap"] for r in results]
+    gaps = [row["gap"] for row in results]
     bars = ax.bar(names, gaps, color=["#2196F3", "#FF9800"])
     ax.set_title("Gap (intra - inter cos sim)")
     ax.set_ylabel("Cosine similarity gap")
@@ -359,15 +386,15 @@ def main():
     ax = axes[0, 1]
     x = np.arange(len(names))
     w = 0.35
-    ax.bar(x - w/2, [r["intra_cos_sim"] for r in results], w, label="Intra", color="#4CAF50")
-    ax.bar(x + w/2, [r["inter_cos_sim"] for r in results], w, label="Inter", color="#F44336")
+    ax.bar(x - w/2, [row["intra_cos_sim"] for row in results], w, label="Intra", color="#4CAF50")
+    ax.bar(x + w/2, [row["inter_cos_sim"] for row in results], w, label="Inter", color="#F44336")
     ax.set_title("Cosine Similarity")
     ax.set_xticks(x); ax.set_xticklabels(names)
     ax.legend()
 
     # Recall@1
     ax = axes[0, 2]
-    recalls = [r["recall_at_1"] for r in results]
+    recalls = [row["recall_at_1"] for row in results]
     bars = ax.bar(names, recalls, color=["#2196F3", "#FF9800"])
     ax.set_title(f"Recall@1 (jitter={args.jitter_std}px)")
     ax.set_ylabel("Recall")
@@ -378,7 +405,7 @@ def main():
 
     # Effective rank
     ax = axes[1, 0]
-    ranks = [r["effective_rank"] for r in results]
+    ranks = [row["effective_rank"] for row in results]
     bars = ax.bar(names, ranks, color=["#2196F3", "#FF9800"])
     ax.set_title("Effective Rank (95% var)")
     ax.set_ylabel("Components")
@@ -388,7 +415,7 @@ def main():
 
     # Throughput
     ax = axes[1, 1]
-    pps = [r["throughput_pps"] for r in results]
+    pps = [row["throughput_pps"] for row in results]
     bars = ax.bar(names, pps, color=["#2196F3", "#FF9800"])
     ax.set_title("Throughput (patches/sec)")
     ax.set_ylabel("Patches/sec")
@@ -398,7 +425,7 @@ def main():
 
     # Model size
     ax = axes[1, 2]
-    params = [r["params_M"] for r in results]
+    params = [row["params_M"] for row in results]
     bars = ax.bar(names, params, color=["#2196F3", "#FF9800"])
     ax.set_title("Model Parameters")
     ax.set_ylabel("Millions")
@@ -432,10 +459,10 @@ def main():
     lines.append("")
     lines.append("RESULTS")
     lines.append("-" * 40)
-    for r in results:
-        lines.append(f"  {r['short']}: gap={r['gap']:.4f}, recall={r['recall_at_1']:.4f}, "
-                     f"rank={r['effective_rank']}, pps={r['throughput_pps']:.0f}, "
-                     f"vram={r['peak_vram_mib']:.0f}MiB, params={r['params_M']:.1f}M")
+    for row in results:
+        lines.append(f"  {row['short']}: gap={row['gap']:.4f}, recall={row['recall_at_1']:.4f}, "
+                     f"rank={row['effective_rank']}, pps={row['throughput_pps']:.0f}, "
+                     f"vram={row['peak_vram_mib']:.0f}MiB, params={row['params_M']:.1f}M")
     lines.append("")
     lines.append("INTERPRETATION")
     lines.append("-" * 40)

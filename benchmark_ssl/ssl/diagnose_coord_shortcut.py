@@ -40,10 +40,6 @@ logger = logging.getLogger("coord_diag")
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 logger.info(f"Device: {device}")
 
-SEED = 42
-torch.manual_seed(SEED)
-np.random.seed(SEED)
-
 # ─── DINO backbone ─────────────────────────────────────────────────────────────
 
 logger.info("Loading DINOv2 (this may take a moment)...")
@@ -53,6 +49,11 @@ PATCH_SIZE = 64
 
 
 def extract_patches(img, centroids):
+    """Extract square patches (PATCH_SIZE x PATCH_SIZE) centered on each centroid.
+
+    Out-of-bounds regions are padded by reflection; returns a stacked float32
+    array of shape (N, PATCH_SIZE, PATCH_SIZE).
+    """
     h, w = img.shape[-2:]
     half = PATCH_SIZE // 2
     patches = []
@@ -85,44 +86,52 @@ def extract_patches(img, centroids):
 
 @torch.no_grad()
 def compute_dino_embs(patches_np):
+    """Compute 384D DINOv2 embeddings for a batch of normalized patches."""
     if len(patches_np) == 0:
         return np.zeros((0, DINO_DIM), dtype=np.float32)
     pmin = patches_np.min(axis=(1, 2), keepdims=True)
     pmax = patches_np.max(axis=(1, 2), keepdims=True)
     pn = (patches_np - pmin) / (pmax - pmin + 1e-8)
-    t = torch.from_numpy(pn).float().unsqueeze(1).to(device)
-    t = F.interpolate(t, size=(224, 224), mode="bilinear", align_corners=False)
-    t = t.expand(-1, 3, -1, -1)
+    patch_tensor = torch.from_numpy(pn).float().unsqueeze(1).to(device)
+    patch_tensor = F.interpolate(patch_tensor, size=(224, 224), mode="bilinear", align_corners=False)
+    patch_tensor = patch_tensor.expand(-1, 3, -1, -1)
     mean = torch.tensor([0.485, 0.456, 0.406], device=device).view(1, 3, 1, 1)
     std = torch.tensor([0.229, 0.224, 0.225], device=device).view(1, 3, 1, 1)
-    t = (t - mean) / std
-    return dino(t).cpu().numpy()
+    patch_tensor = (patch_tensor - mean) / std
+    return dino(patch_tensor).cpu().numpy()
 
 
 # ─── Positional encodings ──────────────────────────────────────────────────────
 
 class FourierPE(nn.Module):
+    """Fourier positional encoding: sin/cos of coords at logarithmically spaced frequencies."""
+
     def __init__(self, coord_dim=2, per_dim=32):
+        """Store per-dimension frequencies; output dim is coord_dim * per_dim * 2."""
         super().__init__()
-        self.d = coord_dim * per_dim * 2
+        self.pe_dim = coord_dim * per_dim * 2
         freqs = 2.0 ** torch.linspace(0.0, 10.0, per_dim)
         self.register_buffer("freqs", freqs)
 
     def forward(self, coords):
-        B, N, C = coords.shape
+        """Map coords (B, N, coord_dim) to (B, N, pe_dim) sin/cos features."""
+        batch_size, seq_len, coord_dim = coords.shape
         parts = []
-        for c in range(C):
-            arg = coords[:, :, c].unsqueeze(-1) * self.freqs.view(1, 1, -1)
+        for dim_idx in range(coord_dim):
+            arg = coords[:, :, dim_idx].unsqueeze(-1) * self.freqs.view(1, 1, -1)
             parts.append(torch.sin(arg))
             parts.append(torch.cos(arg))
         return torch.cat(parts, dim=-1)
 
 
 class NoPE(nn.Module):
-    def __init__(self, d):
+    """Learned constant token used as a placeholder instead of positional encoding."""
+
+    def __init__(self, pe_dim):
+        """Initialize a small learnable token broadcast over all positions."""
         super().__init__()
-        self.d = d
-        self.token = nn.Parameter(torch.randn(1, 1, d) * 0.02)
+        self.pe_dim = pe_dim
+        self.token = nn.Parameter(torch.randn(1, 1, pe_dim) * 0.02)
 
     def forward(self, coords):
         return self.token.expand(coords.shape[0], coords.shape[1], -1)
@@ -131,7 +140,10 @@ class NoPE(nn.Module):
 # ─── Encoder ────────────────────────────────────────────────────────────────────
 
 class ASCENTEncoder(nn.Module):
+    """Encoder combining positional encoding (or noise) with optional DINO features."""
+
     def __init__(self, pe_dim, dino_dim=384, d_model=256, out_dim=64, use_dino=True):
+        """Project PE and DINO features to d_model, fuse, and MLP to out_dim."""
         super().__init__()
         self.use_dino = use_dino
         self.pe_proj = nn.Linear(pe_dim, d_model)
@@ -141,14 +153,16 @@ class ASCENTEncoder(nn.Module):
         self.mlp = nn.Sequential(nn.Linear(d_model, 128), nn.ReLU(), nn.Linear(128, out_dim))
 
     def forward(self, dino_feats, pe):
-        p = F.normalize(self.pe_proj(pe), dim=-1)
-        x = self.norm(p + F.normalize(self.dino_proj(dino_feats), dim=-1)) if self.use_dino else self.norm(p)
-        return F.normalize(self.mlp(x), dim=-1)
+        """Fuse normalized PE and DINO projections, normalize the MLP output."""
+        pe_proj_out = F.normalize(self.pe_proj(pe), dim=-1)
+        combined = self.norm(pe_proj_out + F.normalize(self.dino_proj(dino_feats), dim=-1)) if self.use_dino else self.norm(pe_proj_out)
+        return F.normalize(self.mlp(combined), dim=-1)
 
 
 # ─── Metrics ────────────────────────────────────────────────────────────────────
 
 def compute_metrics(z1, z2, labels1, labels2):
+    """Intra/inter cosine similarity, their gap, and intra-frame similarity."""
     z1n = z1 / (np.linalg.norm(z1, axis=1, keepdims=True) + 1e-12)
     z2n = z2 / (np.linalg.norm(z2, axis=1, keepdims=True) + 1e-12)
     sim = z1n @ z2n.T
@@ -166,16 +180,21 @@ def compute_metrics(z1, z2, labels1, labels2):
     }
 
 
-def nt_xent_loss(z, temperature=0.05):
-    B = z.shape[0] // 2
-    sim = z @ z.T / temperature
+def nt_xent_loss(embeddings, temperature=0.05):
+    """NT-Xent loss over concatenated two-view embeddings (first half = view 1)."""
+    batch_size = embeddings.shape[0] // 2
+    sim = embeddings @ embeddings.T / temperature
     sim.fill_diagonal_(-1e9)
-    return F.cross_entropy(sim, torch.cat([torch.arange(B, 2*B), torch.arange(B)]).to(z.device))
+    return F.cross_entropy(sim, torch.cat([torch.arange(batch_size, 2 * batch_size), torch.arange(batch_size)]).to(embeddings.device))
 
 
 # ─── Data loading ──────────────────────────────────────────────────────────────
 
 def load_frame(mask_path, img_path):
+    """Load a mask+image frame and return cell centroids, labels, and normalized image.
+
+    Returns (coords, labels, img) or None if the mask contains fewer than 2 cells.
+    """
     mask = imread(mask_path)
     img = imread(img_path).astype(np.float32)
     p1, p998 = np.percentile(img, (1, 99.8))
@@ -188,6 +207,7 @@ def load_frame(mask_path, img_path):
 
 
 def scan_frames(data_root, conditions, max_frames):
+    """Collect (mask_path, image_path) pairs across conditions, up to max_frames."""
     frames = []
     dr = Path(data_root)
     for cond in conditions:
@@ -209,23 +229,30 @@ def scan_frames(data_root, conditions, max_frames):
 # ─── Distortions ────────────────────────────────────────────────────────────────
 
 def distort(coords, labels, mode):
+    """Apply the requested distortion family to a frame's cell coordinates."""
     if mode == "jitter4":    return apply_jitter(coords, 4), labels.copy()
     if mode == "full":
-        c = apply_affine(coords.copy(), 10, (0.9, 1.1))
-        c = apply_jitter(c, 4)
-        c, l = apply_dropout(c, labels.copy(), 0.1)
-        return c, l
+        coords_dist = apply_affine(coords.copy(), 10, (0.9, 1.1))
+        coords_dist = apply_jitter(coords_dist, 4)
+        coords_dist, labels_dist = apply_dropout(coords_dist, labels.copy(), 0.1)
+        return coords_dist, labels_dist
     return coords.copy(), labels.copy()
 
-def apply_jitter(c, std):    return c + np.random.randn(*c.shape).astype(np.float32) * std
-def apply_affine(c, deg, sr):
-    t = np.random.uniform(-deg, deg) / 180 * np.pi
-    sx, sy = np.random.uniform(*sr), np.random.uniform(*sr)
-    M = np.array([[sx*np.cos(t), -sx*np.sin(t)], [sy*np.sin(t), sy*np.cos(t)]])
-    return c @ M.T
-def apply_dropout(c, l, p):
-    k = np.random.rand(len(l)) > p
-    return c[k], l[k]
+def apply_jitter(coords, std):
+    """Add Gaussian noise of the given std to coordinates."""
+    return coords + np.random.randn(*coords.shape).astype(np.float32) * std
+
+def apply_affine(coords, degrees, scale_range):
+    """Apply a random rotation (degrees) and scaling (scale_range) to coordinates."""
+    angle = np.random.uniform(-degrees, degrees) / 180 * np.pi
+    sx, sy = np.random.uniform(*scale_range), np.random.uniform(*scale_range)
+    M = np.array([[sx*np.cos(angle), -sx*np.sin(angle)], [sy*np.sin(angle), sy*np.cos(angle)]])
+    return coords @ M.T
+
+def apply_dropout(coords, labels, drop_prob):
+    """Randomly drop cells with probability drop_prob, keeping coordinate/label alignment."""
+    keep_mask = np.random.rand(len(labels)) > drop_prob
+    return coords[keep_mask], labels[keep_mask]
 
 
 # ─── Precompute data ───────────────────────────────────────────────────────────
@@ -233,11 +260,12 @@ def apply_dropout(c, l, p):
 class PrecomputedData:
     """Holds train/val splits of (dino_e1, dino_e2, coords1, coords2, labels) for each frame."""
     def __init__(self, frames, distortion_mode, val_split=0.2):
+        """Precompute DINO embeddings and distorted coords for each frame, then split."""
         all_pairs = []
         for mp, ip in frames:
-            r = load_frame(mp, ip)
-            if r is None: continue
-            c1, lbl, img = r
+            frame_data = load_frame(mp, ip)
+            if frame_data is None: continue
+            c1, lbl, img = frame_data
             c2, _ = distort(c1.copy(), lbl.copy(), distortion_mode)
             p1 = extract_patches(img, c1); e1 = compute_dino_embs(p1)
             p2 = extract_patches(img, c2); e2 = compute_dino_embs(p2)
@@ -249,6 +277,7 @@ class PrecomputedData:
         logger.info(f"Data: {len(self.train)} train + {len(self.val)} val frames")
 
     def to_gpu(self, subset):
+        """Move a subset of precomputed pairs to GPU tensors (labels stay as numpy)."""
         gpu = []
         for e1, e2, c1, c2, lbl in subset:
             gpu.append((
@@ -264,7 +293,8 @@ class PrecomputedData:
 # ─── Run one experiment ────────────────────────────────────────────────────────
 
 def run_experiment(name, pos_enc, data, steps, lr, d_model, use_dino, eval_every=25):
-    pe_dim = pos_enc.d
+    """Train one SSL encoder variant and log per-step loss and gap metrics."""
+    pe_dim = pos_enc.pe_dim
     encoder = ASCENTEncoder(pe_dim, DINO_DIM, d_model, use_dino=use_dino).to(device)
     opt = torch.optim.Adam(encoder.parameters(), lr=lr)
     train_gpu = data.to_gpu(data.train)
@@ -276,12 +306,12 @@ def run_experiment(name, pos_enc, data, steps, lr, d_model, use_dino, eval_every
         encoder.train()
         losses = []
         for de1, de2, c1, c2, lbl in train_gpu:
-            n = min(len(de1), len(de2))
-            if n < 2: continue
-            c1n, c2n = c1[:n].unsqueeze(0), c2[:n].unsqueeze(0)
+            n_cells = min(len(de1), len(de2))
+            if n_cells < 2: continue
+            c1n, c2n = c1[:n_cells].unsqueeze(0), c2[:n_cells].unsqueeze(0)
             pe1 = pos_enc(c1n).squeeze(0); pe2 = pos_enc(c2n).squeeze(0)
-            z = torch.cat([encoder(de1[:n], pe1), encoder(de2[:n], pe2)])
-            loss = nt_xent_loss(z)
+            embeddings = torch.cat([encoder(de1[:n_cells], pe1), encoder(de2[:n_cells], pe2)])
+            loss = nt_xent_loss(embeddings)
             opt.zero_grad(); loss.backward(); opt.step()
             losses.append(loss.item())
 
@@ -295,16 +325,16 @@ def run_experiment(name, pos_enc, data, steps, lr, d_model, use_dino, eval_every
                 def eval_gap(gpu_subset):
                     gaps, intras, inters, intraf = [], [], [], []
                     for de1, de2, c1, c2, lbl in gpu_subset:
-                        n = min(len(de1), len(de2))
-                        if n < 2: continue
-                        c1n, c2n = c1[:n].unsqueeze(0), c2[:n].unsqueeze(0)
+                        n_cells = min(len(de1), len(de2))
+                        if n_cells < 2: continue
+                        c1n, c2n = c1[:n_cells].unsqueeze(0), c2[:n_cells].unsqueeze(0)
                         pe1 = pos_enc(c1n).squeeze(0); pe2 = pos_enc(c2n).squeeze(0)
-                        z1 = encoder(de1[:n], pe1).cpu().numpy()
-                        z2 = encoder(de2[:n], pe2).cpu().numpy()
-                        m = compute_metrics(z1, z2, lbl[:n], lbl[:n])
-                        if not np.isnan(m["gap"]):
-                            gaps.append(m["gap"]); intras.append(m["intra"])
-                            inters.append(m["inter"]); intraf.append(m["intra_frame"])
+                        z1 = encoder(de1[:n_cells], pe1).cpu().numpy()
+                        z2 = encoder(de2[:n_cells], pe2).cpu().numpy()
+                        metrics = compute_metrics(z1, z2, lbl[:n_cells], lbl[:n_cells])
+                        if not np.isnan(metrics["gap"]):
+                            gaps.append(metrics["gap"]); intras.append(metrics["intra"])
+                            inters.append(metrics["inter"]); intraf.append(metrics["intra_frame"])
                     return gaps, intras, inters, intraf
 
                 tr_gaps, tr_intras, tr_inters, tr_intraf = eval_gap(train_gpu)
@@ -330,6 +360,7 @@ def run_experiment(name, pos_enc, data, steps, lr, d_model, use_dino, eval_every
 # ─── Visualization ─────────────────────────────────────────────────────────────
 
 def make_figure(results_dfs, results_meta, outdir, args):
+    """Render a 6-panel figure summarizing loss, gap, and convergence across modes."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -394,25 +425,25 @@ def make_figure(results_dfs, results_meta, outdir, args):
         conv_colors.append(colors[mode])
     bars = ax.bar(mode_names, conv_steps, color=conv_colors, alpha=0.7, edgecolor="black")
     ax.set_ylabel("Steps to loss < 0.5"); ax.set_title("Convergence Speed (lower = faster)")
-    for bar, v in zip(bars, conv_steps):
-        ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 5, str(v), ha="center", fontweight="bold")
+    for bar, value in zip(bars, conv_steps):
+        ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 5, str(value), ha="center", fontweight="bold")
     ax.grid(True, axis="y", alpha=0.3)
 
     # Panel 6: Final quality comparison (val gap + train gap)
     ax = axes[1, 2]
     x_pos = np.arange(len(mode_names))
     width = 0.35
-    tr_final = [results_dfs[m]["train_gap"].iloc[-1] for m in ["A","B","C"] if m in results_dfs]
-    vl_final = [results_dfs[m]["val_gap"].iloc[-1] for m in ["A","B","C"] if m in results_dfs]
+    tr_final = [results_dfs[mode]["train_gap"].iloc[-1] for mode in ["A","B","C"] if mode in results_dfs]
+    vl_final = [results_dfs[mode]["val_gap"].iloc[-1] for mode in ["A","B","C"] if mode in results_dfs]
     b1 = ax.bar(x_pos - width/2, tr_final, width, label="Train gap", color="#95a5a6", alpha=0.7)
     b2 = ax.bar(x_pos + width/2, vl_final, width, label="Val gap", color="#2c3e50", alpha=0.7)
     ax.set_ylabel("Final Gap"); ax.set_title("Final Representation Quality")
     ax.set_xticks(x_pos); ax.set_xticklabels(mode_names)
     ax.legend(fontsize=8); ax.grid(True, axis="y", alpha=0.3)
-    for b, v in zip(b1, tr_final):
-        ax.text(b.get_x() + b.get_width()/2, b.get_height() + 0.01, f"{v:.3f}", ha="center", fontsize=8)
-    for b, v in zip(b2, vl_final):
-        ax.text(b.get_x() + b.get_width()/2, b.get_height() + 0.01, f"{v:.3f}", ha="center", fontsize=8)
+    for bar, value in zip(b1, tr_final):
+        ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.01, f"{value:.3f}", ha="center", fontsize=8)
+    for bar, value in zip(b2, vl_final):
+        ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.01, f"{value:.3f}", ha="center", fontsize=8)
 
     plt.suptitle(f"Coordinate Shortcut Diagnostic — {args.distortion} distortion, {args.max_frames} frames, d_model={args.d_model}",
                  fontsize=13, fontweight="bold", y=1.01)
@@ -427,28 +458,38 @@ def make_figure(results_dfs, results_meta, outdir, args):
 # ─── Main ───────────────────────────────────────────────────────────────────────
 
 def main():
-    p = argparse.ArgumentParser(description="Coordinate shortcut diagnostic for DINO+SSL")
-    p.add_argument("--data-root", default="../data/vanvliet")
-    p.add_argument("--conditions", default="rpsM")
-    p.add_argument("--max-frames", type=int, default=30)
-    p.add_argument("--steps", type=int, default=300)
-    p.add_argument("--lr", type=float, default=1e-3)
-    p.add_argument("--d-model", type=int, default=256)
-    p.add_argument("--pos-per-dim", type=int, default=32,
-                   help="Fourier PE frequencies per coordinate dimension")
-    p.add_argument("--distortion", default="full",
-                   choices=["jitter4", "full"])
-    p.add_argument("--eval-every", type=int, default=25,
-                   help="Evaluate metrics every N steps")
-    p.add_argument("--outdir", default="runs/diagnose_coord_shortcut")
-    args = p.parse_args()
+    """Run the three-mode coordinate shortcut diagnostic and write CSV/figure/verdict outputs.
+
+    Sets the RNG seed from --seed, loads frames, runs modes A (PE+coords+DINO),
+    B (PE+noise+DINO), C (PE+coords only), and emits mode_*.csv, summary.csv,
+    coordinate_shortcut.png, and summary.txt into --outdir.
+    """
+    parser = argparse.ArgumentParser(description="Coordinate shortcut diagnostic for DINO+SSL")
+    parser.add_argument("--data-root", default="../data/vanvliet")
+    parser.add_argument("--conditions", default="rpsM")
+    parser.add_argument("--max-frames", type=int, default=30)
+    parser.add_argument("--steps", type=int, default=300)
+    parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument("--d-model", type=int, default=256)
+    parser.add_argument("--pos-per-dim", type=int, default=32,
+                       help="Fourier PE frequencies per coordinate dimension")
+    parser.add_argument("--distortion", default="full",
+                       choices=["jitter4", "full"])
+    parser.add_argument("--eval-every", type=int, default=25,
+                       help="Evaluate metrics every N steps")
+    parser.add_argument("--outdir", default="runs/diagnose_coord_shortcut")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
+    args = parser.parse_args()
+
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
 
     outdir = Path(args.outdir)
     outdir.mkdir(parents=True, exist_ok=True)
 
     # ─── Load data ──────────────────────────────────────────────────────────
 
-    conditions = [c.strip() for c in args.conditions.split(",")]
+    conditions = [cond.strip() for cond in args.conditions.split(",")]
     frames = scan_frames(args.data_root, conditions, args.max_frames)
     logger.info(f"Loaded {len(frames)} frames from {conditions}")
 
@@ -606,8 +647,8 @@ def main():
 
     verdict_text = "\n".join(lines)
     print(verdict_text)
-    with open(outdir / "summary.txt", "w") as f:
-        f.write(verdict_text)
+    with open(outdir / "summary.txt", "w") as file_handle:
+        file_handle.write(verdict_text)
 
     logger.info(f"Done. Results in {outdir}/")
     return results_dfs, results_meta

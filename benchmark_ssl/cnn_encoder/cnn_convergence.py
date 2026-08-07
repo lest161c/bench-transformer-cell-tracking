@@ -53,9 +53,9 @@ class ScaledCNN(nn.Module):
             ch = [32, 64, 128, 256]
         layers = []
         in_ch = 1
-        for c in ch:
-            layers += [nn.Conv2d(in_ch, c, 3, padding=1), nn.ReLU(), nn.MaxPool2d(2)]
-            in_ch = c
+        for channel_dim in ch:
+            layers += [nn.Conv2d(in_ch, channel_dim, 3, padding=1), nn.ReLU(), nn.MaxPool2d(2)]
+            in_ch = channel_dim
         self.conv = nn.Sequential(*layers)
         spatial = PATCH_SIZE // (2 ** len(ch))
         self.fc = nn.Sequential(
@@ -66,6 +66,7 @@ class ScaledCNN(nn.Module):
         )
 
     def forward(self, patches):
+        """patches: (N, 1, PATCH_SIZE, PATCH_SIZE) → embeddings: (N, out_dim)."""
         return self.fc(self.conv(patches))
 
 
@@ -118,23 +119,23 @@ def scan_consecutive_pairs(data_root, conditions, max_pairs):
 
 def extract_patches(img, centroids, patch_size=PATCH_SIZE):
     """Extract square patches centered on centroids."""
-    h, w = img.shape[-2:]
+    height, width = img.shape[-2:]
     half = patch_size // 2
     patches = []
     for cy, cx in centroids:
         cy_i, cx_i = int(round(float(cy))), int(round(float(cx)))
-        cy_i, cx_i = np.clip(cy_i, 0, h - 1), np.clip(cx_i, 0, w - 1)
+        cy_i, cx_i = np.clip(cy_i, 0, height - 1), np.clip(cx_i, 0, width - 1)
         y1, x1 = cy_i - half, cx_i - half
         y2, x2 = cy_i + half, cx_i + half
-        pt, pb = max(0, -y1), max(0, y2 - h)
-        pl, pr = max(0, -x1), max(0, x2 - w)
+        pt, pb = max(0, -y1), max(0, y2 - height)
+        pl, pr = max(0, -x1), max(0, x2 - width)
         y1c, x1c = max(0, y1), max(0, x1)
-        y2c, x2c = min(h, y2), min(w, x2)
+        y2c, x2c = min(height, y2), min(width, x2)
         crop = img[y1c:y2c, x1c:x2c] if (y2c > y1c and x2c > x1c) else np.zeros((1, 1), dtype=np.float32)
         if pt or pb or pl or pr:
             crop = np.pad(crop, ((pt, pb), (pl, pr)), mode="reflect")
         if crop.shape != (patch_size, patch_size):
-            crop = np.pad(crop, tuple((0, max(0, t)) for t in [patch_size - s for s in crop.shape]), mode="reflect")[:patch_size, :patch_size]
+            crop = np.pad(crop, tuple((0, max(0, pad_amount)) for pad_amount in [patch_size - dim_size for dim_size in crop.shape]), mode="reflect")[:patch_size, :patch_size]
         patches.append(crop)
     if patches:
         return np.stack(patches).astype(np.float32)
@@ -148,20 +149,20 @@ def extract_regionprops_7d(mask, img):
     props_list = sk_regionprops(mask, intensity_image=img)
     if len(props_list) == 0:
         return None, None, None
-    N = len(props_list)
-    feats = np.zeros((N, 7), dtype=np.float32)
-    coords = np.zeros((N, 2), dtype=np.float32)
-    labels = np.zeros(N, dtype=np.int32)
-    for i, r in enumerate(props_list):
-        feats[i, 0] = r.area
-        feats[i, 1] = r.eccentricity
-        feats[i, 2] = r.perimeter
-        feats[i, 3] = r.solidity if r.solidity is not None else 1.0
-        feats[i, 4] = r.extent if r.extent is not None else 1.0
-        feats[i, 5] = r.orientation if r.orientation is not None else 0.0
-        feats[i, 6] = r.intensity_mean if r.intensity_mean is not None else 0.0
-        coords[i] = r.centroid
-        labels[i] = r.label
+    n_regions = len(props_list)
+    feats = np.zeros((n_regions, 7), dtype=np.float32)
+    coords = np.zeros((n_regions, 2), dtype=np.float32)
+    labels = np.zeros(n_regions, dtype=np.int32)
+    for i, region in enumerate(props_list):
+        feats[i, 0] = region.area
+        feats[i, 1] = region.eccentricity
+        feats[i, 2] = region.perimeter
+        feats[i, 3] = region.solidity if region.solidity is not None else 1.0
+        feats[i, 4] = region.extent if region.extent is not None else 1.0
+        feats[i, 5] = region.orientation if region.orientation is not None else 0.0
+        feats[i, 6] = region.intensity_mean if region.intensity_mean is not None else 0.0
+        coords[i] = region.centroid
+        labels[i] = region.label
     return coords, labels, feats
 
 
@@ -172,18 +173,21 @@ def extract_regionprops_7d(mask, img):
 class FourierPE(nn.Module):
     """Fourier feature encoding for coordinates."""
     def __init__(self, pos_per_dim=16, coord_dim=2):
+        """Register per-coordinate Fourier frequencies; output dim is
+        coord_dim * pos_per_dim * 2."""
         super().__init__()
-        self.d = coord_dim * pos_per_dim * 2
+        self.pe_dim = coord_dim * pos_per_dim * 2
         self.coord_dim = coord_dim
         self.pos_per_dim = pos_per_dim
         self.register_buffer("freqs", 2.0 ** torch.linspace(0.0, 10.0, pos_per_dim))
 
-    def forward(self, c):
+    def forward(self, coords):
+        """Encode coords (N, coord_dim) into Fourier features (N, pe_dim)."""
         parts = []
         for i in range(self.coord_dim):
-            parts.append(torch.sin(c[:, :, i:i+1] * self.freqs.view(1, 1, -1)))
+            parts.append(torch.sin(coords[:, :, i:i+1] * self.freqs.view(1, 1, -1)))
         for i in range(self.coord_dim):
-            parts.append(torch.cos(c[:, :, i:i+1] * self.freqs.view(1, 1, -1)))
+            parts.append(torch.cos(coords[:, :, i:i+1] * self.freqs.view(1, 1, -1)))
         return torch.cat(parts, dim=-1)
 
 

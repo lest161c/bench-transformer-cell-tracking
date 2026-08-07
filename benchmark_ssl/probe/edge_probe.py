@@ -156,26 +156,26 @@ def extract_patches_32(img, centroids):
 
     Handles edge padding via reflection.
     """
-    h, w = img.shape[-2:]
+    height, width = img.shape[-2:]
     half = PATCH_SIZE_32 // 2
     patches = []
     for cy, cx in centroids:
         cy_i = int(round(float(cy)))
         cx_i = int(round(float(cx)))
-        cy_i = np.clip(cy_i, 0, h - 1)
-        cx_i = np.clip(cx_i, 0, w - 1)
+        cy_i = np.clip(cy_i, 0, height - 1)
+        cx_i = np.clip(cx_i, 0, width - 1)
         y1 = cy_i - half
         x1 = cx_i - half
         y2 = cy_i + half
         x2 = cx_i + half
         pt = max(0, -y1)
-        pb = max(0, y2 - h)
+        pb = max(0, y2 - height)
         pl = max(0, -x1)
-        pr = max(0, x2 - w)
+        pr = max(0, x2 - width)
         y1c = max(0, y1)
         x1c = max(0, x1)
-        y2c = min(h, y2)
-        x2c = min(w, x2)
+        y2c = min(height, y2)
+        x2c = min(width, x2)
         crop = (
             img[y1c:y2c, x1c:x2c]
             if y2c > y1c and x2c > x1c
@@ -187,8 +187,8 @@ def extract_patches_32(img, centroids):
             crop = np.pad(
                 crop,
                 tuple(
-                    (0, max(0, t)) for t in [
-                        PATCH_SIZE_32 - s for s in crop.shape
+                    (0, max(0, pad_amount)) for pad_amount in [
+                        PATCH_SIZE_32 - dim_size for dim_size in crop.shape
                     ]
                 ),
                 mode="reflect",
@@ -213,21 +213,21 @@ def extract_regionprops_7d(mask, img):
     if len(props_list) == 0:
         return None, None, None
 
-    N = len(props_list)
-    feats = np.zeros((N, 7), dtype=np.float32)
-    coords = np.zeros((N, 2), dtype=np.float32)
-    labels = np.zeros(N, dtype=np.int32)
+    n_cells = len(props_list)
+    feats = np.zeros((n_cells, 7), dtype=np.float32)
+    coords = np.zeros((n_cells, 2), dtype=np.float32)
+    labels = np.zeros(n_cells, dtype=np.int32)
 
-    for i, r in enumerate(props_list):
-        feats[i, 0] = r.area
-        feats[i, 1] = r.eccentricity
-        feats[i, 2] = r.perimeter
-        feats[i, 3] = r.solidity if r.solidity is not None else 1.0
-        feats[i, 4] = r.extent if r.extent is not None else 1.0
-        feats[i, 5] = r.orientation if r.orientation is not None else 0.0
-        feats[i, 6] = r.intensity_mean if r.intensity_mean is not None else 0.0
-        coords[i] = r.centroid
-        labels[i] = r.label
+    for i, region in enumerate(props_list):
+        feats[i, 0] = region.area
+        feats[i, 1] = region.eccentricity
+        feats[i, 2] = region.perimeter
+        feats[i, 3] = region.solidity if region.solidity is not None else 1.0
+        feats[i, 4] = region.extent if region.extent is not None else 1.0
+        feats[i, 5] = region.orientation if region.orientation is not None else 0.0
+        feats[i, 6] = region.intensity_mean if region.intensity_mean is not None else 0.0
+        coords[i] = region.centroid
+        labels[i] = region.label
 
     return coords, labels, feats
 
@@ -245,29 +245,29 @@ def extract_hu_moments_20d(img, centroids):
               which are redundant with regionprops or uninformative
               for centered patches).
 
-    Returns (N, 20) float32 array.
+    Returns (n_cells, 20) float32 array.
     """
     patches = extract_patches_32(img, centroids)
-    N = len(patches)
-    if N == 0:
+    n_cells = len(patches)
+    if n_cells == 0:
         return np.zeros((0, 20), dtype=np.float32)
 
-    feats = np.zeros((N, 20), dtype=np.float32)
+    feats = np.zeros((n_cells, 20), dtype=np.float32)
 
-    for i in range(N):
-        p = patches[i].astype(np.float64)
+    for i in range(n_cells):
+        patch = patches[i].astype(np.float64)
 
         # --- 7 Hu moments (log-scaled) ---
-        hu = moments_hu(p)
+        hu = moments_hu(patch)
         feats[i, :7] = -np.sign(hu) * np.log10(np.abs(hu) + 1e-10)
 
         # --- 13 raw moments up to order 3 ---
-        # moments(p, 3) returns (4, 4) with indices:
+        # moments(patch, 3) returns (4, 4) with indices:
         #   row 0: M00, M01, M02, M03
         #   row 1: M10, M11, M12, M13
         #   row 2: M20, M21, M22, M23
         #   row 3: M30, M31, M32, M33
-        m_raw = moments(p, order=3)  # (4, 4)
+        m_raw = moments(patch, order=3)  # (4, 4)
         # Flatten row-major, skip M00(0), M01(1), M10(4)
         # Keep indices: all except 0,1,4
         keep_mask = np.ones(16, dtype=bool)
@@ -295,14 +295,14 @@ def build_targets(labels_t, labels_n, tracklets):
     """Build edge targets for a frame pair.
 
     Returns:
-      target_all: (N1, N2) — 1 for same-cell OR parent→child, 0 otherwise
-      target_div: (N1, N2) — 1 for parent→child only, 0 otherwise
+      target_all: (n_cells_t, n_cells_n) — 1 for same-cell OR parent→child, 0 otherwise
+      target_div: (n_cells_t, n_cells_n) — 1 for parent→child only, 0 otherwise
       n_same: number of same-cell positive pairs
       n_div:  number of division positive pairs
     """
-    N1, N2 = len(labels_t), len(labels_n)
-    target_all = torch.zeros(N1, N2, dtype=torch.float32)
-    target_div = torch.zeros(N1, N2, dtype=torch.float32)
+    n_cells_t, n_cells_n = len(labels_t), len(labels_n)
+    target_all = torch.zeros(n_cells_t, n_cells_n, dtype=torch.float32)
+    target_div = torch.zeros(n_cells_t, n_cells_n, dtype=torch.float32)
     n_same, n_div = 0, 0
 
     for i, lt in enumerate(labels_t):
@@ -334,10 +334,10 @@ def build_edge_data(pairs, max_pairs=30):
       - Track positive pair counts
 
     Returns list of dicts:
-      feat_7d_t, feat_7d_n     : (N, 7)  regionprops
-      feat_20d_t, feat_20d_n   : (N, 20) Hu/patch moments
-      target_all               : (N1, N2) all positive edges
-      target_div               : (N1, N2) division-only edges
+      feat_7d_t, feat_7d_n     : (n_cells, 7)  regionprops
+      feat_20d_t, feat_20d_n   : (n_cells, 20) Hu/patch moments
+      target_all               : (n_cells_t, n_cells_n) all positive edges
+      target_div               : (n_cells_t, n_cells_n) division-only edges
       n_same, n_div, n_neg_all, n_neg_div
     """
     edge_data = []
@@ -366,12 +366,12 @@ def build_edge_data(pairs, max_pairs=30):
             continue
 
         # Map label -> index for regionprops (sorted by label in both frames)
-        label_to_idx_t = {l: i for i, l in enumerate(labels_rp_t)}
-        label_to_idx_n = {l: i for i, l in enumerate(labels_rp_n)}
+        label_to_idx_t = {label: i for i, label in enumerate(labels_rp_t)}
+        label_to_idx_n = {label: i for i, label in enumerate(labels_rp_n)}
 
         # Get features for ALL cells in the order of labels_t / labels_n
-        idx_7d_t = [label_to_idx_t[l] for l in labels_t if l in label_to_idx_t]
-        idx_7d_n = [label_to_idx_n[l] for l in labels_n if l in label_to_idx_n]
+        idx_7d_t = [label_to_idx_t[label] for label in labels_t if label in label_to_idx_t]
+        idx_7d_n = [label_to_idx_n[label] for label in labels_n if label in label_to_idx_n]
         if len(idx_7d_t) < 3 or len(idx_7d_n) < 3:
             continue
 
@@ -385,14 +385,14 @@ def build_edge_data(pairs, max_pairs=30):
         if len(feats_20d_t) < 3 or len(feats_20d_n) < 3:
             continue
 
-        # --- Build targets using ALL pairs (N1 × N2) ---
+        # --- Build targets using ALL pairs (n_cells_t × n_cells_n) ---
         target_all, target_div, n_same, n_div = build_targets(
             labels_t, labels_n, tracklets
         )
 
-        N1, N2 = target_all.shape
-        n_neg_all = N1 * N2 - target_all.sum().item()
-        n_neg_div = N1 * N2 - target_div.sum().item()
+        n_cells_t, n_cells_n = target_all.shape
+        n_neg_all = n_cells_t * n_cells_n - target_all.sum().item()
+        n_neg_div = n_cells_t * n_cells_n - target_div.sum().item()
 
         # Need at least one positive in all-edges target
         if target_all.sum() < 1:
@@ -409,14 +409,14 @@ def build_edge_data(pairs, max_pairs=30):
             "n_div": n_div,
             "n_neg_all": n_neg_all,
             "n_neg_div": n_neg_div,
-            "N1": N1,
-            "N2": N2,
+            "N1": n_cells_t,
+            "N2": n_cells_n,
         })
         total_processed += 1
 
     logger.info(f"  Built {total_processed} frame pairs")
     logger.info(f"    Total division edges across all pairs: "
-                f"{sum(d['n_div'] for d in edge_data)}")
+                f"{sum(item['n_div'] for item in edge_data)}")
     return edge_data
 
 
@@ -428,23 +428,38 @@ class LinearEdgeProbe(nn.Module):
     """Linear probe: concat(feat_t[i], feat_n[j]) → score."""
 
     def __init__(self, feat_dim):
+        """Initialize the linear probe with a single fully-connected layer.
+
+        Args:
+            feat_dim: dimensionality of each cell's feature vector; the layer
+                maps the concatenation of the two cells' features (2*feat_dim)
+                to a single logit.
+        """
         super().__init__()
         self.fc = nn.Linear(2 * feat_dim, 1)
 
     def forward(self, emb_t, emb_n):
-        """emb_t: (N1, D), emb_n: (N2, D) → scores: (N1, N2)"""
-        N1, D = emb_t.shape
-        N2 = emb_n.shape[0]
-        emb_t_exp = emb_t.unsqueeze(1).expand(-1, N2, -1)   # (N1, N2, D)
-        emb_n_exp = emb_n.unsqueeze(0).expand(N1, -1, -1)   # (N1, N2, D)
-        pairs = torch.cat([emb_t_exp, emb_n_exp], dim=-1)   # (N1, N2, 2D)
-        return self.fc(pairs.view(-1, 2 * D)).view(N1, N2)  # (N1, N2)
+        """emb_t: (n_cells_t, embed_dim), emb_n: (n_cells_n, embed_dim) → scores: (n_cells_t, n_cells_n)"""
+        n_cells_t, embed_dim = emb_t.shape
+        n_cells_n = emb_n.shape[0]
+        emb_t_exp = emb_t.unsqueeze(1).expand(-1, n_cells_n, -1)   # (n_cells_t, n_cells_n, embed_dim)
+        emb_n_exp = emb_n.unsqueeze(0).expand(n_cells_t, -1, -1)   # (n_cells_t, n_cells_n, embed_dim)
+        pairs = torch.cat([emb_t_exp, emb_n_exp], dim=-1)   # (n_cells_t, n_cells_n, 2*embed_dim)
+        return self.fc(pairs.view(-1, 2 * embed_dim)).view(n_cells_t, n_cells_n)  # (n_cells_t, n_cells_n)
 
 
 class MLPEdgeProbe(nn.Module):
     """2-layer MLP probe: concat(feat_t[i], feat_n[j]) → hidden → score."""
 
     def __init__(self, feat_dim, hidden=128):
+        """Initialize the 2-layer MLP probe.
+
+        Args:
+            feat_dim: dimensionality of each cell's feature vector; the input
+                layer maps the concatenation of the two cells' features
+                (2*feat_dim) to `hidden` units.
+            hidden: number of hidden units between the two linear layers.
+        """
         super().__init__()
         self.net = nn.Sequential(
             nn.Linear(2 * feat_dim, hidden),
@@ -453,13 +468,13 @@ class MLPEdgeProbe(nn.Module):
         )
 
     def forward(self, emb_t, emb_n):
-        """emb_t: (N1, D), emb_n: (N2, D) → scores: (N1, N2)"""
-        N1, D = emb_t.shape
-        N2 = emb_n.shape[0]
-        emb_t_exp = emb_t.unsqueeze(1).expand(-1, N2, -1)
-        emb_n_exp = emb_n.unsqueeze(0).expand(N1, -1, -1)
+        """emb_t: (n_cells_t, embed_dim), emb_n: (n_cells_n, embed_dim) → scores: (n_cells_t, n_cells_n)"""
+        n_cells_t, embed_dim = emb_t.shape
+        n_cells_n = emb_n.shape[0]
+        emb_t_exp = emb_t.unsqueeze(1).expand(-1, n_cells_n, -1)
+        emb_n_exp = emb_n.unsqueeze(0).expand(n_cells_t, -1, -1)
         pairs = torch.cat([emb_t_exp, emb_n_exp], dim=-1)
-        return self.net(pairs.view(-1, 2 * D)).view(N1, N2)
+        return self.net(pairs.view(-1, 2 * embed_dim)).view(n_cells_t, n_cells_n)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -542,7 +557,7 @@ def train_probe(probe, train_data, val_data, edge_key, steps=200, lr=1e-3,
                         "precision": prec, "recall": rec,
                     })
 
-            avg_val_bal_acc = float(np.mean([m["bal_acc"] for m in val_metrics_list]))
+            avg_val_bal_acc = float(np.mean([metrics["bal_acc"] for metrics in val_metrics_list]))
 
             # Early stopping
             if avg_val_bal_acc > best_val_bal_acc:
@@ -575,10 +590,10 @@ def train_probe(probe, train_data, val_data, edge_key, steps=200, lr=1e-3,
             })
 
     result = {
-        "final_bal_acc": float(np.mean([m["bal_acc"] for m in final_metrics_list])),
-        "final_f1": float(np.mean([m["f1"] for m in final_metrics_list])),
-        "final_precision": float(np.mean([m["precision"] for m in final_metrics_list])),
-        "final_recall": float(np.mean([m["recall"] for m in final_metrics_list])),
+        "final_bal_acc": float(np.mean([metrics["bal_acc"] for metrics in final_metrics_list])),
+        "final_f1": float(np.mean([metrics["f1"] for metrics in final_metrics_list])),
+        "final_precision": float(np.mean([metrics["precision"] for metrics in final_metrics_list])),
+        "final_recall": float(np.mean([metrics["recall"] for metrics in final_metrics_list])),
     }
     return result
 
@@ -747,17 +762,17 @@ def print_table(rows):
     )
     print("-" * 90)
 
-    for r in rows:
-        if r["BalAcc"] is None:
+    for row in rows:
+        if row["BalAcc"] is None:
             print(
-                f"{r['Feature Set']:<20} {r['Edge Type']:<15} {r['Probe']:<8} "
+                f"{row['Feature Set']:<20} {row['Edge Type']:<15} {row['Probe']:<8} "
                 f"{'FAILED':<10} {'FAILED':<10} {'FAILED':<10} {'FAILED':<10}"
             )
         else:
             print(
-                f"{r['Feature Set']:<20} {r['Edge Type']:<15} {r['Probe']:<8} "
-                f"{r['BalAcc']:<10.4f} {r['F1']:<10.4f} "
-                f"{r['Precision']:<10.4f} {r['Recall']:<10.4f}"
+                f"{row['Feature Set']:<20} {row['Edge Type']:<15} {row['Probe']:<8} "
+                f"{row['BalAcc']:<10.4f} {row['F1']:<10.4f} "
+                f"{row['Precision']:<10.4f} {row['Recall']:<10.4f}"
             )
 
     print("-" * 90)
@@ -768,10 +783,10 @@ def print_table(rows):
     def get_best(rows, feat_label, edge_label):
         """Get best bal_acc across probe types for a (feat, edge) combo."""
         vals = [
-            r["BalAcc"] for r in rows
-            if r["Feature Set"] == feat_label
-            and r["Edge Type"] == edge_label
-            and r["BalAcc"] is not None
+            row["BalAcc"] for row in rows
+            if row["Feature Set"] == feat_label
+            and row["Edge Type"] == edge_label
+            and row["BalAcc"] is not None
         ]
         return max(vals) if vals else 0.0
 
@@ -852,11 +867,11 @@ def print_table(rows):
     # Recommendation
     best_all_feat = max(
         [("7D", all_7d), ("Hu", all_20d), ("Both", all_27d)],
-        key=lambda x: x[1],
+        key=lambda feat_score: feat_score[1],
     )
     best_div_feat = max(
         [("7D", div_7d), ("Hu", div_20d), ("Both", div_27d)],
-        key=lambda x: x[1],
+        key=lambda feat_score: feat_score[1],
     )
 
     if best_all_feat[0] == best_div_feat[0]:
@@ -885,32 +900,45 @@ def print_table(rows):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def parse_args(argv=None):
-    p = argparse.ArgumentParser(
+    """Parse command-line arguments for the edge probing benchmark."""
+    parser = argparse.ArgumentParser(
         description="Edge probing benchmark: feature × edge-type × probe"
     )
-    p.add_argument("--data-root", default="../../data/vanvliet")
-    p.add_argument(
+    parser.add_argument("--data-root", default="../../data/vanvliet")
+    parser.add_argument(
         "--conditions", default="rpsM,recA,pheA,metA",
         help="Comma-separated conditions"
     )
-    p.add_argument(
+    parser.add_argument(
         "--max-pairs", type=int, default=30,
         help="Max consecutive frame pairs to use"
     )
-    p.add_argument(
+    parser.add_argument(
         "--steps", type=int, default=200,
         help="Training steps per probe"
     )
-    p.add_argument(
+    parser.add_argument(
         "--patience", type=int, default=20,
         help="Early stopping patience (in steps, checked every 20)"
     )
-    return p.parse_args(argv)
+    parser.add_argument(
+        "--seed", type=int, default=42,
+        help="Random seed"
+    )
+    return parser.parse_args(argv)
 
 
 def main():
+    """Run the full edge probing benchmark end-to-end and save the results table."""
+    global SEED
     args = parse_args()
-    conditions = [c.strip() for c in args.conditions.split(",")]
+    SEED = args.seed
+    torch.manual_seed(SEED)
+    np.random.seed(SEED)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(SEED)
+
+    conditions = [condition.strip() for condition in args.conditions.split(",")]
 
     logger.info(
         f"Edge Probing Benchmark\n"
@@ -953,16 +981,16 @@ def main():
 
     # Save results
     out_path = Path("results_edge_probe.txt")
-    with open(out_path, "w") as f:
-        f.write("Edge Probing Benchmark Results\n")
-        f.write("=" * 90 + "\n")
-        for r in rows:
-            f.write(
-                f"{r['Feature Set']:20} {r['Edge Type']:15} {r['Probe']:8} "
-                f"{str(r['BalAcc']):10} {str(r['F1']):10} "
-                f"{str(r['Precision']):10} {str(r['Recall']):10}\n"
+    with open(out_path, "w") as file_handle:
+        file_handle.write("Edge Probing Benchmark Results\n")
+        file_handle.write("=" * 90 + "\n")
+        for row in rows:
+            file_handle.write(
+                f"{row['Feature Set']:20} {row['Edge Type']:15} {row['Probe']:8} "
+                f"{str(row['BalAcc']):10} {str(row['F1']):10} "
+                f"{str(row['Precision']):10} {str(row['Recall']):10}\n"
             )
-        f.write("\n" + verdict + "\n")
+        file_handle.write("\n" + verdict + "\n")
     logger.info(f"Results saved to {out_path}")
 
     logger.info("Done.")

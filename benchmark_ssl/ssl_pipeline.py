@@ -38,6 +38,21 @@ _PROPERTIES = {
 
 
 def _border_dist_fast(mask, cutoff=5):
+    """Compute a fast border-distance estimate per labeled region.
+
+    Builds a distance-from-border image as 1 minus a normalized band of ones
+    that fades toward the image edges (applied only to the last two axes),
+    then returns, for every region in mask, the maximum of that image inside
+    the region.
+
+    Args:
+        mask: integer label image (ndim-dimensional).
+        cutoff: width in pixels of the edge band used to estimate distance.
+
+    Returns:
+        Tuple of per-region border-distance values, ordered by region as
+        returned by skimage.measure.regionprops.
+    """
     cutoff = int(cutoff)
     border = np.ones(mask.shape, dtype=np.float32)
     ndim = mask.ndim
@@ -58,18 +73,31 @@ def _border_dist_fast(mask, cutoff=5):
         border_high_vals = np.minimum(border_high, band_vals_rev[(...,) + (None,) * (ndim - axis - 1)])
         border[tuple(high_slices)] = border_high_vals
     dist = 1 - border
-    return tuple(r.intensity_max for r in sk_regionprops(mask, intensity_image=dist))
+    return tuple(region.intensity_max for region in sk_regionprops(mask, intensity_image=dist))
 
 
 def features_from_frame(mask, img, properties="regionprops2"):
-    """Extract regionprops features from single frame mask+img."""
-    ndim = mask.ndim
-    props = _PROPERTIES[properties]
-    use_border = "border_dist" in props
-    if use_border:
-        props = tuple(p for p in props if p != "border_dist")
+    """Extract regionprops features from a single frame mask+img.
 
-    df_props = ("label", "centroid", *props)
+    Args:
+        mask: integer label image.
+        img: intensity image matching mask's spatial shape.
+        properties: regionprops feature profile name ("regionprops" or
+            "regionprops2"); regionprops2 additionally includes a computed
+            border-distance feature.
+
+    Returns:
+        (coords, labels, features) where coords is (N, ndim), labels is (N,),
+        and features is an OrderedDict of per-cell feature arrays, or None if
+        the frame contains no cells.
+    """
+    ndim = mask.ndim
+    property_names = _PROPERTIES[properties]
+    use_border = "border_dist" in property_names
+    if use_border:
+        property_names = tuple(prop for prop in property_names if prop != "border_dist")
+
+    df_props = ("label", "centroid", *property_names)
     df = pd.DataFrame(regionprops_table(mask, intensity_image=img, properties=df_props))
 
     if use_border:
@@ -81,12 +109,12 @@ def features_from_frame(mask, img, properties="regionprops2"):
     coords = df[[f"centroid-{i}" for i in range(ndim)]].values.astype(np.float32)
     labels = df["label"].values.astype(np.int32)
 
-    full_props = _PROPERTIES[properties]
+    full_property_names = _PROPERTIES[properties]
     features = OrderedDict()
-    for p in full_props:
-        cols = [c for c in df.columns if c.startswith(p)]
+    for prop in full_property_names:
+        cols = [col for col in df.columns if col.startswith(prop)]
         if cols:
-            features[p] = np.stack([df[c].values.astype(np.float32) for c in cols], axis=-1)
+            features[prop] = np.stack([df[col].values.astype(np.float32) for col in cols], axis=-1)
 
     return coords, labels, features
 
@@ -96,7 +124,10 @@ def load_experiment_frames(exp_dir, conditions=None):
     frames = []
     data_root = Path(exp_dir)
     if conditions is None:
-        conditions = sorted(d.name for d in data_root.iterdir() if d.is_dir() and not d.name.startswith("."))
+        conditions = sorted(
+            dir_entry.name for dir_entry in data_root.iterdir()
+            if dir_entry.is_dir() and not dir_entry.name.startswith(".")
+        )
     for cond in conditions:
         cond_path = data_root / cond
         if not cond_path.is_dir():
@@ -133,6 +164,17 @@ class SSLDataset(Dataset):
     """
 
     def __init__(self, frames, distortion_pipeline=None, ndim=2, features="regionprops2"):
+        """Build the SSL dataset from a list of frame metadata tuples.
+
+        Args:
+            frames: list of (cond, exp_name, frame_idx, mask_path, img_path)
+                tuples as returned by load_experiment_frames.
+            distortion_pipeline: optional DistortionPipeline that produces the
+                two augmented views; if None, both views are copies of the
+                original frame.
+            ndim: spatial dimensionality of the frames.
+            features: regionprops feature profile name.
+        """
         self.frames = frames
         self.distortion_pipeline = distortion_pipeline
         self.ndim = ndim
@@ -140,9 +182,20 @@ class SSLDataset(Dataset):
         logger.info(f"SSLDataset: {len(frames)} frames")
 
     def __len__(self):
+        """Return the number of frames in the dataset."""
         return len(self.frames)
 
     def __getitem__(self, idx):
+        """Load one frame and produce two independently augmented views.
+
+        Args:
+            idx: frame index into self.frames.
+
+        Returns:
+            Dict with keys coords1/coords2, features1/features2,
+            labels1/labels2 (both views sorted by cell label) and n1/n2 cell
+            counts. Frames with no cells yield an empty item.
+        """
         _, _, _, mask_path, img_path = self.frames[idx]
 
         mask = imread(mask_path)
@@ -157,32 +210,33 @@ class SSLDataset(Dataset):
         coords_src, labels_src, feats_dict_src = result
 
         if self.distortion_pipeline is not None:
-            c1, f1, l1, c2, f2, l2 = self.distortion_pipeline(
+            coords1, feats1, labels1, coords2, feats2, labels2 = self.distortion_pipeline(
                 coords_src, feats_dict_src, labels_src
             )
         else:
-            c1, f1, l1 = coords_src.copy(), {k: v.copy() for k, v in feats_dict_src.items()}, labels_src.copy()
-            c2, f2, l2 = coords_src.copy(), {k: v.copy() for k, v in feats_dict_src.items()}, labels_src.copy()
+            coords1, feats1, labels1 = coords_src.copy(), {key: value.copy() for key, value in feats_dict_src.items()}, labels_src.copy()
+            coords2, feats2, labels2 = coords_src.copy(), {key: value.copy() for key, value in feats_dict_src.items()}, labels_src.copy()
 
-        feats1 = np.concatenate(list(f1.values()), axis=-1).astype(np.float32)
-        feats2 = np.concatenate(list(f2.values()), axis=-1).astype(np.float32)
+        feats1 = np.concatenate(list(feats1.values()), axis=-1).astype(np.float32)
+        feats2 = np.concatenate(list(feats2.values()), axis=-1).astype(np.float32)
 
         # Sort both views by label so matching cells occupy same indices
-        idx1 = np.argsort(l1)
-        idx2 = np.argsort(l2)
+        idx1 = np.argsort(labels1)
+        idx2 = np.argsort(labels2)
 
         return {
-            "coords1": torch.from_numpy(c1[idx1]).float(),
-            "coords2": torch.from_numpy(c2[idx2]).float(),
+            "coords1": torch.from_numpy(coords1[idx1]).float(),
+            "coords2": torch.from_numpy(coords2[idx2]).float(),
             "features1": torch.from_numpy(feats1[idx1]).float(),
             "features2": torch.from_numpy(feats2[idx2]).float(),
-            "labels1": torch.from_numpy(l1[idx1]).long(),
-            "labels2": torch.from_numpy(l2[idx2]).long(),
-            "n1": len(l1),
-            "n2": len(l2),
+            "labels1": torch.from_numpy(labels1[idx1]).long(),
+            "labels2": torch.from_numpy(labels2[idx2]).long(),
+            "n1": len(labels1),
+            "n2": len(labels2),
         }
 
     def _empty_item(self):
+        """Return a dict of empty tensors for frames that contain no cells."""
         return {
             "coords1": torch.zeros(0, self.ndim),
             "coords2": torch.zeros(0, self.ndim),
@@ -206,52 +260,52 @@ def collate_ssl(batch):
     padding_mask1, padding_mask2, valid_pair (which positions have
     matching cells in both views), n1, n2.
     """
-    batch = [b for b in batch if b["n1"] > 0 or b["n2"] > 0]
+    batch = [sample for sample in batch if sample["n1"] > 0 or sample["n2"] > 0]
     if len(batch) == 0:
         return None
 
-    max_n = max(max(b["n1"], b["n2"]) for b in batch)
-    B = len(batch)
+    max_n = max(max(sample["n1"], sample["n2"]) for sample in batch)
+    batch_size = len(batch)
 
     ndim = 2
-    fdim = 7
-    for b_i in batch:
-        if b_i["n1"] > 0:
-            ndim = b_i["coords1"].shape[-1]
-            fdim = b_i["features1"].shape[-1]
+    feature_dim = 7
+    for sample in batch:
+        if sample["n1"] > 0:
+            ndim = sample["coords1"].shape[-1]
+            feature_dim = sample["features1"].shape[-1]
             break
 
-    c1 = torch.zeros(B, max_n, ndim)
-    c2 = torch.zeros(B, max_n, ndim)
-    f1 = torch.zeros(B, max_n, fdim)
-    f2 = torch.zeros(B, max_n, fdim)
-    l1 = torch.full((B, max_n,), -1, dtype=torch.long)
-    l2 = torch.full((B, max_n,), -1, dtype=torch.long)
-    pm1 = torch.ones(B, max_n, dtype=torch.bool)
-    pm2 = torch.ones(B, max_n, dtype=torch.bool)
+    coords1 = torch.zeros(batch_size, max_n, ndim)
+    coords2 = torch.zeros(batch_size, max_n, ndim)
+    features1 = torch.zeros(batch_size, max_n, feature_dim)
+    features2 = torch.zeros(batch_size, max_n, feature_dim)
+    labels1 = torch.full((batch_size, max_n,), -1, dtype=torch.long)
+    labels2 = torch.full((batch_size, max_n,), -1, dtype=torch.long)
+    padding_mask1 = torch.ones(batch_size, max_n, dtype=torch.bool)
+    padding_mask2 = torch.ones(batch_size, max_n, dtype=torch.bool)
 
-    for i, b in enumerate(batch):
-        n1, n2 = b["n1"], b["n2"]
+    for i, sample in enumerate(batch):
+        n1, n2 = sample["n1"], sample["n2"]
         if n1 > 0:
-            c1[i, :n1] = b["coords1"]
-            f1[i, :n1] = b["features1"]
-            l1[i, :n1] = b["labels1"]
-            pm1[i, :n1] = False
+            coords1[i, :n1] = sample["coords1"]
+            features1[i, :n1] = sample["features1"]
+            labels1[i, :n1] = sample["labels1"]
+            padding_mask1[i, :n1] = False
         if n2 > 0:
-            c2[i, :n2] = b["coords2"]
-            f2[i, :n2] = b["features2"]
-            l2[i, :n2] = b["labels2"]
-            pm2[i, :n2] = False
+            coords2[i, :n2] = sample["coords2"]
+            features2[i, :n2] = sample["features2"]
+            labels2[i, :n2] = sample["labels2"]
+            padding_mask2[i, :n2] = False
 
-    valid_pair = (l1 == l2) & ~pm1 & ~pm2
+    valid_pair = (labels1 == labels2) & ~padding_mask1 & ~padding_mask2
 
     return {
-        "coords1": c1, "coords2": c2,
-        "features1": f1, "features2": f2,
-        "padding_mask1": pm1, "padding_mask2": pm2,
+        "coords1": coords1, "coords2": coords2,
+        "features1": features1, "features2": features2,
+        "padding_mask1": padding_mask1, "padding_mask2": padding_mask2,
         "valid_pair": valid_pair,
-        "n1": torch.tensor([b["n1"] for b in batch]),
-        "n2": torch.tensor([b["n2"] for b in batch]),
+        "n1": torch.tensor([sample["n1"] for sample in batch]),
+        "n2": torch.tensor([sample["n2"] for sample in batch]),
     }
 
 
@@ -261,8 +315,8 @@ if __name__ == "__main__":
     print(f"Found {len(frames)} frames in rpsM")
 
     from distortions import DistortionPipeline
-    with open("config.yaml") as f:
-        cfg = yaml.safe_load(f)
+    with open("config.yaml") as file_handle:
+        cfg = yaml.safe_load(file_handle)
     dist = DistortionPipeline.from_config(cfg)
 
     ds = SSLDataset(frames[:20], distortion_pipeline=dist)

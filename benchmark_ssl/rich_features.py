@@ -41,6 +41,21 @@ SHAPE_PROPS = (
 
 
 def _border_dist_fast(mask, cutoff=5):
+    """Compute a fast border-distance estimate per labeled region.
+
+    Builds a distance-from-border image as 1 minus a normalized band of ones
+    that fades toward the image edges (applied only to the last two axes),
+    then returns, for every region in mask, the maximum of that image inside
+    the region.
+
+    Args:
+        mask: integer label image (ndim-dimensional).
+        cutoff: width in pixels of the edge band used to estimate distance.
+
+    Returns:
+        Tuple of per-region border-distance values, ordered by region as
+        returned by skimage.measure.regionprops.
+    """
     cutoff = int(cutoff)
     border = np.ones(mask.shape, dtype=np.float32)
     ndim = mask.ndim
@@ -65,14 +80,25 @@ def _border_dist_fast(mask, cutoff=5):
         )
         border[tuple(high_slices)] = border_high_vals
     dist = 1 - border
-    return tuple(r.intensity_max for r in sk_regionprops(mask, intensity_image=dist))
+    return tuple(region.intensity_max for region in sk_regionprops(mask, intensity_image=dist))
 
 
 # ─── feature extraction ────────────────────────────────────────────────────────
 
 
 def extract_basic(mask, img, ndim):
-    """7D regionprops2 baseline."""
+    """Extract the 7D regionprops2 baseline feature set.
+
+    Args:
+        mask: integer label image (ndim-dimensional).
+        img: intensity image matching mask's spatial shape.
+        ndim: number of spatial dimensions.
+
+    Returns:
+        (coords, labels, features) where coords is (N, ndim), labels is (N,),
+        and features is an OrderedDict of per-cell feature arrays, or None if
+        the mask contains no regions.
+    """
     df = pd.DataFrame(
         regionprops_table(mask, intensity_image=img, properties=("label", "centroid", *BASIC_PROPS))
     )
@@ -94,7 +120,18 @@ def extract_basic(mask, img, ndim):
 
 
 def extract_shape(mask, img, ndim):
-    """Basic + shape descriptors (13D)."""
+    """Extract basic + shape descriptors (13D).
+
+    Args:
+        mask: integer label image (ndim-dimensional).
+        img: intensity image matching mask's spatial shape.
+        ndim: number of spatial dimensions.
+
+    Returns:
+        (coords, labels, features) as in extract_basic, plus shape descriptors
+        (eccentricity, perimeter, solidity, extent, axis lengths, orientation),
+        or None if the mask contains no regions.
+    """
     result = extract_basic(mask, img, ndim)
     if result is None:
         return None
@@ -111,13 +148,25 @@ def extract_shape(mask, img, ndim):
 
 
 def extract_hu(mask, img, ndim):
-    """Basic + shape + Hu moments (20D)."""
+    """Extract basic + shape + Hu moments (20D).
+
+    Hu moments are log-transformed to make them scale-invariant.
+
+    Args:
+        mask: integer label image (ndim-dimensional).
+        img: intensity image matching mask's spatial shape.
+        ndim: number of spatial dimensions.
+
+    Returns:
+        (coords, labels, features) as in extract_shape, plus 7 Hu-moment
+        features per cell, or None if the mask contains no regions.
+    """
     result = extract_shape(mask, img, ndim)
     if result is None:
         return None
     coords, labels, features = result
     props_list = sk_regionprops(mask, intensity_image=img)
-    hu_moments = np.array([r.moments_hu for r in props_list], dtype=np.float32)
+    hu_moments = np.array([region.moments_hu for region in props_list], dtype=np.float32)
     # log transform to make scale-invariant (moments hu are very small)
     hu_log = np.sign(hu_moments) * np.log1p(np.abs(hu_moments))
     for i in range(7):
@@ -126,10 +175,21 @@ def extract_hu(mask, img, ndim):
 
 
 def extract_patch(mask, img, ndim, patch_size=32, n_pca=16):
-    """Hu + local image patch features (20 + 16 = 36D after PCA).
+    """Extract hu + local image patch features (20 + 16 = 36D after PCA).
 
     For each cell, extract a square crop centered on the centroid,
     resize to patch_size×patch_size, flatten, reduce via PCA.
+
+    Args:
+        mask: integer label image (ndim-dimensional).
+        img: intensity image matching mask's spatial shape.
+        ndim: number of spatial dimensions.
+        patch_size: side length in pixels of the resized square crop.
+        n_pca: number of PCA components kept for the flattened patches.
+
+    Returns:
+        (coords, labels, features) as in extract_hu, plus n_pca patch-PCA
+        features per cell, or None if the mask contains no regions.
     """
     result = extract_hu(mask, img, ndim)
     if result is None:
@@ -137,18 +197,18 @@ def extract_patch(mask, img, ndim, patch_size=32, n_pca=16):
     coords, labels, features = result
 
     centroids = coords  # (N, ndim)
-    h, w = mask.shape[-2:]
+    height, width = mask.shape[-2:]
     patches = np.zeros((len(labels), patch_size * patch_size), dtype=np.float32)
 
     for i, (cy, cx) in enumerate(centroids):
         cy_int, cx_int = int(round(cy)), int(round(cx))
         half = patch_size // 2
         # crop from image
-        y1 = max(0, cy_int - half)
-        y2 = min(h, cy_int + half)
-        x1 = max(0, cx_int - half)
-        x2 = min(w, cx_int + half)
-        crop = img[y1:y2, x1:x2]
+        y_start = max(0, cy_int - half)
+        y_end = min(height, cy_int + half)
+        x_start = max(0, cx_int - half)
+        x_end = min(width, cx_int + half)
+        crop = img[y_start:y_end, x_start:x_end]
         if crop.size == 0:
             continue
         # resize to patch_size×patch_size
@@ -203,10 +263,26 @@ FEATURE_NAMES = {
 def extract(level: str, mask, img, ndim=2, patch_size=32, n_pca=16):
     """Extract features at the specified richness level.
 
-    Returns (coords, labels, features: OrderedDict) or None.
+    Args:
+        level: one of "basic", "shape", "hu", "patch".
+        mask: integer label image (ndim-dimensional).
+        img: intensity image matching mask's spatial shape.
+        ndim: number of spatial dimensions.
+        patch_size: side length of the patch crop (patch level only).
+        n_pca: number of PCA components (patch level only).
+
+    Returns:
+        (coords, labels, features: OrderedDict) or None if no regions exist.
+
+    Raises:
+        ValueError: if level is not a known feature set.
     """
     if level not in EXTRACTORS:
         raise ValueError(f"Unknown feature level: {level}. Choose from {list(EXTRACTORS.keys())}")
     if level == "patch":
         return extract_patch(mask, img, ndim, patch_size, n_pca)
     return EXTRACTORS[level](mask, img, ndim)
+
+
+if __name__ == "__main__":
+    pass

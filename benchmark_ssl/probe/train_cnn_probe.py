@@ -11,6 +11,7 @@ Labels: same-cell = positive (from man_track.txt).
 Saves trained CNN state_dict to probe/cnn_probe.pt
 """
 
+import argparse
 import logging
 import sys
 import warnings
@@ -47,6 +48,12 @@ PATCH_SIZE = 64
 class TinyCNN(nn.Module):
     """Tiny CNN feature extractor (~3K params)."""
     def __init__(self, out_dim=64):
+        """Initialize the tiny CNN feature extractor.
+
+        Args:
+            out_dim: dimensionality of the output embedding per patch
+                (after the final fully-connected layer).
+        """
         super().__init__()
         self.conv = nn.Sequential(
             nn.Conv2d(1, 8, 3, padding=1), nn.ReLU(), nn.MaxPool2d(2),   # 32x32
@@ -57,24 +64,32 @@ class TinyCNN(nn.Module):
 
     def forward(self, patches):
         """patches: (N, 1, 64, 64) -> (N, out_dim)"""
-        x = self.conv(patches)
-        x = x.view(x.size(0), -1)
-        return self.fc(x)
+        features = self.conv(patches)
+        features = features.view(features.size(0), -1)
+        return self.fc(features)
 
 
 class EdgeProbe(nn.Module):
     """Linear probe: concat(cnn_t[i], cnn_n[j]) -> score."""
     def __init__(self, feat_dim=64):
+        """Initialize the linear probe.
+
+        Args:
+            feat_dim: dimensionality of each CNN embedding; the layer maps
+                the concatenation of the two cells' embeddings (2*feat_dim)
+                to a single logit.
+        """
         super().__init__()
         self.fc = nn.Linear(2 * feat_dim, 1)
 
     def forward(self, cnn_t, cnn_n):
-        N1, D = cnn_t.shape
-        N2 = cnn_n.shape[0]
-        t = cnn_t.unsqueeze(1).expand(-1, N2, -1)
-        n = cnn_n.unsqueeze(0).expand(N1, -1, -1)
-        pairs = torch.cat([t, n], dim=-1)
-        return self.fc(pairs.view(-1, 2 * D)).view(N1, N2)
+        """cnn_t: (n_cells_t, embed_dim), cnn_n: (n_cells_n, embed_dim) → scores: (n_cells_t, n_cells_n)"""
+        n_cells_t, embed_dim = cnn_t.shape
+        n_cells_n = cnn_n.shape[0]
+        emb_t_exp = cnn_t.unsqueeze(1).expand(-1, n_cells_n, -1)
+        emb_n_exp = cnn_n.unsqueeze(0).expand(n_cells_t, -1, -1)
+        pairs = torch.cat([emb_t_exp, emb_n_exp], dim=-1)
+        return self.fc(pairs.view(-1, 2 * embed_dim)).view(n_cells_t, n_cells_n)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -96,18 +111,18 @@ def load_frame(mask_path, img_path):
 
 def extract_patches(img, centroids):
     """Extract 64x64 patches at centroids with edge padding."""
-    h, w = img.shape[-2:]
+    height, width = img.shape[-2:]
     half = PATCH_SIZE // 2
     patches = []
     for cy, cx in centroids:
         cy_i, cx_i = int(round(float(cy))), int(round(float(cx)))
-        cy_i, cx_i = np.clip(cy_i, 0, h - 1), np.clip(cx_i, 0, w - 1)
+        cy_i, cx_i = np.clip(cy_i, 0, height - 1), np.clip(cx_i, 0, width - 1)
         y1, x1 = cy_i - half, cx_i - half
         y2, x2 = cy_i + half, cx_i + half
-        pt, pb = max(0, -y1), max(0, y2 - h)
-        pl, pr = max(0, -x1), max(0, x2 - w)
+        pt, pb = max(0, -y1), max(0, y2 - height)
+        pl, pr = max(0, -x1), max(0, x2 - width)
         y1c, x1c = max(0, y1), max(0, x1)
-        y2c, x2c = min(h, y2), min(w, x2)
+        y2c, x2c = min(height, y2), min(width, x2)
         crop = (
             img[y1c:y2c, x1c:x2c]
             if y2c > y1c and x2c > x1c
@@ -118,7 +133,7 @@ def extract_patches(img, centroids):
         if crop.shape != (PATCH_SIZE, PATCH_SIZE):
             crop = np.pad(
                 crop,
-                tuple((0, max(0, t)) for t in [PATCH_SIZE - s for s in crop.shape]),
+                tuple((0, max(0, pad_amount)) for pad_amount in [PATCH_SIZE - dim_size for dim_size in crop.shape]),
                 mode="reflect",
             )[:PATCH_SIZE, :PATCH_SIZE]
         patches.append(crop)
@@ -196,12 +211,12 @@ def build_edge_data(pairs, max_pairs=30):
         tracklets = load_tracklets(man_txt)
 
         # Extract 64x64 patches at centroids
-        p_t = extract_patches(imgt, coords_t)
-        p_n = extract_patches(imgn, coords_n)
+        patches_t = extract_patches(imgt, coords_t)
+        patches_n = extract_patches(imgn, coords_n)
 
         # Build target: same-cell OR parent->child = positive
-        N1, N2 = len(labels_t), len(labels_n)
-        target = torch.zeros(N1, N2, dtype=torch.float32)
+        n_cells_t, n_cells_n = len(labels_t), len(labels_n)
+        target = torch.zeros(n_cells_t, n_cells_n, dtype=torch.float32)
         for i, lt in enumerate(labels_t):
             for j, ln in enumerate(labels_n):
                 if lt == ln:
@@ -213,8 +228,8 @@ def build_edge_data(pairs, max_pairs=30):
             continue
 
         edge_data.append({
-            "patches_t": torch.from_numpy(p_t).float(),
-            "patches_n": torch.from_numpy(p_n).float(),
+            "patches_t": torch.from_numpy(patches_t).float(),
+            "patches_n": torch.from_numpy(patches_n).float(),
             "target": target,
         })
     return edge_data
@@ -238,7 +253,26 @@ def compute_metrics(scores, target):
 #  Main
 # ═══════════════════════════════════════════════════════════════════════════════
 
+def parse_args(argv=None):
+    """Parse command-line arguments for TinyCNN edge-probe training."""
+    parser = argparse.ArgumentParser(
+        description="Train TinyCNN end-to-end for edge prediction"
+    )
+    parser.add_argument(
+        "--seed", type=int, default=42,
+        help="Random seed"
+    )
+    return parser.parse_args(argv)
+
+
 def main():
+    """Train the TinyCNN + linear probe end-to-end and save the CNN weights."""
+    global SEED
+    args = parse_args()
+    SEED = args.seed
+    torch.manual_seed(SEED)
+    np.random.seed(SEED)
+
     script_dir = Path(__file__).parent.resolve()
     # benchmark_ssl/probe/ -> benchmark_ssl/ -> research-proj/data/vanvliet
     data_root = str(script_dir.parent.parent / "data" / "vanvliet")
@@ -286,8 +320,8 @@ def main():
     cnn = TinyCNN(out_dim=cnn_out_dim).to(device)
     probe = EdgeProbe(feat_dim=cnn_out_dim).to(device)
     params = list(cnn.parameters()) + list(probe.parameters())
-    n_cnn = sum(p.numel() for p in cnn.parameters())
-    n_total = sum(p.numel() for p in params)
+    n_cnn = sum(param.numel() for param in cnn.parameters())
+    n_total = sum(param.numel() for param in params)
     logger.info(f"  CNN params: {n_cnn}  Total params: {n_total}")
 
     # Compute positive weight from training data to handle extreme class imbalance
@@ -300,7 +334,7 @@ def main():
     pos_weight_val = max(1.0, total_neg / max(1.0, total_pos))
     logger.info(f"  Class balance: {total_pos:.0f} pos / {total_neg:.0f} neg, pos_weight={pos_weight_val:.2f}")
 
-    opt = torch.optim.Adam(params, lr=lr)
+    optimizer = torch.optim.Adam(params, lr=lr)
     criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor(pos_weight_val))
 
     # ─── Training loop ────────────────────────────────────────────────────
@@ -318,9 +352,9 @@ def main():
             scores = probe(feat_t, feat_n)
             loss = criterion(scores, target)
 
-            opt.zero_grad()
+            optimizer.zero_grad()
             loss.backward()
-            opt.step()
+            optimizer.step()
             train_losses.append(loss.item())
 
         # Evaluate every 20 steps

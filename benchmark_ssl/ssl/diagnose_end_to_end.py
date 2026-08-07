@@ -23,8 +23,6 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 logger = logging.getLogger("e2e")
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-SEED = 42
-torch.manual_seed(SEED); np.random.seed(SEED)
 
 # ─── Shared constants ───────────────────────────────────────────────────────────
 DINO_DIM, PATCH_SIZE = 384, 64
@@ -35,19 +33,25 @@ dino = torch.hub.load("facebookresearch/dinov2", "dinov2_vits14").to(device).eva
 
 @torch.no_grad()
 def compute_dino_embs(patches_np):
+    """Compute 384D DINOv2 embeddings for a batch of normalized patches."""
     if len(patches_np) == 0: return np.zeros((0, DINO_DIM), dtype=np.float32)
     pmin = patches_np.min(axis=(1,2), keepdims=True)
     pmax = patches_np.max(axis=(1,2), keepdims=True)
     pn = (patches_np - pmin) / (pmax - pmin + 1e-8)
-    t = torch.from_numpy(pn).float().unsqueeze(1).to(device)
-    t = F.interpolate(t, size=(224,224), mode="bilinear", align_corners=False)
-    t = t.expand(-1, 3, -1, -1)
+    patch_tensor = torch.from_numpy(pn).float().unsqueeze(1).to(device)
+    patch_tensor = F.interpolate(patch_tensor, size=(224,224), mode="bilinear", align_corners=False)
+    patch_tensor = patch_tensor.expand(-1, 3, -1, -1)
     mean = torch.tensor([0.485,0.456,0.406], device=device).view(1,3,1,1)
     std  = torch.tensor([0.229,0.224,0.225], device=device).view(1,3,1,1)
-    t = (t - mean) / std
-    return dino(t).cpu().numpy()
+    patch_tensor = (patch_tensor - mean) / std
+    return dino(patch_tensor).cpu().numpy()
 
 def extract_patches(img, centroids):
+    """Extract square patches (PATCH_SIZE x PATCH_SIZE) centered on each centroid.
+
+    Out-of-bounds regions are padded by reflection; returns a stacked float32
+    array of shape (N, PATCH_SIZE, PATCH_SIZE).
+    """
     h, w = img.shape[-2:]; half = PATCH_SIZE // 2
     patches = []
     for cy, cx in centroids:
@@ -62,48 +66,68 @@ def extract_patches(img, centroids):
         crop = img[y1c:y2c, x1c:x2c] if y2c > y1c and x2c > x1c else np.zeros((1,1), dtype=np.float32)
         if pt or pb or pl or pr: crop = np.pad(crop, ((pt,pb),(pl,pr)), mode="reflect")
         if crop.shape != (PATCH_SIZE, PATCH_SIZE):
-            crop = np.pad(crop, tuple((0, max(0, t)) for t in [PATCH_SIZE - s for s in crop.shape]),
+            crop = np.pad(crop, tuple((0, max(0, pad_amount)) for pad_amount in [PATCH_SIZE - size for size in crop.shape]),
                           mode="reflect")[:PATCH_SIZE, :PATCH_SIZE]
         patches.append(crop)
     return np.stack(patches).astype(np.float32) if patches else np.zeros((0,PATCH_SIZE,PATCH_SIZE), dtype=np.float32)
 
 # ─── Positional encodings ──────────────────────────────────────────────────────
 class FourierPE(nn.Module):
-    def __init__(self, cd=2, pd=32):
+    """Fourier positional encoding: sin/cos of coords at logarithmically spaced frequencies."""
+
+    def __init__(self, coord_dim=2, per_dim=32):
+        """Store per-dimension frequencies; output dim is coord_dim * per_dim * 2."""
         super().__init__()
-        self.d = cd * pd * 2
-        self.register_buffer("freqs", 2.0 ** torch.linspace(0.0, 10.0, pd))
-    def forward(self, c):
-        return torch.cat([torch.sin(c[:,:,i:i+1] * self.freqs.view(1,1,-1)) for i in range(c.shape[-1])] +
-                         [torch.cos(c[:,:,i:i+1] * self.freqs.view(1,1,-1)) for i in range(c.shape[-1])], dim=-1)
+        self.pe_dim = coord_dim * per_dim * 2
+        self.register_buffer("freqs", 2.0 ** torch.linspace(0.0, 10.0, per_dim))
+
+    def forward(self, coords):
+        """Map coords (B, N, coord_dim) to (B, N, pe_dim) sin/cos features."""
+        return torch.cat([torch.sin(coords[:,:,i:i+1] * self.freqs.view(1,1,-1)) for i in range(coords.shape[-1])] +
+                         [torch.cos(coords[:,:,i:i+1] * self.freqs.view(1,1,-1)) for i in range(coords.shape[-1])], dim=-1)
 
 class NoPE(nn.Module):
-    def __init__(self, d): super().__init__(); self.d = d; self.token = nn.Parameter(torch.randn(1,1,d)*0.02)
-    def forward(self, c): return self.token.expand(c.shape[0], c.shape[1], -1)
+    """Learned constant token used as a placeholder instead of positional encoding."""
+
+    def __init__(self, pe_dim):
+        """Initialize a small learnable token broadcast over all positions."""
+        super().__init__()
+        self.pe_dim = pe_dim
+        self.token = nn.Parameter(torch.randn(1,1,pe_dim)*0.02)
+
+    def forward(self, coords):
+        return self.token.expand(coords.shape[0], coords.shape[1], -1)
 
 # ─── SSL Encoder ────────────────────────────────────────────────────────────────
 class SSLEncoder(nn.Module):
+    """Encoder combining positional encoding (or noise) with optional DINO features."""
+
     def __init__(self, pe_dim, d_model=256, out_dim=64, use_dino=True):
+        """Project PE and DINO features to d_model, fuse, and MLP to out_dim."""
         super().__init__()
         self.use_dino = use_dino
         self.pe_proj = nn.Linear(pe_dim, d_model)
         if use_dino: self.dino_proj = nn.Linear(DINO_DIM, d_model)
         self.norm = nn.LayerNorm(d_model)
         self.mlp = nn.Sequential(nn.Linear(d_model,128), nn.ReLU(), nn.Linear(128, out_dim))
-    def forward(self, dino_feats, pe):
-        p = F.normalize(self.pe_proj(pe), dim=-1)
-        x = self.norm(p + F.normalize(self.dino_proj(dino_feats), dim=-1)) if self.use_dino else self.norm(p)
-        return F.normalize(self.mlp(x), dim=-1)
 
-def nt_xent_loss(z, temp=0.05):
-    B = z.shape[0] // 2
-    sim = z @ z.T / temp; sim.fill_diagonal_(-1e9)
-    return F.cross_entropy(sim, torch.cat([torch.arange(B,2*B), torch.arange(B)]).to(z.device))
+    def forward(self, dino_feats, pe):
+        """Fuse normalized PE and DINO projections, normalize the MLP output."""
+        pe_proj_out = F.normalize(self.pe_proj(pe), dim=-1)
+        combined = self.norm(pe_proj_out + F.normalize(self.dino_proj(dino_feats), dim=-1)) if self.use_dino else self.norm(pe_proj_out)
+        return F.normalize(self.mlp(combined), dim=-1)
+
+def nt_xent_loss(embeddings, temperature=0.05):
+    """NT-Xent loss over concatenated two-view embeddings (first half = view 1)."""
+    batch_size = embeddings.shape[0] // 2
+    sim = embeddings @ embeddings.T / temperature; sim.fill_diagonal_(-1e9)
+    return F.cross_entropy(sim, torch.cat([torch.arange(batch_size,2*batch_size), torch.arange(batch_size)]).to(embeddings.device))
 
 # ─── Association head (mini Trackastra decoder) ─────────────────────────────────
 class MiniAssocHead(nn.Module):
     """Simplified Trackastra association: head_x(emb_t) · head_y(emb_{t+1})^T → BCE."""
     def __init__(self, in_dim=64, head_dim=32):
+        """Project source and target embeddings into a shared head space."""
         super().__init__()
         self.proj_x = nn.Linear(in_dim, head_dim)
         self.proj_y = nn.Linear(in_dim, head_dim)
@@ -132,6 +156,7 @@ def assoc_accuracy(scores, labels_t, labels_next):
 
 # ─── Data loading ──────────────────────────────────────────────────────────────
 def load_frame(mask_path, img_path):
+    """Load a mask+image frame and return cell centroids, labels, and normalized image."""
     mask = imread(mask_path); img = imread(img_path).astype(np.float32)
     p1, p998 = np.percentile(img, (1, 99.8)); img = np.clip((img-p1)/(p998-p1+1e-8), 0, 1)
     props = regionprops_table(mask, properties=("label","centroid"))
@@ -140,6 +165,7 @@ def load_frame(mask_path, img_path):
     return coords, props["label"].astype(np.int32), img
 
 def scan_frames(data_root, conditions, max_frames):
+    """Collect (mask_path, image_path) pairs across conditions, up to max_frames."""
     dr = Path(data_root); frames = []
     for cond in conditions:
         for exp in sorted((dr/cond).iterdir()):
@@ -178,15 +204,24 @@ def scan_consecutive_pairs(data_root, conditions, max_pairs):
     return pairs
 
 # ─── Distortions (SSL only) ────────────────────────────────────────────────────
-def apply_jitter(c, std): return c + np.random.randn(*c.shape).astype(np.float32)*std
-def apply_affine(c, deg, sr):
-    t = np.random.uniform(-deg,deg)/180*np.pi; sx, sy = np.random.uniform(*sr), np.random.uniform(*sr)
-    return c @ np.array([[sx*np.cos(t), -sx*np.sin(t)], [sy*np.sin(t), sy*np.cos(t)]])
-def apply_dropout(c, l, p): k = np.random.rand(len(l))>p; return c[k], l[k]
+def apply_jitter(coords, std):
+    """Add Gaussian noise of the given std to coordinates."""
+    return coords + np.random.randn(*coords.shape).astype(np.float32)*std
+
+def apply_affine(coords, degrees, scale_range):
+    """Apply a random rotation (degrees) and scaling (scale_range) to coordinates."""
+    angle = np.random.uniform(-degrees,degrees)/180*np.pi; sx, sy = np.random.uniform(*scale_range), np.random.uniform(*scale_range)
+    return coords @ np.array([[sx*np.cos(angle), -sx*np.sin(angle)], [sy*np.sin(angle), sy*np.cos(angle)]])
+
+def apply_dropout(coords, labels, drop_prob):
+    """Randomly drop cells with probability drop_prob, keeping coordinate/label alignment."""
+    keep_mask = np.random.rand(len(labels))>drop_prob; return coords[keep_mask], labels[keep_mask]
+
 def distort(coords, labels, mode):
+    """Apply the requested distortion family to a frame's cell coordinates."""
     if mode=="full":
-        c = apply_affine(coords.copy(), 10, (0.9,1.1)); c = apply_jitter(c, 4)
-        c, l = apply_dropout(c, labels.copy(), 0.1); return c, l
+        coords_dist = apply_affine(coords.copy(), 10, (0.9,1.1)); coords_dist = apply_jitter(coords_dist, 4)
+        coords_dist, labels_dist = apply_dropout(coords_dist, labels.copy(), 0.1); return coords_dist, labels_dist
     return apply_jitter(coords.copy(), 4), labels.copy()
 
 # ─── Phase 1: SSL pretraining ─────────────────────────────────────────────────
@@ -197,9 +232,9 @@ def phase1_ssl(frames, args):
     # Precompute SSL data (single frames, two distorted views)
     ssl_data = []
     for mp, ip in frames[:args.max_frames]:
-        r = load_frame(mp, ip)
-        if r is None: continue
-        c1, lbl, img = r
+        frame_data = load_frame(mp, ip)
+        if frame_data is None: continue
+        c1, lbl, img = frame_data
         c2, _ = distort(c1.copy(), lbl.copy(), args.distortion)
         p1, p2 = extract_patches(img, c1), extract_patches(img, c2)
         ssl_data.append((compute_dino_embs(p1), compute_dino_embs(p2), c1, c2, lbl))
@@ -230,12 +265,12 @@ def phase1_ssl(frames, args):
         for step in range(args.ssl_steps):
             enc.train(); loss_total = 0.0; n_batches = 0
             for de1, de2, c1, c2, lbl in gpu_data:
-                n = min(len(de1), len(de2))
-                if n < 2: continue
-                c1n, c2n = c1[:n].unsqueeze(0), c2[:n].unsqueeze(0)
+                n_cells = min(len(de1), len(de2))
+                if n_cells < 2: continue
+                c1n, c2n = c1[:n_cells].unsqueeze(0), c2[:n_cells].unsqueeze(0)
                 pe1, pe2 = pe(c1n).squeeze(0), pe(c2n).squeeze(0)
-                z = torch.cat([enc(de1[:n], pe1), enc(de2[:n], pe2)])
-                loss = nt_xent_loss(z)
+                embeddings = torch.cat([enc(de1[:n_cells], pe1), enc(de2[:n_cells], pe2)])
+                loss = nt_xent_loss(embeddings)
                 opt.zero_grad(); loss.backward(); opt.step()
                 loss_total += loss.item(); n_batches += 1
             if (step+1) % 50 == 0:
@@ -252,7 +287,7 @@ def phase2_downstream(encoders, pe_dim, pairs, args):
     logger.info(f"\n{'='*60}\nPHASE 2: DOWNSTREAM TRANSFER\n{'='*60}")
 
     # Split pairs into train/val
-    np.random.seed(SEED)
+    np.random.seed(args.seed)
     idx = np.random.permutation(len(pairs))
     n_val = max(1, int(len(pairs) * 0.2))
     train_pairs = [pairs[i] for i in idx[:-n_val]]
@@ -269,8 +304,8 @@ def phase2_downstream(encoders, pe_dim, pairs, args):
             # Only keep cells present in BOTH frames (labels_in_both)
             shared = set(lt) & set(ln)
             if len(shared) < 2: continue
-            idx_t = [i for i, l in enumerate(lt) if l in shared]
-            idx_n = [i for i, l in enumerate(ln) if l in shared]
+            idx_t = [i for i, lbl in enumerate(lt) if lbl in shared]
+            idx_n = [i for i, lbl in enumerate(ln) if lbl in shared]
             ct_s, lt_s = ct[idx_t], lt[idx_t]
             cn_s, ln_s = cn[idx_n], ln[idx_n]
             pt_s = extract_patches(imgt, ct_s); pn_s = extract_patches(imgn, cn_s)
@@ -312,7 +347,7 @@ def phase2_downstream(encoders, pe_dim, pairs, args):
             # Important: Mode B uses NoPE for BOTH SSL and downstream — fair!
 
         # Freeze encoder
-        for p in enc.parameters(): p.requires_grad = False
+        for param in enc.parameters(): param.requires_grad = False
         enc.eval()
 
         # Association head (trained from scratch)
@@ -370,6 +405,7 @@ def phase2_downstream(encoders, pe_dim, pairs, args):
 
 # ─── Report ─────────────────────────────────────────────────────────────────────
 def make_report(ssl_encoders, downstream_results, outdir, args):
+    """Render the end-to-end figure and write the verdict text plus CSVs."""
     import matplotlib; matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
@@ -414,8 +450,8 @@ def make_report(ssl_encoders, downstream_results, outdir, args):
         bar_colors.append(colors[mode])
     bars = ax.bar(mode_names, conv_steps, color=bar_colors, alpha=0.7, edgecolor="black")
     ax.set_ylabel("Steps to val_acc > 0.8"); ax.set_title("Convergence Speed (lower = faster)")
-    for bar, v in zip(bars, conv_steps):
-        ax.text(bar.get_x()+bar.get_width()/2, bar.get_height()+2, str(v), ha="center", fontweight="bold")
+    for bar, value in zip(bars, conv_steps):
+        ax.text(bar.get_x()+bar.get_width()/2, bar.get_height()+2, str(value), ha="center", fontweight="bold")
     ax.axhline(args.downstream_steps, color="gray", ls=":", alpha=0.5, label="max steps")
     ax.grid(True, axis="y", alpha=0.3)
 
@@ -496,7 +532,7 @@ def make_report(ssl_encoders, downstream_results, outdir, args):
 
     verdict = "\n".join(lines)
     print(verdict)
-    with open(outdir / "verdict.txt", "w") as f: f.write(verdict)
+    with open(outdir / "verdict.txt", "w") as file_handle: file_handle.write(verdict)
 
     # Save CSVs
     for mode in ["R", "A", "B", "C"]:
@@ -508,24 +544,34 @@ def make_report(ssl_encoders, downstream_results, outdir, args):
 
 # ─── Main ───────────────────────────────────────────────────────────────────────
 def main():
-    p = argparse.ArgumentParser(description="End-to-end SSL → downstream transfer test")
-    p.add_argument("--data-root", default="../data/vanvliet")
-    p.add_argument("--conditions", default="rpsM")
-    p.add_argument("--max-frames", type=int, default=25, help="SSL frames (single)")
-    p.add_argument("--max-pairs", type=int, default=20, help="Downstream frame pairs")
-    p.add_argument("--ssl-steps", type=int, default=200)
-    p.add_argument("--ssl-lr", type=float, default=1e-3)
-    p.add_argument("--downstream-steps", type=int, default=100)
-    p.add_argument("--downstream-lr", type=float, default=1e-3)
-    p.add_argument("--d-model", type=int, default=256)
-    p.add_argument("--pos-per-dim", type=int, default=32)
-    p.add_argument("--distortion", default="jitter4", choices=["jitter4","full"])
-    p.add_argument("--outdir", default="runs/diagnose_end_to_end")
-    p.add_argument("--skip-c", action="store_true", help="Skip Mode C (PE only)")
-    args = p.parse_args()
+    """Run SSL pretraining + downstream transfer phases and write the report.
+
+    Sets the RNG seed from --seed, runs phase 1 (SSL pretraining for the
+    requested modes) and phase 2 (frozen-encoder downstream association),
+    then generates the end-to-end figure and verdict.
+    """
+    parser = argparse.ArgumentParser(description="End-to-end SSL → downstream transfer test")
+    parser.add_argument("--data-root", default="../data/vanvliet")
+    parser.add_argument("--conditions", default="rpsM")
+    parser.add_argument("--max-frames", type=int, default=25, help="SSL frames (single)")
+    parser.add_argument("--max-pairs", type=int, default=20, help="Downstream frame pairs")
+    parser.add_argument("--ssl-steps", type=int, default=200)
+    parser.add_argument("--ssl-lr", type=float, default=1e-3)
+    parser.add_argument("--downstream-steps", type=int, default=100)
+    parser.add_argument("--downstream-lr", type=float, default=1e-3)
+    parser.add_argument("--d-model", type=int, default=256)
+    parser.add_argument("--pos-per-dim", type=int, default=32)
+    parser.add_argument("--distortion", default="jitter4", choices=["jitter4","full"])
+    parser.add_argument("--outdir", default="runs/diagnose_end_to_end")
+    parser.add_argument("--skip-c", action="store_true", help="Skip Mode C (PE only)")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
+    args = parser.parse_args()
+
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
 
     outdir = Path(args.outdir); outdir.mkdir(parents=True, exist_ok=True)
-    conditions = [c.strip() for c in args.conditions.split(",")]
+    conditions = [cond.strip() for cond in args.conditions.split(",")]
 
     # ─── Phase 1: SSL pretraining ──────────────────────────────────────────
     frames = scan_frames(args.data_root, conditions, args.max_frames)
@@ -565,9 +611,9 @@ def phase1_ssl_ab(frames, args):
 
     ssl_data = []
     for mp, ip in frames[:args.max_frames]:
-        r = load_frame(mp, ip)
-        if r is None: continue
-        c1, lbl, img = r
+        frame_data = load_frame(mp, ip)
+        if frame_data is None: continue
+        c1, lbl, img = frame_data
         c2, _ = distort(c1.copy(), lbl.copy(), args.distortion)
         p1, p2 = extract_patches(img, c1), extract_patches(img, c2)
         ssl_data.append((compute_dino_embs(p1), compute_dino_embs(p2), c1, c2, lbl))
@@ -582,18 +628,18 @@ def phase1_ssl_ab(frames, args):
                      torch.from_numpy(c2).float().to(device), lbl)
                     for e1, e2, c1, c2, lbl in ssl_data]
         for step in range(args.ssl_steps):
-            enc.train(); loss_total, n = 0.0, 0
+            enc.train(); loss_total, n_batches = 0.0, 0
             for de1, de2, c1, c2, lbl in gpu_data:
-                m = min(len(de1), len(de2))
-                if m < 2: continue
-                c1n, c2n = c1[:m].unsqueeze(0), c2[:m].unsqueeze(0)
+                n_cells = min(len(de1), len(de2))
+                if n_cells < 2: continue
+                c1n, c2n = c1[:n_cells].unsqueeze(0), c2[:n_cells].unsqueeze(0)
                 pe1, pe2 = pe(c1n).squeeze(0), pe(c2n).squeeze(0)
-                z = torch.cat([enc(de1[:m], pe1), enc(de2[:m], pe2)])
-                loss = nt_xent_loss(z)
+                embeddings = torch.cat([enc(de1[:n_cells], pe1), enc(de2[:n_cells], pe2)])
+                loss = nt_xent_loss(embeddings)
                 opt.zero_grad(); loss.backward(); opt.step()
-                loss_total += loss.item(); n += 1
+                loss_total += loss.item(); n_batches += 1
             if (step+1) % 50 == 0:
-                logger.info(f"    SSL [{mode}] step {step+1}: loss={loss_total/max(1,n):.4f}")
+                logger.info(f"    SSL [{mode}] step {step+1}: loss={loss_total/max(1,n_batches):.4f}")
         encoders[mode] = {"encoder": enc, "pos_enc": pe}
     return encoders, pe_dim
 
