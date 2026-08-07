@@ -106,33 +106,33 @@ APPROACHES = {
 }
 
 
-def estimate_speedup(approach_id, N, K=16):
-    """Estimate speedup over CachedDistAttention baseline at given N."""
-    baseline = 0.80 * (N / 256) ** 2  # CachedDistAttention per-layer time (ms)
+def estimate_speedup(approach_id, seq_len, knn_neighbors=16):
+    """Estimate speedup over CachedDistAttention baseline at given seq_len."""
+    baseline = 0.80 * (seq_len / 256) ** 2  # CachedDistAttention per-layer time (ms)
 
     if approach_id == "A":
         # FlexAttention: FlashAttn speed (~0.2× baseline at N=256) + block scoring overhead
-        flash_time = 0.20 * (N / 256) ** 2
-        overhead = N * 0.0005  # block scoring ~0.5µs per query
+        flash_time = 0.20 * (seq_len / 256) ** 2
+        overhead = seq_len * 0.0005  # block scoring ~0.5µs per query
         return baseline / max(flash_time + overhead, 0.001)
 
     elif approach_id == "B":
         # KNN pre-filter + FlashAttn: same as gather-KNN
-        gather_time = 0.0104 * N + 0.0003 * N * K
+        gather_time = 0.0104 * seq_len + 0.0003 * seq_len * knn_neighbors
         return baseline / max(gather_time, 0.001)
 
     elif approach_id == "C":
         # Spatial block partition + FlashAttn per block
-        B = 64  # block size
+        block_size = 64  # block size
         overlap = 1  # adjacent blocks
-        tokens_per_query = (1 + 2 * overlap) * B  # own block + 2 adjacent
+        tokens_per_query = (1 + 2 * overlap) * block_size  # own block + 2 adjacent
         flash_time = 0.20 * (tokens_per_query / 256) ** 2
-        reorder_overhead = N * 0.0001  # Hilbert sort ~0.1µs/token
+        reorder_overhead = seq_len * 0.0001  # Hilbert sort ~0.1µs/token
         return baseline / max(flash_time + reorder_overhead, 0.001)
 
     elif approach_id == "E":
         # Score-modulated: pure FlashAttn
-        flash_time = 0.20 * (N / 256) ** 2
+        flash_time = 0.20 * (seq_len / 256) ** 2
         return baseline / max(flash_time, 0.001)
 
 
@@ -179,10 +179,10 @@ def generate_figure(rows, Ns, outdir="benchmark_attn"):
         "D": "#95a5a6", "E": "#9b59b6",
     }
     for aid in ["A", "B", "C", "E"]:
-        sub = sorted([r for r in rows if r["approach"].startswith(f"{aid}:")],
-                     key=lambda r: r["N"])
-        ns = [r["N"] for r in sub]
-        sp = [r["speedup_vs_baseline"] for r in sub]
+        sub = sorted([row for row in rows if row["approach"].startswith(f"{aid}:")],
+                     key=lambda row: row["N"])
+        ns = [row["N"] for row in sub]
+        sp = [row["speedup_vs_baseline"] for row in sub]
         if ns:
             ax.plot(ns, sp, "D-", color=approach_colors[aid],
                     label=f"{aid}: {APPROACHES[aid]['name'][:45]}",
@@ -200,14 +200,14 @@ def generate_figure(rows, Ns, outdir="benchmark_attn"):
     # Panel B: Feasibility vs expected speedup at N=512
     ax = axes[1]
     for aid in ["A", "B", "C", "E"]:
-        r = [r for r in rows if r["approach"].startswith(f"{aid}:") and r["N"] == 512]
-        if r:
+        row = [row for row in rows if row["approach"].startswith(f"{aid}:") and row["N"] == 512]
+        if row:
             feas = APPROACHES[aid]["feasibility"]
             feas_score = {"HIGH": 3, "MEDIUM-HIGH": 2.5, "MEDIUM": 2, "LOW": 1}[feas]
-            ax.scatter(feas_score, r[0]["speedup_vs_baseline"], s=300,
+            ax.scatter(feas_score, row[0]["speedup_vs_baseline"], s=300,
                        color=approach_colors[aid], edgecolors="white",
                        linewidth=2, zorder=5)
-            ax.annotate(f"{aid}", (feas_score, r[0]["speedup_vs_baseline"]),
+            ax.annotate(f"{aid}", (feas_score, row[0]["speedup_vs_baseline"]),
                         textcoords="offset points", xytext=(10, 6),
                         fontsize=10, fontweight="bold")
     ax.axhline(3.1, color="#e74c3c", linestyle=":", alpha=0.4,
@@ -237,19 +237,19 @@ def save_csv(rows, path):
         path: Output CSV file path.
     """
     fieldnames = ["approach", "N", "speedup_vs_baseline", "feasibility", "enforces_spatial_cutoff"]
-    with open(path, "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=fieldnames)
-        w.writeheader()
-        w.writerows(rows)
+    with open(path, "w", newline="") as file_handle:
+        writer = csv.DictWriter(file_handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
     print(f"  Saved CSV: {path}")
 
 
 def main():
     """Run the spatial flash analysis and save CSV/figure."""
-    p = argparse.ArgumentParser()
-    p.add_argument("--out", default="benchmark_attn/spatial_flash_results.csv")
-    p.add_argument("--outdir", default="benchmark_attn")
-    args = p.parse_args()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--out", default="benchmark_attn/spatial_flash_results.csv")
+    parser.add_argument("--outdir", default="benchmark_attn")
+    args = parser.parse_args()
 
     print("=" * 65)
     print("Spatial Cutoff + FlashAttention — Solution Analysis")

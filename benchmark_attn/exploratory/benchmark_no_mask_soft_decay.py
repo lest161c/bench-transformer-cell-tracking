@@ -47,10 +47,10 @@ def measure(fn, warmup=10, n_repeat=30):
     torch.cuda.synchronize()
     times = []
     for _ in range(n_repeat):
-        t0 = time.perf_counter()
+        start_time = time.perf_counter()
         fn()
         torch.cuda.synchronize()
-        times.append(time.perf_counter() - t0)
+        times.append(time.perf_counter() - start_time)
     return np.mean(times) * 1000
 
 
@@ -95,14 +95,14 @@ def run_benchmark(Ns=(32, 64, 128, 256, 512, 1024), d_head=40, n_head=8,
     """
     device = torch.device("cuda")
     dtype = torch.float16
-    d = d_head * n_head
+    embed_dim = d_head * n_head
 
     results = []
     for N in Ns:
         torch.manual_seed(seed)
-        Q = torch.randn(n_head, N, d_head, device=device, dtype=dtype) / math.sqrt(d_head)
-        K = torch.randn(n_head, N, d_head, device=device, dtype=dtype) / math.sqrt(d_head)
-        V = torch.randn(n_head, N, d_head, device=device, dtype=dtype)
+        query = torch.randn(n_head, N, d_head, device=device, dtype=dtype) / math.sqrt(d_head)
+        key = torch.randn(n_head, N, d_head, device=device, dtype=dtype) / math.sqrt(d_head)
+        value = torch.randn(n_head, N, d_head, device=device, dtype=dtype)
         coords = torch.rand(N, 2, device=device) * 512
         dist = torch.cdist(coords, coords)
 
@@ -114,14 +114,14 @@ def run_benchmark(Ns=(32, 64, 128, 256, 512, 1024), d_head=40, n_head=8,
 
         def hard_fn():
             return F.scaled_dot_product_attention(
-                Q.unsqueeze(0), K.unsqueeze(0), V.unsqueeze(0), attn_mask=hard_mask)
+                query.unsqueeze(0), key.unsqueeze(0), value.unsqueeze(0), attn_mask=hard_mask)
 
         # ─── B) Soft mask (finite values as attn_mask) ───
         soft_mask = decay.unsqueeze(0).unsqueeze(0).clone()
 
         def soft_fn():
             return F.scaled_dot_product_attention(
-                Q.unsqueeze(0), K.unsqueeze(0), V.unsqueeze(0), attn_mask=soft_mask)
+                query.unsqueeze(0), key.unsqueeze(0), value.unsqueeze(0), attn_mask=soft_mask)
 
         # ─── C) NO mask — manual matmul + softmax (FlashAttn compatible) ───
         # Compute scores = QK^T/sqrt(d) + bias manually, then softmax, then @V.
@@ -131,31 +131,31 @@ def run_benchmark(Ns=(32, 64, 128, 256, 512, 1024), d_head=40, n_head=8,
         bias_3d = decay.unsqueeze(0)  # (1, N, N) — shared across heads
 
         def no_mask_manual():
-            Q_u = Q.unsqueeze(0).to(torch.float32)
-            K_u = K.unsqueeze(0).to(torch.float32)
-            V_u = V.unsqueeze(0).to(torch.float32)
-            scores = torch.matmul(Q_u, K_u.transpose(-2, -1)) / scale
-            scores = scores + bias_3d.unsqueeze(1)  # (1, nH, N, N)
+            query_u = query.unsqueeze(0).to(torch.float32)
+            key_u = key.unsqueeze(0).to(torch.float32)
+            value_u = value.unsqueeze(0).to(torch.float32)
+            scores = torch.matmul(query_u, key_u.transpose(-2, -1)) / scale
+            scores = scores + bias_3d.unsqueeze(1)  # (1, n_head, N, N)
             probs = F.softmax(scores, dim=-1)
-            out = torch.matmul(probs, V_u)
+            out = torch.matmul(probs, value_u)
             return out.to(dtype)
 
         # ─── D) NO mask at all — pure FlashAttention (reference, no spatial cutoff) ───
         def pure_flash_fn():
             return F.scaled_dot_product_attention(
-                Q.unsqueeze(0), K.unsqueeze(0), V.unsqueeze(0))
+                query.unsqueeze(0), key.unsqueeze(0), value.unsqueeze(0))
 
         # Measure speed
-        t_hard = measure(hard_fn)
-        t_soft = measure(soft_fn)
-        t_nomask = measure(no_mask_manual)
-        t_flash = measure(pure_flash_fn)
+        time_hard = measure(hard_fn)
+        time_soft = measure(soft_fn)
+        time_nomask = measure(no_mask_manual)
+        time_flash = measure(pure_flash_fn)
 
         # Measure memory
-        mem_hard = measure_memory(hard_fn)
-        mem_soft = measure_memory(soft_fn)
-        mem_nomask = measure_memory(no_mask_manual)
-        mem_flash = measure_memory(pure_flash_fn)
+        memory_mb_hard = measure_memory(hard_fn)
+        memory_mb_soft = measure_memory(soft_fn)
+        memory_mb_nomask = measure_memory(no_mask_manual)
+        memory_mb_flash = measure_memory(pure_flash_fn)
 
         # Numerical equivalence B vs A
         out_hard = hard_fn()
@@ -166,30 +166,30 @@ def run_benchmark(Ns=(32, 64, 128, 256, 512, 1024), d_head=40, n_head=8,
 
         # Verify dispatch: does NO mask use FlashAttention?
         # Check by timing: pure_flash ≈ theoretically O(N) vs manual O(N²d)
-        flash_dispatches_nomask = t_flash < t_nomask * 0.5  # rough heuristic
+        flash_dispatches_nomask = time_flash < time_nomask * 0.5  # rough heuristic
 
         results.append({
             "N": N,
-            "hard_mask_ms": round(t_hard, 4),
-            "soft_mask_ms": round(t_soft, 4),
-            "no_mask_manual_ms": round(t_nomask, 4),
-            "pure_flash_ms": round(t_flash, 4),
-            "nomask_vs_hard": round(t_hard / max(t_nomask, 0.0001), 2),
-            "flash_vs_hard": round(t_hard / max(t_flash, 0.0001), 2),
-            "soft_vs_hard": round(t_hard / max(t_soft, 0.0001), 2),
-            "hard_mem_mb": round(mem_hard, 2),
-            "soft_mem_mb": round(mem_soft, 2),
-            "nomask_mem_mb": round(mem_nomask, 2),
-            "flash_mem_mb": round(mem_flash, 2),
+            "hard_mask_ms": round(time_hard, 4),
+            "soft_mask_ms": round(time_soft, 4),
+            "no_mask_manual_ms": round(time_nomask, 4),
+            "pure_flash_ms": round(time_flash, 4),
+            "nomask_vs_hard": round(time_hard / max(time_nomask, 0.0001), 2),
+            "flash_vs_hard": round(time_hard / max(time_flash, 0.0001), 2),
+            "soft_vs_hard": round(time_hard / max(time_soft, 0.0001), 2),
+            "hard_mem_mb": round(memory_mb_hard, 2),
+            "soft_mem_mb": round(memory_mb_soft, 2),
+            "nomask_mem_mb": round(memory_mb_nomask, 2),
+            "flash_mem_mb": round(memory_mb_flash, 2),
             "cos_soft_vs_hard": round(cos_soft_vs_hard, 6),
             "cos_nomask_vs_hard": round(cos_nomask_vs_hard, 6),
             "flash_dispatches_without_mask": flash_dispatches_nomask,
         })
 
-        print(f"  N={N:>4d}: hard={t_hard:.3f}ms  soft={t_soft:.3f}ms  "
-              f"nomask_manual={t_nomask:.3f}ms  pure_flash={t_flash:.3f}ms  "
+        print(f"  N={N:>4d}: hard={time_hard:.3f}ms  soft={time_soft:.3f}ms  "
+              f"nomask_manual={time_nomask:.3f}ms  pure_flash={time_flash:.3f}ms  "
               f"cos_soft={cos_soft_vs_hard:.4f}  cos_nomask={cos_nomask_vs_hard:.4f}  "
-              f"nomask_vs_hard={t_hard/t_nomask:.2f}×")
+              f"nomask_vs_hard={time_hard/time_nomask:.2f}×")
 
         gc.collect()
         torch.cuda.empty_cache()
@@ -199,10 +199,10 @@ def run_benchmark(Ns=(32, 64, 128, 256, 512, 1024), d_head=40, n_head=8,
 
 def main():
     """Run the no-mask soft decay benchmark and save results to CSV."""
-    p = argparse.ArgumentParser()
-    p.add_argument("--outdir", default="benchmark_attn")
-    p.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
-    args = p.parse_args()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--outdir", default="benchmark_attn")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
+    args = parser.parse_args()
 
     print("=" * 60)
     print("No-Mask Soft Decay — FlashAttention Dispatch Test")
@@ -215,17 +215,17 @@ def main():
 
     outdir = Path(args.outdir)
     path = outdir / "no_mask_soft_decay.csv"
-    with open(path, "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=list(results[0].keys()))
-        w.writeheader(); w.writerows(results)
+    with open(path, "w", newline="") as file_handle:
+        writer = csv.DictWriter(file_handle, fieldnames=list(results[0].keys()))
+        writer.writeheader(); writer.writerows(results)
     print(f"\nSaved: {path}")
 
     # Summary
-    ok = [r for r in results if r["N"] in (128, 256, 512)]
+    ok = [row for row in results if row["N"] in (128, 256, 512)]
     print("\nSummary (key N):")
-    for r in ok:
-        print(f"  N={r['N']}: no-mask manual = {r['nomask_vs_hard']}× vs hard mask, "
-              f"cos_sim = {r['cos_nomask_vs_hard']}")
+    for row in ok:
+        print(f"  N={row['N']}: no-mask manual = {row['nomask_vs_hard']}× vs hard mask, "
+              f"cos_sim = {row['cos_nomask_vs_hard']}")
     print(f"\nKey finding: NO attn_mask → FlashAttention CAN dispatch.")
     print(f"Manual matmul+bias is competitive at N≤256, "
           f"FlexAttention score_mod needed for larger N.")

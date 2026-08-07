@@ -37,10 +37,10 @@ def timed_benchmark(fn, warmup=5, n_repeat=20):
     torch.cuda.synchronize()
     times = []
     for _ in range(n_repeat):
-        t0 = time.perf_counter()
+        start_time = time.perf_counter()
         fn()
         torch.cuda.synchronize()
-        times.append(time.perf_counter() - t0)
+        times.append(time.perf_counter() - start_time)
     return float(np.mean(times)) * 1000
 
 
@@ -99,9 +99,9 @@ def run_benchmark(Ns=(128, 256, 512, 1024), d_head=40, n_head=8,
     results = []
     for N in Ns:
         torch.manual_seed(seed)
-        Q = torch.randn(1, n_head, N, d_head, device=device, dtype=dtype) / scale
-        K = torch.randn(1, n_head, N, d_head, device=device, dtype=dtype) / scale
-        V = torch.randn(1, n_head, N, d_head, device=device, dtype=dtype)
+        query = torch.randn(1, n_head, N, d_head, device=device, dtype=dtype) / scale
+        key = torch.randn(1, n_head, N, d_head, device=device, dtype=dtype) / scale
+        value = torch.randn(1, n_head, N, d_head, device=device, dtype=dtype)
         coords = torch.rand(N, 2, device=device) * 512
         dist = torch.cdist(coords, coords)
         dist_cache = dist.to(device)
@@ -113,7 +113,7 @@ def run_benchmark(Ns=(128, 256, 512, 1024), d_head=40, n_head=8,
         hard_mask = hard_mask + decay.unsqueeze(0).unsqueeze(0)
 
         def hard_sdpa():
-            return F.scaled_dot_product_attention(Q, K, V, attn_mask=hard_mask)
+            return F.scaled_dot_product_attention(query, key, value, attn_mask=hard_mask)
 
         # ─── D: FlexAttention + hard cutoff + soft decay → Flash ───
         # score_mod: no Python branching, use torch.where for compile
@@ -124,12 +124,12 @@ def run_benchmark(Ns=(128, 256, 512, 1024), d_head=40, n_head=8,
 
             def score_mod(score, b, h, q_idx, kv_idx):
                 # Read distance (must be in a tensor-friendly way)
-                d = dist_float[q_idx, kv_idx]
+                distance = dist_float[q_idx, kv_idx]
                 # Hard cutoff: use torch.where instead of if/else
                 # score + decay only when within cutoff, -inf when beyond
-                decay_bias = -lam_val * d / d_max_val
+                decay_bias = -lam_val * distance / d_max_val
                 # Use soft masking: very negative instead of -inf (fp16-safe)
-                cutoff_mask = d > d_max_val
+                cutoff_mask = distance > d_max_val
                 penalty = decay_bias - 65504.0  # fp16 min, effectively -inf
                 return torch.where(cutoff_mask, penalty, score + decay_bias)
 
@@ -142,11 +142,11 @@ def run_benchmark(Ns=(128, 256, 512, 1024), d_head=40, n_head=8,
 
         # Warmup (compiled version needs JIT compilation on first call)
         for _ in range(3):
-            _ = compiled_flex(Q, K, V, score_mod=score_mod_fn)
+            _ = compiled_flex(query, key, value, score_mod=score_mod_fn)
         torch.cuda.synchronize()
 
         def flex_fn():
-            return compiled_flex(Q, K, V, score_mod=score_mod_fn)
+            return compiled_flex(query, key, value, score_mod=score_mod_fn)
 
         # ─── E: Flex soft only (no hard cutoff) ───
         def make_soft_only(dist_mat, lam_val):
@@ -158,22 +158,22 @@ def run_benchmark(Ns=(128, 256, 512, 1024), d_head=40, n_head=8,
         score_mod_soft_fn = make_soft_only(dist_cache, lam)
         compiled_flex_soft = torch.compile(flex_attention, dynamic=False)
         for _ in range(3):
-            _ = compiled_flex_soft(Q, K, V, score_mod=score_mod_soft_fn)
+            _ = compiled_flex_soft(query, key, value, score_mod=score_mod_soft_fn)
         torch.cuda.synchronize()
 
         def flex_soft_fn():
-            return compiled_flex_soft(Q, K, V, score_mod=score_mod_soft_fn)
+            return compiled_flex_soft(query, key, value, score_mod=score_mod_soft_fn)
 
         # ─── C: No-bias FlashAttn (no cutoff) → Flash ───
         def nobias_fn():
-            return F.scaled_dot_product_attention(Q, K, V)
+            return F.scaled_dot_product_attention(query, key, value)
 
         # Measure
-        t_hard = timed_benchmark(hard_sdpa)
-        t_nobias = timed_benchmark(nobias_fn)
-        t_flex = timed_benchmark(flex_fn)
-        t_flex_soft = timed_benchmark(flex_soft_fn, warmup=3)
-        mem_flex = measure_memory(flex_fn)
+        time_hard = timed_benchmark(hard_sdpa)
+        time_nobias = timed_benchmark(nobias_fn)
+        time_flex = timed_benchmark(flex_fn)
+        time_flex_soft = timed_benchmark(flex_soft_fn, warmup=3)
+        memory_mb_flex = measure_memory(flex_fn)
 
         # Numerical
         out_hard = hard_sdpa().float()
@@ -184,21 +184,21 @@ def run_benchmark(Ns=(128, 256, 512, 1024), d_head=40, n_head=8,
 
         results.append({
             "N": N,
-            "hard_sdpa_ms": round(t_hard, 4),
-            "no_bias_flash_ms": round(t_nobias, 4),
-            "flex_hard_ms": round(t_flex, 4),
-            "flex_soft_ms": round(t_flex_soft, 4),
-            "flex_vs_hard": round(t_hard / max(t_flex, 0.0001), 2),
-            "flex_vs_nobias": round(t_nobias / max(t_flex, 0.0001), 2),
-            "flex_mem_mb": round(mem_flex, 2),
+            "hard_sdpa_ms": round(time_hard, 4),
+            "no_bias_flash_ms": round(time_nobias, 4),
+            "flex_hard_ms": round(time_flex, 4),
+            "flex_soft_ms": round(time_flex_soft, 4),
+            "flex_vs_hard": round(time_hard / max(time_flex, 0.0001), 2),
+            "flex_vs_nobias": round(time_nobias / max(time_flex, 0.0001), 2),
+            "flex_mem_mb": round(memory_mb_flex, 2),
             "cos_flex_vs_hard": round(cos_flex, 6),
             "cos_flex_soft_vs_hard": round(cos_flex_soft, 6),
             "flashattn_dispatched": True,
         })
 
-        print(f"  N={N:>4d}: hard={t_hard:.3f}ms  nobias={t_nobias:.3f}ms  "
-              f"flex_hard={t_flex:.3f}ms  flex_soft={t_flex_soft:.3f}ms  "
-              f"flex/hard={t_hard/t_flex:.2f}×  cos={cos_flex:.4f}")
+        print(f"  N={N:>4d}: hard={time_hard:.3f}ms  nobias={time_nobias:.3f}ms  "
+              f"flex_hard={time_flex:.3f}ms  flex_soft={time_flex_soft:.3f}ms  "
+              f"flex/hard={time_hard/time_flex:.2f}×  cos={cos_flex:.4f}")
 
         gc.collect()
         torch.cuda.empty_cache()
@@ -208,10 +208,10 @@ def run_benchmark(Ns=(128, 256, 512, 1024), d_head=40, n_head=8,
 
 def main():
     """Run the FlexAttention spatial benchmark and save results to CSV."""
-    p = argparse.ArgumentParser()
-    p.add_argument("--outdir", default="benchmark_attn")
-    p.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
-    args = p.parse_args()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--outdir", default="benchmark_attn")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
+    args = parser.parse_args()
 
     print("=" * 60)
     print("FlexAttention + Spatial Cutoff — FlashAttn Dispatch")
@@ -225,18 +225,18 @@ def main():
 
     outdir = Path(args.outdir)
     path = outdir / "flex_spatial_results.csv"
-    with open(path, "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=list(results[0].keys()))
-        w.writeheader(); w.writerows(results)
+    with open(path, "w", newline="") as file_handle:
+        writer = csv.DictWriter(file_handle, fieldnames=list(results[0].keys()))
+        writer.writeheader(); writer.writerows(results)
     print(f"\nSaved: {path}")
 
     print(f"\n{'='*60}")
     print("FLEXATTENTION + SPATIAL CUTOFF: RESULTS")
     print(f"{'='*60}")
-    for r in results:
-        print(f"  N={r['N']:>4d}: {r['flex_vs_hard']}× faster, "
-              f"cos_sim={r['cos_flex_vs_hard']:.4f}, "
-              f"overhead vs pure Flash={r['flex_vs_nobias']:.2f}×")
+    for row in results:
+        print(f"  N={row['N']:>4d}: {row['flex_vs_hard']}× faster, "
+              f"cos_sim={row['cos_flex_vs_hard']:.4f}, "
+              f"overhead vs pure Flash={row['flex_vs_nobias']:.2f}×")
     print(f"\n  ✓ FlashAttention kernel dispatched (no attn_mask)")
     print(f"  ✓ Spatial cutoff enforced (d > d_max → masked)")
     print(f"  ✓ Distance decay applied inside kernel")

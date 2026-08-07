@@ -20,14 +20,14 @@ from model_parts import (
 )
 
 
-def bench_dense(N, B, d, h, coord_dim, device, dtype):
+def bench_dense(seq_len, batch_size, embed_dim, n_head, coord_dim, device, dtype):
     """Build a closure that runs RelativePositionalAttention (dense masked).
 
     Args:
-        N: Sequence length.
-        B: Batch size.
-        d: Embedding dimension.
-        h: Number of attention heads.
+        seq_len: Sequence length.
+        batch_size: Batch size.
+        embed_dim: Embedding dimension.
+        n_head: Number of attention heads.
         coord_dim: Number of coordinate dimensions.
         device: torch device.
         dtype: torch dtype.
@@ -36,25 +36,25 @@ def bench_dense(N, B, d, h, coord_dim, device, dtype):
         A callable ``fn()`` that runs the forward pass.
     """
     layer = RelativePositionalAttention(
-        coord_dim=coord_dim, embed_dim=d, n_head=h,
+        coord_dim=coord_dim, embed_dim=embed_dim, n_head=n_head,
         cutoff_spatial=128.0, mode="none", attn_dist_mode="v0",
     ).to(device).to(dtype)
-    q = torch.randn(B, N, d, device=device, dtype=dtype)
-    coords = torch.randn(B, N, coord_dim, device=device, dtype=dtype)
+    query = torch.randn(batch_size, seq_len, embed_dim, device=device, dtype=dtype)
+    coords = torch.randn(batch_size, seq_len, coord_dim, device=device, dtype=dtype)
 
     def fn():
-        return layer(q, q, q, coords)
+        return layer(query, query, query, coords)
     return fn
 
 
-def bench_dense_flash(N, B, d, h, coord_dim, device, dtype):
+def bench_dense_flash(seq_len, batch_size, embed_dim, n_head, coord_dim, device, dtype):
     """Build a closure that runs DenseFlashAttention (no mask, no KNN).
 
     Args:
-        N: Sequence length.
-        B: Batch size.
-        d: Embedding dimension.
-        h: Number of attention heads.
+        seq_len: Sequence length.
+        batch_size: Batch size.
+        embed_dim: Embedding dimension.
+        n_head: Number of attention heads.
         coord_dim: Unused; kept for interface consistency.
         device: torch device.
         dtype: torch dtype.
@@ -62,23 +62,23 @@ def bench_dense_flash(N, B, d, h, coord_dim, device, dtype):
     Returns:
         A callable ``fn()`` that runs the forward pass.
     """
-    layer = DenseFlashAttention(embed_dim=d, n_head=h).to(device).to(dtype)
-    q = torch.randn(B, N, d, device=device, dtype=dtype)
+    layer = DenseFlashAttention(embed_dim=embed_dim, n_head=n_head).to(device).to(dtype)
+    query = torch.randn(batch_size, seq_len, embed_dim, device=device, dtype=dtype)
 
     def fn():
-        return layer(q, q, q)
+        return layer(query, query, query)
     return fn
 
 
-def bench_sparse_v1(N, K, B, d, h, coord_dim, device, dtype):
+def bench_sparse_v1(seq_len, knn_neighbors, batch_size, embed_dim, n_head, coord_dim, device, dtype):
     """Build a closure that runs GatherSparseAttention (V1: SDPA gather).
 
     Args:
-        N: Sequence length.
-        K: Number of KNN neighbors.
-        B: Batch size.
-        d: Embedding dimension.
-        h: Number of attention heads.
+        seq_len: Sequence length.
+        knn_neighbors: Number of KNN neighbors.
+        batch_size: Batch size.
+        embed_dim: Embedding dimension.
+        n_head: Number of attention heads.
         coord_dim: Number of coordinate dimensions.
         device: torch device.
         dtype: torch dtype.
@@ -86,29 +86,29 @@ def bench_sparse_v1(N, K, B, d, h, coord_dim, device, dtype):
     Returns:
         A callable ``fn()`` that runs the forward pass.
     """
-    layer = GatherSparseAttention(embed_dim=d, n_head=h, knn_neighbors=K, mode="none").to(device).to(dtype)
-    q = torch.randn(B, N, d, device=device, dtype=dtype)
-    coords = torch.randn(B, N, coord_dim, device=device, dtype=dtype)
+    layer = GatherSparseAttention(embed_dim=embed_dim, n_head=n_head, knn_neighbors=knn_neighbors, mode="none").to(device).to(dtype)
+    query = torch.randn(batch_size, seq_len, embed_dim, device=device, dtype=dtype)
+    coords = torch.randn(batch_size, seq_len, coord_dim, device=device, dtype=dtype)
     yx = coords[..., 1:]
     dist = torch.cdist(yx, yx)
-    _, knn_idx = torch.topk(dist, k=K, dim=-1, largest=False)
+    _, knn_idx = torch.topk(dist, k=knn_neighbors, dim=-1, largest=False)
 
     def fn():
-        return layer(q, q, q, knn_idx, coords)
+        return layer(query, query, query, knn_idx, coords)
     return fn
 
 
-def bench_sparse_v2(N, K, B, d, h, coord_dim, device, dtype):
+def bench_sparse_v2(seq_len, knn_neighbors, batch_size, embed_dim, n_head, coord_dim, device, dtype):
     """Build a closure that runs GatherSparseAttentionV2 (optimised gather).
 
     V2 eliminates unnecessary copies via view+unsqueeze for flat_query.
 
     Args:
-        N: Sequence length.
-        K: Number of KNN neighbors.
-        B: Batch size.
-        d: Embedding dimension.
-        h: Number of attention heads.
+        seq_len: Sequence length.
+        knn_neighbors: Number of KNN neighbors.
+        batch_size: Batch size.
+        embed_dim: Embedding dimension.
+        n_head: Number of attention heads.
         coord_dim: Number of coordinate dimensions.
         device: torch device.
         dtype: torch dtype.
@@ -116,15 +116,15 @@ def bench_sparse_v2(N, K, B, d, h, coord_dim, device, dtype):
     Returns:
         A callable ``fn()`` that runs the forward pass.
     """
-    layer = GatherSparseAttentionV2(embed_dim=d, n_head=h, knn_neighbors=K, mode="none").to(device).to(dtype)
-    q = torch.randn(B, N, d, device=device, dtype=dtype)
-    coords = torch.randn(B, N, coord_dim, device=device, dtype=dtype)
+    layer = GatherSparseAttentionV2(embed_dim=embed_dim, n_head=n_head, knn_neighbors=knn_neighbors, mode="none").to(device).to(dtype)
+    query = torch.randn(batch_size, seq_len, embed_dim, device=device, dtype=dtype)
+    coords = torch.randn(batch_size, seq_len, coord_dim, device=device, dtype=dtype)
     yx = coords[..., 1:]
     dist = torch.cdist(yx, yx)
-    _, knn_idx = torch.topk(dist, k=K, dim=-1, largest=False)
+    _, knn_idx = torch.topk(dist, k=knn_neighbors, dim=-1, largest=False)
 
     def fn():
-        return layer(q, q, q, knn_idx, coords)
+        return layer(query, query, query, knn_idx, coords)
     return fn
 
 
@@ -156,8 +156,8 @@ def measure(fn, warmup=10, min_run_time=1.0):
     else:
         mem_mb = 0.0
 
-    t = benchmark.Timer("fn()", globals={"fn": fn}, num_threads=1)
-    result = t.blocked_autorange(min_run_time=min_run_time)
+    timer = benchmark.Timer("fn()", globals={"fn": fn}, num_threads=1)
+    result = timer.blocked_autorange(min_run_time=min_run_time)
 
     return result.mean, mem_mb
 
@@ -175,12 +175,12 @@ def main():
     if torch.cuda.is_available():
         print(f"GPU: {torch.cuda.get_device_properties(0).name}, mem: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GiB")
 
-    B = 2
-    d = 256
-    h = 4
+    batch_size = 2
+    embed_dim = 256
+    n_head = 4
     coord_dim = 3
-    K = 16
-    N_vals = [128, 256, 512]
+    knn_neighbors = 16
+    seq_len_vals = [128, 256, 512]
     n_repeat = 5  # number of timing runs
 
     configs = [
@@ -191,13 +191,13 @@ def main():
     ]
 
     out_csv = "benchmark_small_n_results.csv"
-    with open(out_csv, "w", newline="") as f:
-        w = csv.writer(f)
+    with open(out_csv, "w", newline="") as file_handle:
+        w = csv.writer(file_handle)
         w.writerow(["method", "L", "N", "K", "time_s", "mem_mb", "speedup_vs_dense"])
 
-        for N in N_vals:
+        for seq_len in seq_len_vals:
             print(f"\n{'='*60}")
-            print(f"  N = {N}")
+            print(f"  N = {seq_len}")
             print(f"{'='*60}")
 
             # Collect all timing data first, then compute speedup
@@ -205,27 +205,27 @@ def main():
 
             for method_name, bench_fn in configs:
                 if method_name == "sparse_v1" or method_name == "sparse_v2":
-                    fn = bench_fn(N, K, B, d, h, coord_dim, device, dtype)
+                    fn = bench_fn(seq_len, knn_neighbors, batch_size, embed_dim, n_head, coord_dim, device, dtype)
                 elif method_name == "dense":
-                    fn = bench_fn(N, B, d, h, coord_dim, device, dtype)
+                    fn = bench_fn(seq_len, batch_size, embed_dim, n_head, coord_dim, device, dtype)
                 elif method_name == "dense_flash":
-                    fn = bench_fn(N, B, d, h, coord_dim, device, dtype)
+                    fn = bench_fn(seq_len, batch_size, embed_dim, n_head, coord_dim, device, dtype)
 
                 # Multiple measurements
                 times = []
                 for _ in range(n_repeat):
-                    t, mem = measure(fn, warmup=3, min_run_time=0.3)
-                    times.append(t)
+                    time_s, memory_mb = measure(fn, warmup=3, min_run_time=0.3)
+                    times.append(time_s)
                 mean_t = sum(times) / len(times)
-                results[method_name] = (mean_t, mem)
+                results[method_name] = (mean_t, memory_mb)
 
             # Print and write results
             dense_t = results["dense"][0]
-            for method_name, (t, mem) in results.items():
-                speedup = dense_t / t if t > 0 else 0
-                print(f"  {method_name:<14s}  {t*1e6:8.1f} us  {mem:6.1f} MB  speedup={speedup:.2f}x")
-                w.writerow([method_name, 1, N, K, f"{t:.9f}", f"{mem:.1f}", f"{speedup:.4f}"])
-                f.flush()
+            for method_name, (time_s, memory_mb) in results.items():
+                speedup = dense_t / time_s if time_s > 0 else 0
+                print(f"  {method_name:<14s}  {time_s*1e6:8.1f} us  {memory_mb:6.1f} MB  speedup={speedup:.2f}x")
+                w.writerow([method_name, 1, seq_len, knn_neighbors, f"{time_s:.9f}", f"{memory_mb:.1f}", f"{speedup:.4f}"])
+                file_handle.flush()
 
     print(f"\nResults saved to: {out_csv}")
 
@@ -233,8 +233,8 @@ def main():
     print(f"\n{'='*60}")
     print("  SUMMARY: Speedup vs dense (dense masked SDPA)")
     print(f"{'='*60}")
-    with open(out_csv, "r") as f:
-        reader = csv.DictReader(f)
+    with open(out_csv, "r") as file_handle:
+        reader = csv.DictReader(file_handle)
         for row in reader:
             if row["method"] == "dense":
                 continue

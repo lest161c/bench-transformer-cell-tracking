@@ -32,25 +32,25 @@ import seaborn as sns
 sns.set_theme(style="whitegrid")
 
 
-def cached_dist_time(N):
+def cached_dist_time(seq_len):
     """CachedDistAttention per-layer time (ms) — baseline with spatial cutoff."""
-    return 0.80 * (N / 256) ** 2
+    return 0.80 * (seq_len / 256) ** 2
 
 
-def mask_knn_time(N, K=16):
+def mask_knn_time(seq_len, knn_neighbors=16):
     """mask-KNN per-layer time (ms) — current best at N<512.
 
     At N=256: 3.1× faster than CachedDistAttention.
     cuDNN penalty grows with N: 1x at N=256, ~5x at N=512, ~15x at N=1024.
     """
-    base = 0.80 * (N / 256) ** 2
+    base = 0.80 * (seq_len / 256) ** 2
     T_256 = base / 3.1
     # cuDNN degradation when N exceeds ~256
-    cuDNN_penalty = 1.0 if N <= 256 else (N / 256) ** 1.2
-    return T_256 * (N / 256) ** 2 * cuDNN_penalty
+    cuDNN_penalty = 1.0 if seq_len <= 256 else (seq_len / 256) ** 1.2
+    return T_256 * (seq_len / 256) ** 2 * cuDNN_penalty
 
 
-def spatial_block_time(N, block_size=64, overlap=1):
+def spatial_block_time(seq_len, block_size=64, overlap=1):
     """Spatial block partition per-layer time (ms).
 
     tokens_per_query = (1 + 2*overlap) * block_size
@@ -65,7 +65,7 @@ def spatial_block_time(N, block_size=64, overlap=1):
     # S queries × tokens_per_query keys → O(S × tokens_per_query × d)
     flash_per_block = 0.20 * (tokens_per_query / 256) ** 2 * (S / tokens_per_query)
 
-    n_blocks = max(1, math.ceil(N / S))
+    n_blocks = max(1, math.ceil(seq_len / S))
     # Within-block attention: n_blocks × flash_per_block
     within_time = n_blocks * flash_per_block
 
@@ -73,14 +73,14 @@ def spatial_block_time(N, block_size=64, overlap=1):
     cross_time = (n_blocks - 1) * 0.20 * (S / 256) ** 2 * max(0, min(1, overlap))
 
     # Reorder overhead: Hilbert sort ~0.1µs per token
-    reorder = N * 0.0001
+    reorder = seq_len * 0.0001
 
     return within_time + cross_time + reorder
 
 
-def dense_flash_time(N):
+def dense_flash_time(seq_len):
     """Dense FlashAttention (no mask, no spatial cutoff) — reference only."""
-    return 0.20 * (N / 256) ** 2
+    return 0.20 * (seq_len / 256) ** 2
 
 
 def run_analysis():
@@ -152,11 +152,11 @@ def generate_figures(rows, Ns, block_sizes, outdir="benchmark_attn"):
                 markersize=8, linewidth=2, markerfacecolor="white")
 
     # Spatial blocks for B=64, o=1 (recommended)
-    sub = sorted([r for r in rows if r["block_size"] == 64 and r["overlap"] == 1],
-                 key=lambda r: r["N"])
+    sub = sorted([row for row in rows if row["block_size"] == 64 and row["overlap"] == 1],
+                 key=lambda row: row["N"])
     if sub:
-        ns = [r["N"] for r in sub]
-        ts = [r["spatial_block_ms"] for r in sub]
+        ns = [row["N"] for row in sub]
+        ts = [row["spatial_block_ms"] for row in sub]
         ax.plot(ns, ts, "D-", label="Spatial blocks (B=64, o=1)",
                 color="#e67e22", markersize=9, linewidth=2.5,
                 markerfacecolor="white", markeredgewidth=1.5, zorder=5)
@@ -172,11 +172,11 @@ def generate_figures(rows, Ns, block_sizes, outdir="benchmark_attn"):
     # Panel B: Speedup vs CachedDistAttention
     ax = axes[1]
     for B, color in [(32, "#3498db"), (64, "#e67e22"), (128, "#9b59b6")]:
-        sub = sorted([r for r in rows if r["block_size"] == B and r["overlap"] == 1],
-                     key=lambda r: r["N"])
+        sub = sorted([row for row in rows if row["block_size"] == B and row["overlap"] == 1],
+                     key=lambda row: row["N"])
         if sub:
-            ns = [r["N"] for r in sub]
-            sp = [r["speedup_vs_cached"] for r in sub]
+            ns = [row["N"] for row in sub]
+            sp = [row["speedup_vs_cached"] for row in sub]
             ax.plot(ns, sp, "D-", color=color, label=f"B={B} (o=1)",
                     markersize=7, linewidth=2, markerfacecolor="white")
     ax.axhline(1.0, color="gray", linestyle="--", alpha=0.5, label="break-even")
@@ -199,12 +199,12 @@ def generate_figures(rows, Ns, block_sizes, outdir="benchmark_attn"):
 
     # Figure 2: Block size vs overlap tradeoff at N=512
     fig, ax = plt.subplots(figsize=(9, 6))
-    sub_512 = [r for r in rows if r["N"] == 512]
+    sub_512 = [row for row in rows if row["N"] == 512]
     for B in block_sizes:
-        pts = sorted([r for r in sub_512 if r["block_size"] == B],
-                     key=lambda r: r["overlap"])
-        overlaps = [r["overlap"] for r in pts]
-        ts = [r["spatial_block_ms"] for r in pts]
+        pts = sorted([row for row in sub_512 if row["block_size"] == B],
+                     key=lambda row: row["overlap"])
+        overlaps = [row["overlap"] for row in pts]
+        ts = [row["spatial_block_ms"] for row in pts]
         ax.plot(overlaps, ts, "D-", label=f"B={B}",
                 markersize=8, linewidth=2, markerfacecolor="white")
     ax.axhline(cached_dist_time(512), color="gray", linestyle="--",
@@ -227,13 +227,13 @@ def generate_figures(rows, Ns, block_sizes, outdir="benchmark_attn"):
     speedup_mat = np.zeros((len(Ns), len(block_sizes)))
     for i, N in enumerate(Ns):
         for j, B in enumerate(block_sizes):
-            r = [r for r in rows if r["N"] == N and r["block_size"] == B and r["overlap"] == 1]
-            if r:
-                speedup_mat[i, j] = min(r[0]["speedup_vs_cached"], 40)
+            row = [row for row in rows if row["N"] == N and row["block_size"] == B and row["overlap"] == 1]
+            if row:
+                speedup_mat[i, j] = min(row[0]["speedup_vs_cached"], 40)
 
     sns.heatmap(speedup_mat, annot=True, fmt=".1f", cmap="RdYlGn", center=3.0,
                 xticklabels=[f"B={b}" for b in block_sizes],
-                yticklabels=[f"N={n}" for n in Ns],
+                yticklabels=[f"N={seq_len}" for seq_len in Ns],
                 ax=ax, vmin=0, vmax=20,
                 cbar_kws={"label": "speedup vs CachedDist"})
     ax.set_title("Spatial Block Speedup Heatmap (o=1, overlap adjacent blocks)")
@@ -251,19 +251,19 @@ def save_csv(rows, path):
         path: Output CSV file path.
     """
     fieldnames = list(rows[0].keys())
-    with open(path, "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=fieldnames)
-        w.writeheader()
-        w.writerows(rows)
+    with open(path, "w", newline="") as file_handle:
+        writer = csv.DictWriter(file_handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
     print(f"  Saved CSV: {path}")
 
 
 def main():
     """Run the spatial block partition benchmark and save CSV/figures."""
-    p = argparse.ArgumentParser()
-    p.add_argument("--out", default="benchmark_attn/spatial_block_results.csv")
-    p.add_argument("--outdir", default="benchmark_attn")
-    args = p.parse_args()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--out", default="benchmark_attn/spatial_block_results.csv")
+    parser.add_argument("--outdir", default="benchmark_attn")
+    args = parser.parse_args()
 
     print("=" * 60)
     print("Spatial Block Partition Benchmark — Phase 3")
@@ -275,12 +275,12 @@ def main():
 
     # Key numbers
     for N in [256, 512, 2048]:
-        r = [r for r in rows if r["N"] == N and r["block_size"] == 64 and r["overlap"] == 1]
-        if r:
-            sp_cached = r[0]["speedup_vs_cached"]
-            sp_mask = r[0]["speedup_vs_mask"]
+        row = [row for row in rows if row["N"] == N and row["block_size"] == 64 and row["overlap"] == 1]
+        if row:
+            sp_cached = row[0]["speedup_vs_cached"]
+            sp_mask = row[0]["speedup_vs_mask"]
             print(f"  N={N}: {sp_cached}× vs CachedDist, {sp_mask}× vs mask-KNN "
-                  f"({r[0]['tokens_per_query']} tokens/query)")
+                  f"({row[0]['tokens_per_query']} tokens/query)")
 
     print()
     print("Findings:")

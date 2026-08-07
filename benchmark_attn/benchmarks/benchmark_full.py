@@ -40,19 +40,19 @@ from model_parts import (
 )
 
 
-def knn_indices(coords, K):
+def knn_indices(coords, knn_neighbors):
     """Compute K-nearest-neighbor indices from spatial coordinates.
 
     Args:
-        coords: Coordinate tensor of shape (B, N, coord_dim).
-        K: Number of nearest neighbors.
+        coords: Coordinate tensor of shape (batch_size, seq_len, coord_dim).
+        knn_neighbors: Number of nearest neighbors.
 
     Returns:
-        KNN index tensor of shape (B, N, K).
+        KNN index tensor of shape (batch_size, seq_len, knn_neighbors).
     """
     yx = coords[..., 1:].float()
     dist = torch.cdist(yx, yx)
-    _, knn = torch.topk(dist, k=K, dim=-1, largest=False)
+    _, knn = torch.topk(dist, k=knn_neighbors, dim=-1, largest=False)
     return knn
 
 
@@ -77,10 +77,10 @@ def measure(fn, warmup=5, min_run_time=0.3):
     _ = fn()
     torch.cuda.synchronize()
     peak = torch.cuda.max_memory_allocated()
-    mem = (peak - baseline) / (1024 ** 2)
-    t = benchmark.Timer("fn()", globals={"fn": fn}, num_threads=1)
-    t_mean = t.blocked_autorange(min_run_time=min_run_time).mean
-    return t_mean, mem
+    memory_mb = (peak - baseline) / (1024 ** 2)
+    timer = benchmark.Timer("fn()", globals={"fn": fn}, num_threads=1)
+    t_mean = timer.blocked_autorange(min_run_time=min_run_time).mean
+    return t_mean, memory_mb
 
 
 def run(device, dtype, d_model, n_head, coord_dim, Ns, Ks, mode, dist_mode, warmup, rep, seed=42):
@@ -121,16 +121,16 @@ def run(device, dtype, d_model, n_head, coord_dim, Ns, Ks, mode, dist_mode, warm
             attn = RelativePositionalAttention(
                 coord_dim, d_model, n_head, mode=mode, attn_dist_mode=dist_mode,
             ).to(device, dtype)
-            t, mem = measure(lambda: attn(x, x, x, coords), warmup=warmup, min_run_time=rep / 1000)
-            rows.append(["dense_masked", N, t * 1000, mem])
+            time_s, memory_mb = measure(lambda: attn(x, x, x, coords), warmup=warmup, min_run_time=rep / 1000)
+            rows.append(["dense_masked", N, time_s * 1000, memory_mb])
         except RuntimeError as e:
             rows.append(["dense_masked", N, None, None, str(e)[:120]])
 
         # (B) dense_flash
         try:
             attn = DenseFlashAttention(d_model, n_head).to(device, dtype)
-            t, mem = measure(lambda: attn(x, x, x), warmup=warmup, min_run_time=rep / 1000)
-            rows.append(["dense_flash", N, t * 1000, mem])
+            time_s, memory_mb = measure(lambda: attn(x, x, x), warmup=warmup, min_run_time=rep / 1000)
+            rows.append(["dense_flash", N, time_s * 1000, memory_mb])
         except RuntimeError as e:
             rows.append(["dense_flash", N, None, None, str(e)[:120]])
 
@@ -144,19 +144,19 @@ def run(device, dtype, d_model, n_head, coord_dim, Ns, Ks, mode, dist_mode, warm
                 try:
                     attn = cls(d_model, n_head, knn_neighbors=K,
                                coord_dim=coord_dim, mode=mode).to(device, dtype)
-                    t, mem = measure(
+                    time_s, memory_mb = measure(
                         lambda: attn(x, x, x, knn_indices=kidx, coords=coords),
                         warmup=warmup, min_run_time=rep / 1000,
                     )
-                    rows.append([f"{label}_K={K}", N, t * 1000, mem])
+                    rows.append([f"{label}_K={K}", N, time_s * 1000, memory_mb])
                 except RuntimeError as e:
                     rows.append([f"{label}_K={K}", N, None, None, str(e)[:120]])
 
         # (D) NSA
         try:
             attn = NSASparseAttention(d_model, n_head).to(device, dtype)
-            t, mem = measure(lambda: attn(x, x, x), warmup=warmup, min_run_time=rep / 1000)
-            rows.append(["NSA", N, t * 1000, mem])
+            time_s, memory_mb = measure(lambda: attn(x, x, x), warmup=warmup, min_run_time=rep / 1000)
+            rows.append(["NSA", N, time_s * 1000, memory_mb])
         except RuntimeError as e:
             rows.append(["NSA", N, None, None, str(e)[:120]])
 
@@ -167,11 +167,11 @@ def run(device, dtype, d_model, n_head, coord_dim, Ns, Ks, mode, dist_mode, warm
                     coord_dim, d_model, n_head, knn_neighbors=K,
                     mode=mode, attn_dist_mode=dist_mode,
                 ).to(device, dtype)
-                t, mem = measure(
+                time_s, memory_mb = measure(
                     lambda: attn(x, x, x, coords, knn_indices=knn_idx[K]),
                     warmup=warmup, min_run_time=rep / 1000,
                 )
-                rows.append([f"KNN-RelPos_K={K}", N, t * 1000, mem])
+                rows.append([f"KNN-RelPos_K={K}", N, time_s * 1000, memory_mb])
             except RuntimeError as e:
                 rows.append([f"KNN-RelPos_K={K}", N, None, None, str(e)[:120]])
 
@@ -183,11 +183,11 @@ def run(device, dtype, d_model, n_head, coord_dim, Ns, Ks, mode, dist_mode, warm
                     d_model, n_head, block_size=Bk,
                     num_selected_blocks=ksel, mode="none",
                 ).to(device, dtype)
-                t, mem = measure(
+                time_s, memory_mb = measure(
                     lambda: attn(x, x, x),
                     warmup=warmup, min_run_time=rep / 1000,
                 )
-                rows.append([f"MiniMax_Bk={Bk}", N, t * 1000, mem])
+                rows.append([f"MiniMax_Bk={Bk}", N, time_s * 1000, memory_mb])
             except RuntimeError as e:
                 rows.append([f"MiniMax_Bk={Bk}", N, None, None, str(e)[:120]])
 
@@ -203,16 +203,16 @@ def main():
     attention methods. Results are written to the specified CSV file
     and a summary table is printed to stdout.
     """
-    p = argparse.ArgumentParser()
-    p.add_argument("--d", type=int, default=320)
-    p.add_argument("--nhead", type=int, default=8)
-    p.add_argument("--warmup", type=int, default=5)
-    p.add_argument("--rep", type=int, default=30)
-    p.add_argument("--out", default="benchmark_full_results.csv")
-    p.add_argument("--mode", default="none", choices=["none", "bias", "rope"])
-    p.add_argument("--dist-mode", default="v1", choices=["v0", "v1"])
-    p.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
-    args = p.parse_args()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--d", type=int, default=320)
+    parser.add_argument("--nhead", type=int, default=8)
+    parser.add_argument("--warmup", type=int, default=5)
+    parser.add_argument("--rep", type=int, default=30)
+    parser.add_argument("--out", default="benchmark_full_results.csv")
+    parser.add_argument("--mode", default="none", choices=["none", "bias", "rope"])
+    parser.add_argument("--dist-mode", default="v1", choices=["v0", "v1"])
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
+    args = parser.parse_args()
 
     assert torch.cuda.is_available()
     device = torch.device("cuda"); dtype = torch.float16
@@ -226,26 +226,26 @@ def main():
                args.warmup, args.rep, seed=args.seed)
 
     header = ["method", "N", "time_ms", "memory_mb", "error"]
-    with open(args.out, "w", newline="") as f:
-        w = csv.writer(f); w.writerow(header)
-        for r in rows:
-            while len(r) < len(header): r.append("")
-            w.writerow(r)
+    with open(args.out, "w", newline="") as file_handle:
+        w = csv.writer(file_handle); w.writerow(header)
+        for row in rows:
+            while len(row) < len(header): row.append("")
+            w.writerow(row)
 
     print(f"\nWrote {len(rows)} rows → {args.out}")
 
-    methods = sorted(set(r[0] for r in rows))
+    methods = sorted(set(row[0] for row in rows))
     print(f"\n{'method':>26s}", end="")
     for N in Ns: print(f"  N={N:>4d}", end="")
     print()
     for m in methods:
         print(f"{m:>26s}", end="")
         for N in Ns:
-            r = [row for row in rows if row[0] == m and row[1] == N]
-            if r and r[0][2] is not None:
-                print(f" {r[0][2]:7.2f}", end="")
+            matching_rows = [row for row in rows if row[0] == m and row[1] == N]
+            if matching_rows and matching_rows[0][2] is not None:
+                print(f" {matching_rows[0][2]:7.2f}", end="")
             else:
-                tag = "OOM" if r and r[0][4] and "out of memory" in str(r[0][4]).lower() else "ERR"
+                tag = "OOM" if matching_rows and matching_rows[0][4] and "out of memory" in str(matching_rows[0][4]).lower() else "ERR"
                 print(f" {tag:>7s}", end="")
         print()
 

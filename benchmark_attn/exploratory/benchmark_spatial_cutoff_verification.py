@@ -15,11 +15,11 @@ import torch.nn.functional as F
 import numpy as np
 
 
-def attention_weights(Q, K, V, bias=None, d_max=256, lam=5):
+def attention_weights(query, key, value, bias=None, d_max=256, lam=5):
     """Compute actual attention weights (not just output) for verification."""
-    d_head = Q.shape[-1]
+    d_head = query.shape[-1]
     scale = math.sqrt(d_head)
-    scores = (Q @ K.transpose(-2, -1)) / scale
+    scores = (query @ key.transpose(-2, -1)) / scale
     if bias is not None:
         scores = scores + bias
     return F.softmax(scores, dim=-1)
@@ -48,7 +48,7 @@ def run_verification(d_head=40, n_head=8, d_max=256, lam=5, seed=42):
     dtype = torch.float32  # fp32 for clean numerical comparison
 
     torch.manual_seed(seed)
-    N = 6  # 6 cells at specific distances
+    seq_len = 6  # 6 cells at specific distances
 
     # Place cells on a line at x=[0, 50, 100, 300, 500, 800]
     # Cell 0 is our query. Distances: 0, 50, 100, 300, 500, 800
@@ -62,26 +62,26 @@ def run_verification(d_head=40, n_head=8, d_max=256, lam=5, seed=42):
 
     # ── Generate Q/K/V with uniform similarity ──
     # Make Q_i = K_i so all cells have equal base attention (before bias)
-    Q = torch.randn(n_head, N, d_head, device=device, dtype=dtype)
-    K = Q.clone()  # Q_i == K_i → diagonal dominance, uniform off-diagonal
-    V = torch.randn(n_head, N, d_head, device=device, dtype=dtype)
+    query = torch.randn(n_head, seq_len, d_head, device=device, dtype=dtype)
+    key = query.clone()  # Q_i == K_i → diagonal dominance, uniform off-diagonal
+    value = torch.randn(n_head, seq_len, d_head, device=device, dtype=dtype)
 
     # ── Method A: Hard mask (current Trackastra) ──
     decay = (-lam * dist / d_max).to(dtype)
-    hard_bias = torch.zeros(1, n_head, N, N, device=device, dtype=dtype)
+    hard_bias = torch.zeros(1, n_head, seq_len, seq_len, device=device, dtype=dtype)
     hard_bias[:, :, dist > d_max] = float("-inf")
     hard_bias = hard_bias + decay
 
-    w_hard = attention_weights(Q, K, V, bias=hard_bias, d_max=d_max, lam=lam)
+    w_hard = attention_weights(query, key, value, bias=hard_bias, d_max=d_max, lam=lam)
     w_hard_avg = w_hard.mean(dim=1)[0] if w_hard.dim() == 4 else w_hard.mean(dim=0)
 
     # ── Method B: Soft decay only (no hard cutoff) ──
     soft_bias = decay.unsqueeze(0).unsqueeze(0)
-    w_soft = attention_weights(Q, K, V, bias=soft_bias, d_max=d_max, lam=lam)
+    w_soft = attention_weights(query, key, value, bias=soft_bias, d_max=d_max, lam=lam)
     w_soft_avg = w_soft.mean(dim=1)[0] if w_soft.dim() == 4 else w_soft.mean(dim=0)
 
     # ── Method C: No-bias FlashAttn (NO spatial constraints) ──
-    w_nobias = attention_weights(Q, K, V, bias=None)
+    w_nobias = attention_weights(query, key, value, bias=None)
     w_nobias_avg = w_nobias.mean(dim=0)
 
     # ── Method D: What happens in SDPA (FlashAttn) without mask? ──
@@ -95,15 +95,15 @@ def run_verification(d_head=40, n_head=8, d_max=256, lam=5, seed=42):
 
     results = []
     distances = [0, 50, 100, 300, 500, 800]
-    for j, d in enumerate(distances):
+    for j, distance in enumerate(distances):
         wh = w_hard_avg[0, j].item()
         ws = w_soft_avg[0, j].item()
         wn = w_nobias_avg[0, j].item()
-        is_cutoff = d > d_max
+        is_cutoff = distance > d_max
         status = "CUTOFF ✓" if (is_cutoff and wh < 1e-4) else ("PASSED ✗" if (is_cutoff and wh > 1e-4) else "ok")
-        print(f"  d={d:>4d}   {wh:.2e}   {ws:.2e}   {wn:.2e}   {status}")
+        print(f"  dist={distance:>4d}   {wh:.2e}   {ws:.2e}   {wn:.2e}   {status}")
         results.append({
-            "distance": d,
+            "distance": distance,
             "hard_mask_weight": round(wh, 8),
             "soft_decay_weight": round(ws, 8),
             "no_bias_weight": round(wn, 8),
@@ -147,9 +147,9 @@ def main():
 
     # Save
     path = Path("benchmark_attn/spatial_cutoff_verification.csv")
-    with open(path, "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=list(results[0].keys()))
-        w.writeheader(); w.writerows(results)
+    with open(path, "w", newline="") as file_handle:
+        writer = csv.DictWriter(file_handle, fieldnames=list(results[0].keys()))
+        writer.writeheader(); writer.writerows(results)
     print(f"\nSaved: {path}")
 
     path2 = Path("benchmark_attn/spatial_cutoff_verification.json")

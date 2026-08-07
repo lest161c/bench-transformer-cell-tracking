@@ -42,10 +42,10 @@ def timed_benchmark(fn, warmup=7, n_repeat=30):
     torch.cuda.synchronize()
     times = []
     for _ in range(n_repeat):
-        t0 = time.perf_counter()
+        start_time = time.perf_counter()
         fn()
         torch.cuda.synchronize()
-        times.append(time.perf_counter() - t0)
+        times.append(time.perf_counter() - start_time)
     return float(np.mean(times)) * 1000
 
 
@@ -81,12 +81,12 @@ def verify_flashattn_dispatches(seed=42):
     times = {}
     for N in [256, 512]:
         torch.manual_seed(seed)
-        q = torch.randn(n_head, N, d_head, device=device, dtype=dtype) / math.sqrt(d_head)
-        k = torch.randn(n_head, N, d_head, device=device, dtype=dtype) / math.sqrt(d_head)
-        v = torch.randn(n_head, N, d_head, device=device, dtype=dtype)
+        query = torch.randn(n_head, N, d_head, device=device, dtype=dtype) / math.sqrt(d_head)
+        key = torch.randn(n_head, N, d_head, device=device, dtype=dtype) / math.sqrt(d_head)
+        value = torch.randn(n_head, N, d_head, device=device, dtype=dtype)
         times[N] = timed_benchmark(
-            lambda q_=q, k_=k, v_=v: F.scaled_dot_product_attention(
-                q_.unsqueeze(0), k_.unsqueeze(0), v_.unsqueeze(0)
+            lambda query_=query, key_=key, value_=value: F.scaled_dot_product_attention(
+                query_.unsqueeze(0), key_.unsqueeze(0), value_.unsqueeze(0)
             ),
             warmup=5, n_repeat=20,
         )
@@ -140,9 +140,9 @@ def run_benchmark(Ns=(128, 256, 512, 1024), d_head=40, n_head=8,
     results = []
     for N in Ns:
         torch.manual_seed(seed)
-        Q = torch.randn(n_head, N, d_head, device=device, dtype=dtype) / scale
-        K = torch.randn(n_head, N, d_head, device=device, dtype=dtype) / scale
-        V = torch.randn(n_head, N, d_head, device=device, dtype=dtype)
+        query = torch.randn(n_head, N, d_head, device=device, dtype=dtype) / scale
+        key = torch.randn(n_head, N, d_head, device=device, dtype=dtype) / scale
+        value = torch.randn(n_head, N, d_head, device=device, dtype=dtype)
         coords = torch.rand(N, 2, device=device) * 512
         dist = torch.cdist(coords, coords)
 
@@ -154,22 +154,22 @@ def run_benchmark(Ns=(128, 256, 512, 1024), d_head=40, n_head=8,
 
         def current_fn():
             return F.scaled_dot_product_attention(
-                Q.unsqueeze(0), K.unsqueeze(0), V.unsqueeze(0), attn_mask=hard_mask)
+                query.unsqueeze(0), key.unsqueeze(0), value.unsqueeze(0), attn_mask=hard_mask)
 
         # ─── B: No-bias FlashAttn (NO mask, NO bias → FlashAttention) ───
         def no_bias_fn():
             return F.scaled_dot_product_attention(
-                Q.unsqueeze(0), K.unsqueeze(0), V.unsqueeze(0))
+                query.unsqueeze(0), key.unsqueeze(0), value.unsqueeze(0))
 
         # ─── C: No spatial info (no RoPE, no bias, no mask) ───
         # Same as B for now — RoPE would be applied by Trackastra's model code.
         # Here we measure raw SDPA dispatch.
 
         # Measure
-        t_current = timed_benchmark(current_fn)
-        t_nobias = timed_benchmark(no_bias_fn)
-        mem_current = measure_memory(current_fn)
-        mem_nobias = measure_memory(no_bias_fn)
+        time_current = timed_benchmark(current_fn)
+        time_nobias = timed_benchmark(no_bias_fn)
+        memory_mb_current = measure_memory(current_fn)
+        memory_mb_nobias = measure_memory(no_bias_fn)
 
         # Numerical difference
         out_current = current_fn().float()
@@ -180,19 +180,19 @@ def run_benchmark(Ns=(128, 256, 512, 1024), d_head=40, n_head=8,
 
         results.append({
             "N": N,
-            "current_ms": round(t_current, 4),
-            "no_bias_flash_ms": round(t_nobias, 4),
-            "speedup_vs_current": round(t_current / max(t_nobias, 0.0001), 2),
-            "current_mem_mb": round(mem_current, 2),
-            "no_bias_mem_mb": round(mem_nobias, 2),
+            "current_ms": round(time_current, 4),
+            "no_bias_flash_ms": round(time_nobias, 4),
+            "speedup_vs_current": round(time_current / max(time_nobias, 0.0001), 2),
+            "current_mem_mb": round(memory_mb_current, 2),
+            "no_bias_mem_mb": round(memory_mb_nobias, 2),
             "cos_sim_vs_current": round(cos_sim, 4),
             "max_abs_diff": round(max_diff, 4),
             "flashattn_dispatched": dispatch["flash_dispatched"],
         })
 
-        print(f"  N={N:>4d}: current={t_current:.3f}ms  no_bias={t_nobias:.3f}ms  "
-              f"speedup={t_current/t_nobias:.2f}×  "
-              f"cos={cos_sim:.4f}  mem: {mem_current:.1f}→{mem_nobias:.1f}MB")
+        print(f"  N={N:>4d}: current={time_current:.3f}ms  no_bias={time_nobias:.3f}ms  "
+              f"speedup={time_current/time_nobias:.2f}×  "
+              f"cos={cos_sim:.4f}  mem: {memory_mb_current:.1f}→{memory_mb_nobias:.1f}MB")
 
         gc.collect()
         torch.cuda.empty_cache()
@@ -202,10 +202,10 @@ def run_benchmark(Ns=(128, 256, 512, 1024), d_head=40, n_head=8,
 
 def main():
     """Run the no-bias FlashAttention benchmark and save CSV/JSON."""
-    p = argparse.ArgumentParser()
-    p.add_argument("--outdir", default="benchmark_attn")
-    p.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
-    args = p.parse_args()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--outdir", default="benchmark_attn")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
+    args = parser.parse_args()
 
     print("=" * 60)
     print("No-Bias FlashAttention Benchmark")
@@ -220,10 +220,10 @@ def main():
 
     # Save CSV
     path = outdir / "no_bias_flashattn.csv"
-    with open(path, "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=list(results[0].keys()))
-        w.writeheader()
-        w.writerows(results)
+    with open(path, "w", newline="") as file_handle:
+        writer = csv.DictWriter(file_handle, fieldnames=list(results[0].keys()))
+        writer.writeheader()
+        writer.writerows(results)
     print(f"\nSaved: {path}")
 
     # Save dispatch verification JSON
@@ -235,10 +235,10 @@ def main():
     print(f"\n{'='*60}")
     print("SUMMARY")
     print(f"{'='*60}")
-    for r in results:
-        print(f"  N={r['N']:>4d}: {r['speedup_vs_current']:.1f}× faster with no-bias FlashAttn  "
-              f"(cos_sim={r['cos_sim_vs_current']:.4f}, "
-              f"mem {r['current_mem_mb']:.1f}→{r['no_bias_mem_mb']:.1f}MB)")
+    for row in results:
+        print(f"  N={row['N']:>4d}: {row['speedup_vs_current']:.1f}× faster with no-bias FlashAttn  "
+              f"(cos_sim={row['cos_sim_vs_current']:.4f}, "
+              f"mem {row['current_mem_mb']:.1f}→{row['no_bias_mem_mb']:.1f}MB)")
     print(f"\nFlashAttention dispatch: {'✓ CONFIRMED' if dispatch['flash_dispatched'] else '✗ FAILED'}")
     print(f"  O(N) scaling ratio N256→512: {dispatch['scaling_ratio']}× "
           f"(flash ~2×, cuDNN ~4×)")

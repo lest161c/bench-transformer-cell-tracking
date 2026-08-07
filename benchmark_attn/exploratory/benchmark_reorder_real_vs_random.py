@@ -86,37 +86,37 @@ def bench_n(n_points: int, knn_neighbors: int, real_pool, device,
         pts = pts_fn().to(device)
         dist = torch.cdist(pts, pts)
         _, knn_idx = torch.topk(dist, k=knn_neighbors, dim=-1, largest=False)
-        x = torch.randn(batch_size, n_points, embed_dim, dtype=dtype, device=device)
+        tokens = torch.randn(batch_size, n_points, embed_dim, dtype=dtype, device=device)
 
         knn_idx_flat = knn_idx[None].expand(batch_size, n_points, knn_neighbors)
         for _ in range(5):
-            attn(x, x, x, knn_idx_flat)
+            attn(tokens, tokens, tokens, knn_idx_flat)
         torch.cuda.synchronize()
-        t0 = time.perf_counter()
+        start_time = time.perf_counter()
         for _ in range(n_trials):
-            attn(x, x, x, knn_idx_flat)
+            attn(tokens, tokens, tokens, knn_idx_flat)
         torch.cuda.synchronize()
-        t_base = (time.perf_counter() - t0) / n_trials
+        time_base = (time.perf_counter() - start_time) / n_trials
 
         # reorder
         sr = SpatialReorder(n_bins=32)
         reorder_idx, unreorder_idx = sr.compute_idx(pts[None])
-        x_re = sr.reorder(x, reorder_idx)
+        tokens_reordered = sr.reorder(tokens, reorder_idx)
         pts_re = pts[reorder_idx[0]]
         dist_re = torch.cdist(pts_re, pts_re)
         _, knn_idx_re = torch.topk(dist_re, k=knn_neighbors, dim=-1, largest=False)
         knn_idx_re = knn_idx_re[None].contiguous()
         for _ in range(5):
-            attn(x_re, x_re, x_re, knn_idx_re)
+            attn(tokens_reordered, tokens_reordered, tokens_reordered, knn_idx_re)
         torch.cuda.synchronize()
-        t0 = time.perf_counter()
+        start_time = time.perf_counter()
         for _ in range(n_trials):
-            attn(x_re, x_re, x_re, knn_idx_re)
+            attn(tokens_reordered, tokens_reordered, tokens_reordered, knn_idx_re)
         torch.cuda.synchronize()
-        t_re = (time.perf_counter() - t0) / n_trials
+        time_reorder = (time.perf_counter() - start_time) / n_trials
 
-        results[label] = {"time_s": float(t_base), "time_reorder_s": float(t_re),
-                          "speedup": float(t_base / t_re)}
+        results[label] = {"time_s": float(time_base), "time_reorder_s": float(time_reorder),
+                          "speedup": float(time_base / time_reorder)}
 
         knn_dists = dist.gather(1, knn_idx)
         results[label]["mean_knn_dist"] = float(knn_dists.mean())

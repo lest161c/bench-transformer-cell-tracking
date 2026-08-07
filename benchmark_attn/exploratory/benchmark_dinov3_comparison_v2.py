@@ -92,7 +92,7 @@ def extract_features(model, patches, device, batch_size=32):
     std = DINO_STD.view(1, 3, 1, 1).to(device)
 
     feats = []
-    t0 = time.perf_counter()
+    start_time = time.perf_counter()
     for start in range(0, len(patches), batch_size):
         batch = torch.from_numpy(patches[start:start+batch_size]).float().to(device)
         batch = batch.unsqueeze(1).expand(-1, 3, -1, -1)
@@ -102,14 +102,14 @@ def extract_features(model, patches, device, batch_size=32):
         with torch.no_grad():
             out = model(batch)
         if hasattr(out, "last_hidden_state"):
-            f = out.last_hidden_state[:, 0, :].cpu().numpy()
+            batch_features = out.last_hidden_state[:, 0, :].cpu().numpy()
         elif isinstance(out, dict):
             k = next(k for k in out if isinstance(out[k], torch.Tensor) and out[k].dim() >= 2)
-            f = out[k][:, 0].cpu().numpy()
+            batch_features = out[k][:, 0].cpu().numpy()
         else:
-            f = out.cpu().numpy()
-        feats.append(f)
-    elapsed = time.perf_counter() - t0
+            batch_features = out.cpu().numpy()
+        feats.append(batch_features)
+    elapsed = time.perf_counter() - start_time
     all_feats = np.concatenate(feats, axis=0)
     return all_feats.astype(np.float32), len(patches) / max(elapsed, 0.001)
 
@@ -134,11 +134,11 @@ def load_model_hf(model_id, device="cpu"):
 
 def main():
     """Run DINOv2 vs DINOv3 feature quality comparison and save CSV."""
-    p = argparse.ArgumentParser()
-    p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
-    p.add_argument("--n-patches", type=int, default=N_PATCHES)
-    p.add_argument("--outdir", default="benchmark_attn")
-    args = p.parse_args()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
+    parser.add_argument("--n-patches", type=int, default=N_PATCHES)
+    parser.add_argument("--outdir", default="benchmark_attn")
+    args = parser.parse_args()
 
     print("=" * 60)
     print("DINOv2 vs DINOv3 — Feature Quality Comparison")
@@ -163,9 +163,9 @@ def main():
         else:
             try:
                 model, dim = load_model_hf(model_id, args.device)
-            except Exception as e:
-                print(f"    FAILED: {e}")
-                results.append({"version": version, "status": f"FAILED: {str(e)[:100]}"})
+            except Exception as error:
+                print(f"    FAILED: {error}")
+                results.append({"version": version, "status": f"FAILED: {str(error)[:100]}"})
                 continue
 
         print(f"    Extracting features ({len(patches)} patches)...")
@@ -185,10 +185,10 @@ def main():
     # Save
     outdir = Path(args.outdir)
     path = outdir / "dinov3_comparison_v2.csv"
-    with open(path, "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=list(results[0].keys()))
-        w.writeheader()
-        w.writerows(results)
+    with open(path, "w", newline="") as file_handle:
+        writer = csv.DictWriter(file_handle, fieldnames=list(results[0].keys()))
+        writer.writeheader()
+        writer.writerows(results)
     print(f"Saved: {path}")
 
     # Compare

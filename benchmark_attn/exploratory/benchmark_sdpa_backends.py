@@ -40,12 +40,12 @@ BACKEND_COLORS = {
 }
 
 
-def predict_backend(N, d_head):
-    """Predict which SDPA backend PyTorch uses for given N and d_head.
+def predict_backend(seq_len, d_head):
+    """Predict which SDPA backend PyTorch uses for given seq_len and d_head.
 
     Based on known PyTorch 2.6 dispatch logic:
-      - flash:    d_head in {16,32,64,128} and N >= 64
-      - mem_eff:  d_head divisible by 8 and N >= 16
+      - flash:    d_head in {16,32,64,128} and seq_len >= 64
+      - mem_eff:  d_head divisible by 8 and seq_len >= 16
       - math:     everything else (small N, non-standard d_head)
     """
     if d_head > 256:
@@ -53,9 +53,9 @@ def predict_backend(N, d_head):
 
     flash_hd = {16, 32, 64, 128, 256}
     if d_head % 8 == 0:
-        if d_head in flash_hd and N >= 64:
+        if d_head in flash_hd and seq_len >= 64:
             return "flash"
-        elif N >= 16:
+        elif seq_len >= 16:
             return "mem_efficient"
         else:
             return "math/cuDNN"
@@ -63,20 +63,20 @@ def predict_backend(N, d_head):
         return "math/cuDNN"
 
 
-def analytical_timing(N, d_head, backend):
-    """Estimate SDPA timing based on O(N²·d_head) and backend overhead."""
-    base_ops = N * N * d_head * 2
+def analytical_timing(seq_len, d_head, backend):
+    """Estimate SDPA timing based on O(seq_len²·d_head) and backend overhead."""
+    base_ops = seq_len * seq_len * d_head * 2
 
     overhead = {
-        "flash": 1.0 + max(0, 32 / N * 0.5),
-        "mem_efficient": 1.5 + max(0, 16 / N * 1.0),
-        "math/cuDNN": 1.0 + max(0, 64 / N * 0.3),
+        "flash": 1.0 + max(0, 32 / seq_len * 0.5),
+        "mem_efficient": 1.5 + max(0, 16 / seq_len * 1.0),
+        "math/cuDNN": 1.0 + max(0, 64 / seq_len * 0.3),
         "unknown/fallback": 2.0,
     }
 
     factor = overhead.get(backend, 2.0)
-    t_relative = base_ops * factor / 1e8
-    return round(t_relative, 4)
+    time_relative = base_ops * factor / 1e8
+    return round(time_relative, 4)
 
 
 def run_analytical():
@@ -100,14 +100,14 @@ def run_analytical():
         print(f"{dh:>7d}", end="")
         for N in Ns:
             backend = predict_backend(N, dh)
-            t = analytical_timing(N, dh, backend)
+            time_s = analytical_timing(N, dh, backend)
             symbol = {"flash": "F", "mem_efficient": "M", "math/cuDNN": "C", "unknown/fallback": "?"}[backend]
             print(f" {symbol:>6s}", end="")
             rows.append({
                 "d_head": dh,
                 "N": N,
                 "backend": backend,
-                "time_ms": t,
+                "time_ms": time_s,
                 "flash_compatible": int(dh in {16, 32, 64, 128, 256} and N >= 64),
             })
         print()
@@ -128,10 +128,10 @@ def generate_figures(rows, Ns, d_heads, outdir="benchmark_attn"):
     backend_symbols = {0: "F", 1: "M", 2: "C", 3: "?"}
     cmap_colors = ["#2ecc71", "#3498db", "#e74c3c", "#95a5a6"]
 
-    for r in rows:
-        j = Ns.index(r["N"])
-        i = d_heads.index(r["d_head"])
-        matrix[i, j] = backend_map[r["backend"]]
+    for row in rows:
+        j = Ns.index(row["N"])
+        i = d_heads.index(row["d_head"])
+        matrix[i, j] = backend_map[row["backend"]]
         labels[i, j] = backend_symbols[matrix[i, j]]
 
     from matplotlib.colors import ListedColormap
@@ -139,9 +139,9 @@ def generate_figures(rows, Ns, d_heads, outdir="benchmark_attn"):
     im = ax.imshow(matrix, cmap=cmap, aspect="auto", vmin=0, vmax=3)
 
     ax.set_xticks(range(len(Ns)))
-    ax.set_xticklabels([str(n) for n in Ns])
+    ax.set_xticklabels([str(seq_len) for seq_len in Ns])
     ax.set_yticks(range(len(d_heads)))
-    ax.set_yticklabels([str(h) for h in d_heads])
+    ax.set_yticklabels([str(head_dim) for head_dim in d_heads])
 
     for i in range(len(d_heads)):
         for j in range(len(Ns)):
@@ -179,7 +179,7 @@ def generate_figures(rows, Ns, d_heads, outdir="benchmark_attn"):
     # ── Figure 2: Timing vs N for different backends (d_head=40) ──
     fig, ax = plt.subplots(figsize=(10, 6))
     for backend in ["flash", "mem_efficient", "math/cuDNN"]:
-        sub = [r for r in rows if r["d_head"] == 40 and r["backend"] == backend]
+        sub = [row for row in rows if row["d_head"] == 40 and row["backend"] == backend]
         if not sub:
             # Estimate where this backend WOULD be used
             sub_est = []
@@ -187,12 +187,12 @@ def generate_figures(rows, Ns, d_heads, outdir="benchmark_attn"):
                 pred = predict_backend(N, 40)
                 if pred == backend:
                     sub_est.append({"N": N, "time_ms": analytical_timing(N, 40, pred)})
-            sub = sorted(sub_est, key=lambda r: r["N"])
+            sub = sorted(sub_est, key=lambda row: row["N"])
         else:
-            sub = sorted(sub, key=lambda r: r["N"])
+            sub = sorted(sub, key=lambda row: row["N"])
 
-        ns = [r["N"] for r in sub]
-        ts = [r["time_ms"] for r in sub]
+        ns = [row["N"] for row in sub]
+        ts = [row["time_ms"] for row in sub]
         if ns:
             ax.plot(ns, ts, "o-", label=backend, color=BACKEND_COLORS[backend],
                     markersize=8, linewidth=2, markerfacecolor="white")
@@ -221,10 +221,10 @@ def generate_figures(rows, Ns, d_heads, outdir="benchmark_attn"):
     # Panel A: Bar chart of flash-compatible d_heads
     ax = axes[0]
     compat = [1 if dh in {16, 32, 64, 128, 256} else 0 for dh in d_heads]
-    colors = ["#2ecc71" if c else "#e74c3c" for c in compat]
+    colors = ["#2ecc71" if compatible else "#e74c3c" for compatible in compat]
     ax.bar(range(len(d_heads)), compat, color=colors, alpha=0.85)
     ax.set_xticks(range(len(d_heads)))
-    ax.set_xticklabels([str(h) for h in d_heads])
+    ax.set_xticklabels([str(head_dim) for head_dim in d_heads])
     ax.set_ylabel("Flash-compatible")
     ax.set_title("FlashAttention d_head Compatibility")
     if 40 in d_heads:
@@ -236,7 +236,7 @@ def generate_figures(rows, Ns, d_heads, outdir="benchmark_attn"):
     ax = axes[1]
     for dh in [32, 40, 64, 128]:
         ts = [analytical_timing(N, dh, predict_backend(N, dh)) for N in Ns]
-        gflops = [N*N*dh*2 / (t*1e6) if t > 0 else 0 for N, t in zip(Ns, ts)]
+        gflops = [N*N*dh*2 / (time_s*1e6) if time_s > 0 else 0 for N, time_s in zip(Ns, ts)]
         ax.plot(Ns, gflops, "o-", label=f"d_head={dh}", markersize=6, linewidth=2)
     ax.set_xlabel("Sequence length N")
     ax.set_ylabel("Effective GFLOPS")
@@ -260,19 +260,19 @@ def save_csv(rows, path):
         rows: List of dictionaries to write.
         path: Output CSV file path.
     """
-    with open(path, "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=["d_head", "N", "backend", "time_ms", "flash_compatible"])
-        w.writeheader()
-        w.writerows(rows)
+    with open(path, "w", newline="") as file_handle:
+        writer = csv.DictWriter(file_handle, fieldnames=["d_head", "N", "backend", "time_ms", "flash_compatible"])
+        writer.writeheader()
+        writer.writerows(rows)
     print(f"  Saved CSV: {path}")
 
 
 def main():
     """Run the SDPA backend dispatch benchmark and save CSV/figures."""
-    p = argparse.ArgumentParser()
-    p.add_argument("--out", default="benchmark_attn/sdpa_backend_results.csv")
-    p.add_argument("--outdir", default="benchmark_attn")
-    args = p.parse_args()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--out", default="benchmark_attn/sdpa_backend_results.csv")
+    parser.add_argument("--outdir", default="benchmark_attn")
+    args = parser.parse_args()
 
     rows, Ns, d_heads = run_analytical()
     save_csv(rows, args.out)
