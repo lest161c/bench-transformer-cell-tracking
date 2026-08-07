@@ -1,50 +1,94 @@
 """Compare token reorder speedup: real cell centroids vs random points.
+
 Real centroids from vanvliet microscopy data have spatial structure (clusters)
-that may make reordering more effective than with uniform random data."""
+that may make reordering more effective than with uniform random data.
+"""
 
+import os
 import sys
+import time
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import sys, os, time
 import numpy as np
 import torch
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, '.')
+
 from model_parts import GatherSparseAttention, SpatialReorder
 
-def load_real_centroids():
-    p = '../data/vanvliet/rpsM/151101_E4-12/centroids.npy'
-    if not os.path.exists(p):
-        raise FileNotFoundError(f"Run centroid extraction first: {p}")
-    c = np.load(p).astype(np.float32)
-    print(f"  Loaded {len(c)} real centroids from {p}")
-    return c
 
-def sample_points(n, real_pool=None):
-    """Sample n points in [0,1]^2 from real data or random."""
+def load_real_centroids() -> np.ndarray:
+    """Load pre-extracted cell centroids from the vanvliet dataset.
+
+    Returns:
+        Array of shape (N, 2) with centroid coordinates in pixels.
+
+    Raises:
+        FileNotFoundError: If the centroids file does not exist.
+    """
+    path = '../data/vanvliet/rpsM/151101_E4-12/centroids.npy'
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"Run centroid extraction first: {path}")
+    centroids = np.load(path).astype(np.float32)
+    print(f"  Loaded {len(centroids)} real centroids from {path}")
+    return centroids
+
+
+def sample_points(n_points: int, real_pool=None) -> torch.Tensor:
+    """Sample n_points in [0,1]^2 from real data or uniform random.
+
+    Args:
+        n_points: Number of points to sample.
+        real_pool: Optional pool of real centroid coordinates.
+
+    Returns:
+        Tensor of shape (n_points, 2) with coordinates in [0, 1].
+    """
     if real_pool is not None:
-        idx = np.random.choice(len(real_pool), n, replace=(n > len(real_pool)))
+        idx = np.random.choice(len(real_pool), n_points, replace=(n_points > len(real_pool)))
         pts = real_pool[idx].copy()
         pts -= pts.min(axis=0, keepdims=True)
         pts /= pts.max(axis=0, keepdims=True) + 1e-8
     else:
-        pts = np.random.rand(n, 2).astype(np.float32)
+        pts = np.random.rand(n_points, 2).astype(np.float32)
     return torch.from_numpy(pts)
 
-def bench_n(n, k, real_pool, device, dtype=torch.float16, n_trials=50, B=1, H=4, D_head=64):
-    d = H * D_head
-    attn = GatherSparseAttention(embed_dim=d, n_head=H, knn_neighbors=k, mode='none').to(device, dtype)
+
+def bench_n(n_points: int, knn_neighbors: int, real_pool, device,
+            dtype=torch.float16, n_trials: int = 50,
+            batch_size: int = 1, n_head: int = 4, head_dim: int = 64):
+    """Benchmark GatherSparseAttention with and without spatial reorder.
+
+    Args:
+        n_points: Number of points (tokens).
+        knn_neighbors: Number of nearest neighbors for sparse attention.
+        real_pool: Optional pool of real centroid coordinates.
+        device: torch.device to run on.
+        dtype: torch dtype for attention computation.
+        n_trials: Number of timing trials.
+        batch_size: Batch dimension.
+        n_head: Number of attention heads.
+        head_dim: Dimension per head.
+
+    Returns:
+        Dict mapping label to timing results.
+    """
+    embed_dim = n_head * head_dim
+    attn = GatherSparseAttention(
+        embed_dim=embed_dim, n_head=n_head,
+        knn_neighbors=knn_neighbors, mode='none'
+    ).to(device, dtype)
 
     results = {}
-    for label, pts_fn in [("random", lambda: sample_points(n)),
-                          ("real",   lambda: sample_points(n, real_pool))]:
+    for label, pts_fn in [("random", lambda: sample_points(n_points)),
+                          ("real",   lambda: sample_points(n_points, real_pool))]:
         pts = pts_fn().to(device)
         dist = torch.cdist(pts, pts)
-        _, knn_idx = torch.topk(dist, k=k, dim=-1, largest=False)
-        x = torch.randn(B, n, d, dtype=dtype, device=device)
+        _, knn_idx = torch.topk(dist, k=knn_neighbors, dim=-1, largest=False)
+        x = torch.randn(batch_size, n_points, embed_dim, dtype=dtype, device=device)
 
-        knn_idx_flat = knn_idx[None].expand(B, n, k)
+        knn_idx_flat = knn_idx[None].expand(batch_size, n_points, knn_neighbors)
         for _ in range(5):
             attn(x, x, x, knn_idx_flat)
         torch.cuda.synchronize()
@@ -60,7 +104,7 @@ def bench_n(n, k, real_pool, device, dtype=torch.float16, n_trials=50, B=1, H=4,
         x_re = sr.reorder(x, reorder_idx)
         pts_re = pts[reorder_idx[0]]
         dist_re = torch.cdist(pts_re, pts_re)
-        _, knn_idx_re = torch.topk(dist_re, k=k, dim=-1, largest=False)
+        _, knn_idx_re = torch.topk(dist_re, k=knn_neighbors, dim=-1, largest=False)
         knn_idx_re = knn_idx_re[None].contiguous()
         for _ in range(5):
             attn(x_re, x_re, x_re, knn_idx_re)
@@ -79,10 +123,13 @@ def bench_n(n, k, real_pool, device, dtype=torch.float16, n_trials=50, B=1, H=4,
 
     return results
 
+
 def main():
+    """Run the reorder benchmark and print results."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if device.type != "cuda":
-        print("CUDA required"); return
+        print("CUDA required")
+        return
     print(f"Device: {torch.cuda.get_device_name(0)}")
     print(f"VRAM:   {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
     print()
@@ -99,15 +146,16 @@ def main():
     for N in Ns:
         for K in Ks:
             for label in ["random", "real"]:
-                r = bench_n(N, K, real_pool if label == "real" else None, device,
+                bench_results = bench_n(N, K, real_pool if label == "real" else None, device,
                             n_trials=100 if N <= 2048 else 30)
-                res = r[label]
+                result = bench_results[label]
                 print(f"{N:6d} {K:3d} {label:>8} "
-                      f"{res['time_s']*1000:8.3f}ms "
-                      f"{res['time_reorder_s']*1000:8.3f}ms "
-                      f"{res['speedup']:7.3f}x "
-                      f"{res['mean_knn_dist']:11.4f}")
+                      f"{result['time_s']*1000:8.3f}ms "
+                      f"{result['time_reorder_s']*1000:8.3f}ms "
+                      f"{result['speedup']:7.3f}x "
+                      f"{result['mean_knn_dist']:11.4f}")
             print()
+
 
 if __name__ == "__main__":
     main()
