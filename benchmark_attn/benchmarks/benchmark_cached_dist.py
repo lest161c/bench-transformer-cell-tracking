@@ -40,6 +40,16 @@ from model_parts import CachedDistAttention, RelativePositionalAttention
 
 
 def measure(fn, warmup=5, min_run_time=0.3):
+    """Benchmark a callable, returning (mean_time_s, incremental_peak_mem_mb).
+
+    Args:
+        fn: Callable to benchmark.
+        warmup: Number of warmup iterations.
+        min_run_time: Minimum run time for the benchmark timer.
+
+    Returns:
+        Tuple (mean_time_s, peak_memory_mb).
+    """
     for _ in range(warmup):
         fn()
     torch.cuda.synchronize()
@@ -58,6 +68,29 @@ def measure(fn, warmup=5, min_run_time=0.3):
 
 def run(device, dtype, d_model, n_head, coord_dim, Ns, warmup, rep,
         cutoff_spatial, dist_mode, layers):
+    """Run CachedDistAttention vs RelativePositionalAttention benchmark.
+
+    For each N in Ns, benchmarks:
+      - dense_masked: RelativePositionalAttention (per-layer cdist)
+      - cached_dist: CachedDistAttention (precomputed dist_2d)
+      - cdist_2d: one-time 2D cdist cost (amortized once per model forward)
+
+    Args:
+        device: torch device.
+        dtype: torch dtype.
+        d_model: Embedding dimension.
+        n_head: Number of attention heads.
+        coord_dim: Number of coordinate dimensions.
+        Ns: List of sequence lengths.
+        warmup: Number of warmup iterations.
+        rep: Minimum run time in milliseconds.
+        cutoff_spatial: Spatial cutoff distance.
+        dist_mode: Distance decay mode ("v0" or "v1").
+        layers: Number of transformer layers for amortized total.
+
+    Returns:
+        List of result rows [method, N, time_ms, memory_mb, error?].
+    """
     rows = []
     print(f"{'N':>5} | {'dense_masked':>14} {'mem':>8} | {'cached_dist':>13} {'mem':>8} | {'cdist_2d':>10} | {'speedup':>8} (per-layer) | {'total L={}':>8}"
           .format(layers))
