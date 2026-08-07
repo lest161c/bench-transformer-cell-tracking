@@ -48,12 +48,14 @@ PROFILER_OUTPUT_DIR = _env("PROFILER_OUTPUT_DIR", "profiler_out")
 
 
 def get_device():
+    """Return (device, dtype) — CUDA+fp16 if available, else CPU+fp32."""
     if torch.cuda.is_available():
         return torch.device("cuda"), torch.float16
     return torch.device("cpu"), torch.float32
 
 
 def build_activities(device):
+    """Build the list of ProfilerActivity targets for the given device."""
     acts = [ProfilerActivity.CPU]
     if device.type == "cuda":
         acts.append(ProfilerActivity.CUDA)
@@ -65,6 +67,21 @@ def build_activities(device):
 # ------------------------------------------------------------------
 
 def make_workload_dense(N, device, dtype, L=1, B=2, d=256, h=4, coord_dim=3):
+    """Build a closure that runs L layers of RelativePositionalAttention (dense).
+
+    Args:
+        N: Sequence length.
+        device: torch device.
+        dtype: torch dtype.
+        L: Number of layers.
+        B: Batch size.
+        d: Embedding dimension.
+        h: Number of attention heads.
+        coord_dim: Number of coordinate dimensions.
+
+    Returns:
+        A callable ``fn()`` that runs the forward pass.
+    """
     layers = torch.nn.ModuleList([
         RelativePositionalAttention(
             coord_dim=coord_dim, embed_dim=d, n_head=h,
@@ -85,6 +102,23 @@ def make_workload_dense(N, device, dtype, L=1, B=2, d=256, h=4, coord_dim=3):
 
 def make_workload_sparse(N, K, device, dtype, L=1, B=2, d=256, h=4,
                          coord_dim=3, reorder=False):
+    """Build a closure that runs L layers of GatherSparseAttention.
+
+    Args:
+        N: Sequence length.
+        K: Number of KNN neighbors.
+        device: torch device.
+        dtype: torch dtype.
+        L: Number of layers.
+        B: Batch size.
+        d: Embedding dimension.
+        h: Number of attention heads.
+        coord_dim: Number of coordinate dimensions.
+        reorder: If True, reorder tokens by spatial proximity.
+
+    Returns:
+        A callable ``fn()`` that runs the forward pass.
+    """
     layers = torch.nn.ModuleList([
         GatherSparseAttention(embed_dim=d, n_head=h, knn_neighbors=K, mode="none")
         .to(device).to(dtype)
@@ -247,7 +281,21 @@ def extract_memory_timeline_from_trace(trace_path):
 # ------------------------------------------------------------------
 
 def make_charts(prof_result, output_dir, device_side):
-    """Generate matplotlib charts and return dict of file paths."""
+    """Generate matplotlib charts for a profiler result.
+
+    Creates bar charts for top operators by time and memory, a memory
+    timeline, and a call-count chart.  All charts are saved as PNGs
+    in ``output_dir``.
+
+    Args:
+        prof_result: Dict with keys "name", "records", "mem_timeline".
+        output_dir: Directory to save chart PNGs.
+        device_side: "cuda" or "cpu" — determines which time/memory
+            columns to use.
+
+    Returns:
+        Dict mapping chart names to file paths.
+    """
     name = prof_result["name"]
     records = prof_result["records"]
     mem_timeline = prof_result["mem_timeline"]
@@ -377,12 +425,21 @@ def make_charts(prof_result, output_dir, device_side):
 # ------------------------------------------------------------------
 
 def fig_to_b64(fig_path):
+    """Read a PNG file and return its base64-encoded string."""
     with open(fig_path, "rb") as f:
         return base64.b64encode(f.read()).decode()
 
 
 def build_html_report(all_results, output_dir):
-    """Create a single HTML with all charts and tables."""
+    """Create a single HTML report with all charts and tables.
+
+    Args:
+        all_results: List of profiler result dicts.
+        output_dir: Directory to save the HTML report.
+
+    Returns:
+        Path to the generated HTML file.
+    """
     parts = [
         "<!DOCTYPE html><html><head><meta charset='utf-8'>",
         "<title>PyTorch Profiler Report — Attention Benchmark</title>",
@@ -442,6 +499,12 @@ def build_html_report(all_results, output_dir):
 # ------------------------------------------------------------------
 
 def main():
+    """Run profiler across dense and sparse workloads, generate HTML report.
+
+    Sweeps N=[512,2048,8192] with K=[16,64], with and without spatial
+    reorder.  Generates per-workload charts and a combined HTML report
+    in PROFILER_OUTPUT_DIR.
+    """
     device, dtype = get_device()
     output_dir = PROFILER_OUTPUT_DIR
 
