@@ -69,7 +69,7 @@ def measure(fn, warmup=5, min_run_time=0.3):
     return t_mean, mem
 
 
-def run(device, dtype, d_model, n_head, coord_dim, Ns, Ks, warmup, rep):
+def run(device, dtype, d_model, n_head, coord_dim, Ns, Ks, warmup, rep, seed=42):
     """Run the V1/V2/V3 gather-sparse attention benchmark.
 
     For each N in Ns and K in Ks, benchmarks three variants:
@@ -97,7 +97,7 @@ def run(device, dtype, d_model, n_head, coord_dim, Ns, Ks, warmup, rep):
     print("-" * 115)
 
     for N in Ns:
-        torch.manual_seed(42)
+        torch.manual_seed(seed)
         x = torch.randn(1, N, d_model, device=device, dtype=dtype)
         coords = torch.randn(1, N, coord_dim + 1, device=device, dtype=dtype)
         coords[..., 0] *= 4
@@ -150,6 +150,7 @@ def main():
     p.add_argument("--out", default=str(Path(__file__).resolve().parents[1] / "results" / "gather_v3_results.csv"))
     p.add_argument("--Ns", default="128,256,512,1024,2048,4096,8192")
     p.add_argument("--Ks", default="4,16,64")
+    p.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     args = p.parse_args()
 
     assert torch.cuda.is_available()
@@ -161,7 +162,7 @@ def main():
     print(f"flash={torch.backends.cuda.flash_sdp_enabled()}")
     print(f"N = {Ns}  K = {Ks}\n")
 
-    rows = run(device, dtype, args.d, args.nhead, 2, Ns, Ks, args.warmup, args.rep)
+    rows = run(device, dtype, args.d, args.nhead, 2, Ns, Ks, args.warmup, args.rep, seed=args.seed)
 
     header = ["method", "N", "K", "time_ms", "memory_mb", "error"]
     with open(args.out, "w", newline="") as f:

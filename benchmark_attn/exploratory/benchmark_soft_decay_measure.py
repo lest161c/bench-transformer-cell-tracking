@@ -53,7 +53,7 @@ def measure_memory(fn):
     return (peak - baseline) / (1024 ** 2)
 
 
-def run_gpu_benchmark(Ns, d_head=40, n_head=8, d_max=256, lam=5, n_repeat=15):
+def run_gpu_benchmark(Ns, d_head=40, n_head=8, d_max=256, lam=5, n_repeat=15, seed=42):
     """GPU measurement of hard mask vs soft decay vs dense_flash."""
     import torch
     import torch.nn.functional as F
@@ -66,7 +66,7 @@ def run_gpu_benchmark(Ns, d_head=40, n_head=8, d_max=256, lam=5, n_repeat=15):
 
     rows = []
     for N in Ns:
-        torch.manual_seed(42)
+        torch.manual_seed(seed)
         Q = torch.randn(n_head, N, d_head, device=device, dtype=dtype) / math.sqrt(d_head)
         K = torch.randn(n_head, N, d_head, device=device, dtype=dtype) / math.sqrt(d_head)
         V = torch.randn(n_head, N, d_head, device=device, dtype=dtype)
@@ -249,6 +249,7 @@ def main():
     p.add_argument("--n-head", type=int, default=8)
     p.add_argument("--n-repeat", type=int, default=10)
     p.add_argument("--outdir", default="benchmark_attn")
+    p.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     args = p.parse_args()
 
     print("=" * 60)
@@ -260,7 +261,7 @@ def main():
     Ns = [32, 64, 128, 256, 512, 1024]
 
     rows = run_gpu_benchmark(Ns, d_head=args.d_head, n_head=args.n_head,
-                             n_repeat=args.n_repeat)
+                             n_repeat=args.n_repeat, seed=args.seed)
 
     outdir = Path(args.outdir)
     save_csv(rows, str(outdir / "soft_decay_measured.csv"))

@@ -83,7 +83,7 @@ def measure(fn, warmup=5, min_run_time=0.3):
     return t_mean, mem
 
 
-def run(device, dtype, d_model, n_head, coord_dim, Ns, Ks, mode, dist_mode, warmup, rep):
+def run(device, dtype, d_model, n_head, coord_dim, Ns, Ks, mode, dist_mode, warmup, rep, seed=42):
     """Run the full benchmark sweep across all methods and sequence lengths.
 
     For each N in Ns, benchmarks: dense_masked, dense_flash, gather-KNN,
@@ -101,6 +101,7 @@ def run(device, dtype, d_model, n_head, coord_dim, Ns, Ks, mode, dist_mode, warm
         dist_mode: Distance decay mode ("v0" or "v1").
         warmup: Number of warmup iterations.
         rep: Minimum run time in milliseconds for the benchmark timer.
+        seed: Random seed for reproducibility.
 
     Returns:
         List of result rows [method, N, time_ms, memory_mb, error?].
@@ -108,7 +109,7 @@ def run(device, dtype, d_model, n_head, coord_dim, Ns, Ks, mode, dist_mode, warm
     rows = []
 
     for N in Ns:
-        torch.manual_seed(42)
+        torch.manual_seed(seed)
         x = torch.randn(1, N, d_model, device=device, dtype=dtype)
         coords = torch.randn(1, N, coord_dim + 1, device=device, dtype=dtype)
         coords[..., 0] *= 4
@@ -210,6 +211,7 @@ def main():
     p.add_argument("--out", default="benchmark_full_results.csv")
     p.add_argument("--mode", default="none", choices=["none", "bias", "rope"])
     p.add_argument("--dist-mode", default="v1", choices=["v0", "v1"])
+    p.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     args = p.parse_args()
 
     assert torch.cuda.is_available()
@@ -221,7 +223,7 @@ def main():
     print(f"N = {Ns}  K = {Ks}\n")
 
     rows = run(device, dtype, args.d, args.nhead, 2, Ns, Ks, args.mode, args.dist_mode,
-               args.warmup, args.rep)
+               args.warmup, args.rep, seed=args.seed)
 
     header = ["method", "N", "time_ms", "memory_mb", "error"]
     with open(args.out, "w", newline="") as f:

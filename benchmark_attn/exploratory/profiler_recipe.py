@@ -1,7 +1,12 @@
-"""
-PyTorch Profiler
-====================================
-**Author:** `Shivam Raikundalia <https://github.com/sraikund16>`_
+"""Copy of the PyTorch profiler tutorial recipe.
+
+This file is a verbatim copy of the official PyTorch profiler tutorial
+(Shivam Raikundalia, https://pytorch.org/tutorials/recipes/recipes/profiler_recipe.html).
+It is kept here as reference material for the benchmark_attn profiling
+scripts (see ``benchmarks/profile_gather_sparse.py`` and
+``benchmarks/benchmark_profiler.py`` for the actual project profiler usage).
+
+Original source: https://github.com/sraikund16
 """
 
 ######################################################################

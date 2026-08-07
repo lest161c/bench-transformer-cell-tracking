@@ -73,7 +73,7 @@ def measure_memory(fn):
 
 
 def run_benchmark(Ns=(32, 64, 128, 256, 512, 1024), d_head=40, n_head=8,
-                  d_max=256, lam=5):
+                  d_max=256, lam=5, seed=42):
     """Benchmark hard mask vs soft mask vs no-mask manual attention.
 
     For each sequence length *N* in *Ns*, generates random Q/K/V and
@@ -99,7 +99,7 @@ def run_benchmark(Ns=(32, 64, 128, 256, 512, 1024), d_head=40, n_head=8,
 
     results = []
     for N in Ns:
-        torch.manual_seed(42)
+        torch.manual_seed(seed)
         Q = torch.randn(n_head, N, d_head, device=device, dtype=dtype) / math.sqrt(d_head)
         K = torch.randn(n_head, N, d_head, device=device, dtype=dtype) / math.sqrt(d_head)
         V = torch.randn(n_head, N, d_head, device=device, dtype=dtype)
@@ -201,6 +201,7 @@ def main():
     """Run the no-mask soft decay benchmark and save results to CSV."""
     p = argparse.ArgumentParser()
     p.add_argument("--outdir", default="benchmark_attn")
+    p.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     args = p.parse_args()
 
     print("=" * 60)
@@ -210,7 +211,7 @@ def main():
     print("=" * 60)
 
     Ns = [32, 64, 128, 256, 512, 1024]
-    results = run_benchmark(Ns)
+    results = run_benchmark(Ns, seed=args.seed)
 
     outdir = Path(args.outdir)
     path = outdir / "no_mask_soft_decay.csv"

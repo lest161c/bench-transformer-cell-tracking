@@ -38,7 +38,7 @@ def timed_benchmark(fn, warmup=5, n_repeat=20):
 
 
 def run_benchmark(Ns=(128, 256, 512, 1024, 2048, 4096), d_head=40, n_head=8,
-                  d_max=256, lam=5, knn_k=16):
+                  d_max=256, lam=5, knn_k=16, seed=42):
     """Run all spatial-cutoff methods head-to-head across sequence lengths.
 
     Benchmarks: hard-cudnn (CachedDistAttention baseline), mask-KNN
@@ -62,7 +62,7 @@ def run_benchmark(Ns=(128, 256, 512, 1024, 2048, 4096), d_head=40, n_head=8,
 
     results = []
     for N in Ns:
-        torch.manual_seed(42)
+        torch.manual_seed(seed)
         Q = torch.randn(1, n_head, N, d_head, device=device, dtype=dtype) / scale
         K = torch.randn(1, n_head, N, d_head, device=device, dtype=dtype) / scale
         V = torch.randn(1, n_head, N, d_head, device=device, dtype=dtype)
@@ -172,6 +172,7 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--outdir", default="benchmark_attn")
     p.add_argument("--knn-k", type=int, default=16)
+    p.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     args = p.parse_args()
 
     print("=" * 65)
@@ -180,7 +181,7 @@ def main():
     print("=" * 65)
 
     Ns = [128, 256, 512, 1024, 2048, 4096]
-    results = run_benchmark(Ns, knn_k=args.knn_k)
+    results = run_benchmark(Ns, knn_k=args.knn_k, seed=args.seed)
 
     outdir = Path(args.outdir)
     path = outdir / "all_spatial_methods.csv"

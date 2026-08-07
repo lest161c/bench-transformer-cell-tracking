@@ -67,7 +67,7 @@ def measure(fn, warmup=5, min_run_time=0.3):
 
 
 def run(device, dtype, d_model, n_head, coord_dim, Ns, warmup, rep,
-        cutoff_spatial, dist_mode, layers):
+        cutoff_spatial, dist_mode, layers, seed=42):
     """Run CachedDistAttention vs RelativePositionalAttention benchmark.
 
     For each N in Ns, benchmarks:
@@ -87,6 +87,7 @@ def run(device, dtype, d_model, n_head, coord_dim, Ns, warmup, rep,
         cutoff_spatial: Spatial cutoff distance.
         dist_mode: Distance decay mode ("v0" or "v1").
         layers: Number of transformer layers for amortized total.
+        seed: Random seed for reproducibility.
 
     Returns:
         List of result rows [method, N, time_ms, memory_mb, error?].
@@ -97,7 +98,7 @@ def run(device, dtype, d_model, n_head, coord_dim, Ns, warmup, rep,
     print("-" * 110)
 
     for N in Ns:
-        torch.manual_seed(42)
+        torch.manual_seed(seed)
         x = torch.randn(1, N, d_model, device=device, dtype=dtype)
         coords = torch.randn(1, N, coord_dim + 1, device=device, dtype=dtype)
         coords[..., 0] *= 4
@@ -173,6 +174,7 @@ def main():
     p.add_argument("--Ns", default="128,256,512,1024,2048,4096,8192")
     p.add_argument("--cutoff", type=float, default=256)
     p.add_argument("--dist-mode", default="v1", choices=["v0", "v1"])
+    p.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     args = p.parse_args()
 
     assert torch.cuda.is_available()
@@ -184,7 +186,7 @@ def main():
     print(f"N = {Ns}  cutoff_spatial={args.cutoff}  dist_mode={args.dist_mode}\n")
 
     rows = run(device, dtype, args.d, args.nhead, 2, Ns, args.warmup,
-               args.rep, args.cutoff, args.dist_mode, args.layers)
+               args.rep, args.cutoff, args.dist_mode, args.layers, seed=args.seed)
 
     header = ["method", "N", "time_ms", "memory_mb", "error"]
     with open(args.out, "w", newline="") as f:

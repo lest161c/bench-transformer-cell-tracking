@@ -169,7 +169,7 @@ def benchmark_small_n_analysis() -> list[dict]:
 # ─── GPU Benchmark (requires CUDA) ───
 
 
-def run_gpu_benchmark() -> list[dict]:
+def run_gpu_benchmark(seed: int = 42) -> list[dict]:
     """Benchmark SDPA at small N on GPU across backends.
 
     Requires CUDA.  Runs ``scaled_dot_product_attention`` for various
@@ -202,7 +202,7 @@ def run_gpu_benchmark() -> list[dict]:
     for head_dim in test_head_dims:
         embed_dim = head_dim * n_head
         for seq_len in n_values:
-            torch.manual_seed(42)
+            torch.manual_seed(seed)
             query = torch.randn(1, n_head, seq_len, head_dim, device=device, dtype=dtype)
             key = torch.randn(1, n_head, seq_len, head_dim, device=device, dtype=dtype)
             value = torch.randn(1, n_head, seq_len, head_dim, device=device, dtype=dtype)
@@ -368,6 +368,8 @@ def main():
                         help="Output CSV path for analytical results")
     parser.add_argument("--gpu", action="store_true",
                         help="Run GPU benchmarks (requires CUDA)")
+    parser.add_argument("--seed", type=int, default=42,
+                        help="Random seed for reproducibility")
     args = parser.parse_args()
 
     # Analytical analysis (always runs)
@@ -388,7 +390,7 @@ def main():
     # GPU benchmarks (optional)
     if args.gpu:
         try:
-            gpu_rows = run_gpu_benchmark()
+            gpu_rows = run_gpu_benchmark(seed=args.seed)
             gpu_csv = csv_path.replace(".csv", "_gpu.csv")
             with open(gpu_csv, "w", newline="") as f:
                 writer = csv.DictWriter(f, fieldnames=gpu_rows[0].keys())

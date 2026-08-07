@@ -67,7 +67,7 @@ def measure_memory(fn):
     return (torch.cuda.max_memory_allocated() - baseline) / (1024**2)
 
 
-def verify_flashattn_dispatches():
+def verify_flashattn_dispatches(seed=42):
     """Verify FlashAttention kernel dispatched (not cuDNN).
 
     FlashAttention scales as O(N) at fixed d, while cuDNN masked SDPA
@@ -80,7 +80,7 @@ def verify_flashattn_dispatches():
 
     times = {}
     for N in [256, 512]:
-        torch.manual_seed(42)
+        torch.manual_seed(seed)
         q = torch.randn(n_head, N, d_head, device=device, dtype=dtype) / math.sqrt(d_head)
         k = torch.randn(n_head, N, d_head, device=device, dtype=dtype) / math.sqrt(d_head)
         v = torch.randn(n_head, N, d_head, device=device, dtype=dtype)
@@ -104,7 +104,7 @@ def verify_flashattn_dispatches():
 
 
 def run_benchmark(Ns=(128, 256, 512, 1024), d_head=40, n_head=8,
-                  d_max=256, lam=5):
+                  d_max=256, lam=5, seed=42):
     """Benchmark current hard-mask attention vs no-bias FlashAttention.
 
     For each sequence length *N*, generates random Q/K/V and spatial
@@ -139,7 +139,7 @@ def run_benchmark(Ns=(128, 256, 512, 1024), d_head=40, n_head=8,
 
     results = []
     for N in Ns:
-        torch.manual_seed(42)
+        torch.manual_seed(seed)
         Q = torch.randn(n_head, N, d_head, device=device, dtype=dtype) / scale
         K = torch.randn(n_head, N, d_head, device=device, dtype=dtype) / scale
         V = torch.randn(n_head, N, d_head, device=device, dtype=dtype)
@@ -204,6 +204,7 @@ def main():
     """Run the no-bias FlashAttention benchmark and save CSV/JSON."""
     p = argparse.ArgumentParser()
     p.add_argument("--outdir", default="benchmark_attn")
+    p.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     args = p.parse_args()
 
     print("=" * 60)
@@ -213,7 +214,7 @@ def main():
     print("=" * 60)
 
     Ns = [128, 256, 512, 1024]
-    results, dispatch = run_benchmark(Ns)
+    results, dispatch = run_benchmark(Ns, seed=args.seed)
 
     outdir = Path(args.outdir)
 

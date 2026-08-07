@@ -63,7 +63,7 @@ def measure_memory(fn):
 
 
 def run_benchmark(Ns=(128, 256, 512, 1024), d_head=40, n_head=8,
-                  d_max=256, lam=5):
+                  d_max=256, lam=5, seed=42):
     """Benchmark FlexAttention with spatial cutoff vs hard mask SDPA.
 
     For each sequence length *N*, generates random Q/K/V and spatial
@@ -98,7 +98,7 @@ def run_benchmark(Ns=(128, 256, 512, 1024), d_head=40, n_head=8,
 
     results = []
     for N in Ns:
-        torch.manual_seed(42)
+        torch.manual_seed(seed)
         Q = torch.randn(1, n_head, N, d_head, device=device, dtype=dtype) / scale
         K = torch.randn(1, n_head, N, d_head, device=device, dtype=dtype) / scale
         V = torch.randn(1, n_head, N, d_head, device=device, dtype=dtype)
@@ -210,6 +210,7 @@ def main():
     """Run the FlexAttention spatial benchmark and save results to CSV."""
     p = argparse.ArgumentParser()
     p.add_argument("--outdir", default="benchmark_attn")
+    p.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     args = p.parse_args()
 
     print("=" * 60)
@@ -217,7 +218,7 @@ def main():
     print(f"PyTorch {torch.__version__}, CUDA {torch.cuda.is_available()}")
     print("=" * 60)
 
-    results = run_benchmark()
+    results = run_benchmark(seed=args.seed)
 
     if not results:
         return

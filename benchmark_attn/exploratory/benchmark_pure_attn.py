@@ -74,7 +74,7 @@ def run_pure_benchmark(args):
     nH, D, Dh = args.nhead, args.d, args.d // args.nhead
 
     for N in args.Ns:
-        torch.manual_seed(42)
+        torch.manual_seed(args.seed)
         q = torch.randn(1, nH, N, Dh, device=device, dtype=dtype)
         k = torch.randn(1, nH, N, Dh, device=device, dtype=dtype)
         v = torch.randn(1, nH, N, Dh, device=device, dtype=dtype)
@@ -210,7 +210,9 @@ def main():
     p.add_argument("--warmup", type=int, default=5)
     p.add_argument("--rep", type=int, default=50)
     p.add_argument("--out", default="pure_attn_results.csv")
+    p.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     args = p.parse_args()
+    torch.manual_seed(args.seed)
     args.Ns = [128, 256, 512, 1024, 2048, 4096, 8192]
     args.Ks = [4, 16, 32, 64, 128]
     args.block_sizes = [32, 64, 128]
