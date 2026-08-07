@@ -1,22 +1,24 @@
-"""Comprehensive HTML report — all benchmarks consolidated.
+"""Generate a comprehensive HTML report from all benchmark CSVs.
 
-Sections:
-  1. KNN Methods — mask vs gather vs MiniMax (benchmark_knn_methods.py)
-  2. Flash + Spatial Cutoff — dispatch verification (benchmark_flash_with_cutoff.py)
-  3. Spatial Block Partition — Phase 3 (benchmark_spatial_blocks.py)
-  4. Pipeline Bottlenecks — blockwise_norm, FFN, regionprops (benchmark_pipeline/)
-  5. Training Speedup Projection — 11h → ?h
-  6. Legacy Attention Benchmarks — dense/gather/NSA (benchmark_sparse_results.csv)
+Consolidates KNN methods, FlashAttention dispatch, spatial blocks,
+pipeline bottlenecks, and training speedup projections into a single
+self-contained HTML file with embedded base64 PNG figures.
 
-Usage:
-  python make_report.py          (auto-discovers all CSVs)
-  python make_report.py --out comprehensive_report.html
+Usage::
+
+    python make_report.py                          # auto-discover CSVs
+    python make_report.py --out report.html        # custom output path
+    python make_report.py --knn-csv custom.csv     # override input
+
+Output: ``benchmark_attn/results/comprehensive_report.html``
 """
 
+import argparse
+import base64
+import csv
 import datetime
-import csv, io, base64, argparse, json
+import io
 from pathlib import Path
-from collections import defaultdict
 
 import matplotlib
 matplotlib.use("Agg")
@@ -28,6 +30,7 @@ sns.set_theme(style="whitegrid")
 
 
 def fig_to_b64(fig):
+    """Convert a matplotlib Figure to a base64-encoded PNG string."""
     buf = io.BytesIO()
     fig.savefig(buf, format="png", dpi=130, bbox_inches="tight")
     buf.seek(0)
@@ -241,7 +244,6 @@ def build_html(args):
         "Pipeline — Blockwise Norm": "benchmark_pipeline/blockwise_norm.png",
         "Pipeline — FFN Checkpoint": "benchmark_pipeline/ffn_checkpoint.png",
         "Pipeline — Regionprops": "benchmark_pipeline/regionprops_benchmark.png",
-        "Pipeline — Spatial Blocks": "benchmark_pipeline/spatial_blocks.png",
         "Spatial Block Partition": str(outdir / "spatial_block_partition.png"),
         "Flash Cutoff Solutions": str(outdir / "spatial_flash_solutions.png"),
     }
@@ -285,7 +287,6 @@ def build_html(args):
 
     # ── 1. VERDICT ──
     P.append("<h2 id='verdict'>Current Best Attention Scheme</h2>")
-
     P.append("<div class='box verdict verdict-best'>")
     P.append("<b>Proven: mask-KNN K=16</b> — 0.26ms at N=256 (3.1× vs CachedDist) | TRA 0.9972<br>")
     P.append("<b>Faster but unverified: Approach E (soft decay + FlashAttn)</b> — 0.21ms at N=256 (4.0× vs CachedDist, 1.24× vs mask-KNN)")
@@ -461,6 +462,7 @@ def build_html(args):
 
 
 def main():
+    """Parse CLI arguments and generate the HTML report."""
     p = argparse.ArgumentParser()
     p.add_argument("--knn-csv", default=None)
     p.add_argument("--flash-csv", default=None)
