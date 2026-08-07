@@ -90,42 +90,26 @@ def compute_histograms(feats1, feats2, labels1, labels2, nbins=50):
     return intra_hist, inter_hist, bins, stats
 
 
-def extract_dino_features(patches, device="cuda"):
-    """Extract DINOv2 features from cell patches."""
+def extract_dino_features(patches, device="cuda", use_v3=False):
+    """Extract DINOv2 or DINOv3 features from cell patches.
+
+    Args:
+        patches: (N, H, W) or (N, C, H, W) numpy array of cell patches.
+        device: torch device string (e.g. ``"cuda"`` or ``"cpu"``).
+        use_v3: If ``True``, load DINOv3 (``dinov3_vits16``);
+            otherwise load DINOv2 (``dinov2_vits14``).
+
+    Returns:
+        ``(N, 384)`` numpy array of features, or ``None`` on failure.
+    """
     try:
         import torch
         import torch.nn.functional as F
 
-        dino = torch.hub.load("facebookresearch/dinov2", "dinov2_vits14")
-        dino = dino.to(device).eval()
-        dino_mean = torch.tensor([0.485, 0.456, 0.406], device=device).view(1, 3, 1, 1)
-        dino_std = torch.tensor([0.229, 0.224, 0.225], device=device).view(1, 3, 1, 1)
-
-        feats_list = []
-        batch_size = 32
-        for start in range(0, len(patches), batch_size):
-            batch = torch.from_numpy(patches[start:start + batch_size]).float().to(device)
-            if batch.dim() == 3:
-                batch = batch.unsqueeze(1)
-            batch = F.interpolate(batch, size=(224, 224), mode="bilinear", align_corners=False)
-            batch = batch.expand(-1, 3, -1, -1)
-            batch = (batch - dino_mean) / dino_std
-            with torch.no_grad():
-                feats = dino(batch).cpu().numpy()
-            feats_list.append(feats)
-        return np.concatenate(feats_list, axis=0)
-    except Exception as e:
-        logger.warning(f"DINO extraction failed: {e}")
-        return None
-
-
-def extract_dinov3_features(patches, device="cuda"):
-    """Extract DINOv3 features from cell patches."""
-    try:
-        import torch
-        import torch.nn.functional as F
-
-        dino = torch.hub.load("facebookresearch/dinov3", "dinov3_vits16")
+        if use_v3:
+            dino = torch.hub.load("facebookresearch/dinov3", "dinov3_vits16")
+        else:
+            dino = torch.hub.load("facebookresearch/dinov2", "dinov2_vits14")
         dino = dino.to(device).eval()
 
         feats_list = []
@@ -144,7 +128,7 @@ def extract_dinov3_features(patches, device="cuda"):
             feats_list.append(feats)
         return np.concatenate(feats_list, axis=0)
     except Exception as e:
-        logger.warning(f"DINOv3 extraction failed: {e}")
+        logger.warning(f"DINO extraction failed: {e}")
         return None
 
 
@@ -232,6 +216,12 @@ def generate_histogram_figure(feature_results, save_path):
 
 
 def main():
+    """Generate cosine similarity histograms from experiment frames.
+
+    Loads frames from the SSL benchmark, extracts regionprops and DINO
+    features, computes intra-cell and inter-cell cosine similarity
+    distributions, saves a multi-panel PNG figure and a CSV summary.
+    """
     p = argparse.ArgumentParser()
     p.add_argument("--config", default="config.yaml", help="benchmark_ssl config path")
     p.add_argument("--conditions", default="rpsM", help="comma-separated conditions")
@@ -299,7 +289,7 @@ def main():
             patches = extract_patches(img, centroids)
             if len(patches) > 0:
                 if args.dinov3:
-                    dino_feats = extract_dinov3_features(patches)
+                    dino_feats = extract_dino_features(patches, use_v3=True)
                 else:
                     dino_feats = extract_dino_features(patches)
                 if dino_feats is not None:

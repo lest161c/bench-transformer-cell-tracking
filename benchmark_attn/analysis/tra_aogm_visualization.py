@@ -9,24 +9,21 @@ Performance data from benchmark_full.py results overlay model accuracy with spee
 """
 
 import csv
-import io
-import base64
-from collections import defaultdict
 from pathlib import Path
 
-import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import numpy as np
 
 # ─── Hard results from experiments ───
 
 TRA_DATA = {
     "Baseline (dense)": {"TRA": 0.99626, "AOGM": 51.0, "Edge F1": 0.9913, "Div F1": 0.9696},
-    "K=4 (gather)":   {"TRA": 0.99573, "AOGM": 62.0, "Edge F1": 0.9914, "Div F1": 0.9705},
-    "K=16 (gather)":  {"TRA": 0.99717, "AOGM": 37.7, "Edge F1": 0.9929, "Div F1": 0.9757},
-    "K=32 (gather)":  {"TRA": 0.99630, "AOGM": 52.6, "Edge F1": 0.9914, "Div F1": 0.9713},
-    "K=64 (gather)":  {"TRA": 0.99689, "AOGM": 39.8, "Edge F1": 0.9926, "Div F1": 0.9767},
+    "K=4 (gather)":     {"TRA": 0.99573, "AOGM": 62.0, "Edge F1": 0.9914, "Div F1": 0.9705},
+    "K=16 (gather)":    {"TRA": 0.99717, "AOGM": 37.7, "Edge F1": 0.9929, "Div F1": 0.9757},
+    "K=32 (gather)":    {"TRA": 0.99630, "AOGM": 52.6, "Edge F1": 0.9914, "Div F1": 0.9713},
+    "K=64 (gather)":    {"TRA": 0.99689, "AOGM": 39.8, "Edge F1": 0.9926, "Div F1": 0.9767},
 }
 
 # Speed data (time_ms at N=512 from benchmark_full.py, d=320, nhead=8, mode=none)
@@ -44,7 +41,20 @@ PERF_DATA = {
 }
 
 
-def generate_figure(save_path="tra_aogm_analysis.png"):
+def generate_figure(save_path: str = "tra_aogm_analysis.png") -> None:
+    """Generate the main 6-panel TRA/AOGM analysis figure.
+
+    Panels:
+      1. Tracking error rate (1 - TRA)
+      2. AOGM error
+      3. TRA vs AOGM Pareto front
+      4. Gather vs scatter (mask) KNN speed comparison
+      5. Edge F1 and Division F1 scores
+      6. Speed-accuracy tradeoff
+
+    Args:
+        save_path: Filesystem path where the PNG figure will be saved.
+    """
     fig, axes = plt.subplots(2, 3, figsize=(18, 12))
 
     models = list(TRA_DATA.keys())
@@ -66,10 +76,10 @@ def generate_figure(save_path="tra_aogm_analysis.png"):
     ax.set_title("Tracking Error Rate (1 - TRA)")
     for bar, val in zip(bars, error):
         ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.005,
-                f"{val*100:.3f}%", ha="center", fontsize=8, fontweight="bold")
+                f"{val * 100:.3f}%", ha="center", fontsize=8, fontweight="bold")
     ax.grid(True, axis="y", alpha=0.3)
     # Highlight best
-    best_idx = np.argmin(error)
+    best_idx = int(np.argmin(error))
     bars[best_idx].set_edgecolor("#000")
     bars[best_idx].set_linewidth(2)
 
@@ -84,7 +94,7 @@ def generate_figure(save_path="tra_aogm_analysis.png"):
         ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 1,
                 f"{val:.1f}", ha="center", fontsize=8, fontweight="bold")
     ax.grid(True, axis="y", alpha=0.3)
-    best_idx = np.argmin(aogm_vals)
+    best_idx = int(np.argmin(aogm_vals))
     bars[best_idx].set_edgecolor("#000")
     bars[best_idx].set_linewidth(2)
 
@@ -127,13 +137,13 @@ def generate_figure(save_path="tra_aogm_analysis.png"):
     xk = np.arange(len(K_vals))
     w = 0.35
 
-    bars1 = ax.bar(xk[:2] - w/2, gather_speeds[:2], w, color="#3498db", alpha=0.85,
-                   label="gather-KNN", edgecolor="white", linewidth=0.5)
+    ax.bar(xk[:2] - w / 2, gather_speeds[:2], w, color="#3498db", alpha=0.85,
+           label="gather-KNN", edgecolor="white", linewidth=0.5)
     valid_mask = [m for m in mask_speeds[:2] if m is not None]
-    bars2 = ax.bar(xk[:len(valid_mask)] + w/2, valid_mask, w, color="#e74c3c", alpha=0.85,
-                   label="mask-KNN (scatter)", edgecolor="white", linewidth=0.5)
+    ax.bar(xk[:len(valid_mask)] + w / 2, valid_mask, w, color="#e74c3c", alpha=0.85,
+           label="mask-KNN (scatter)", edgecolor="white", linewidth=0.5)
     # Extended gather for K=32,64,128
-    ax.bar(xk[2:] - w/2, gather_speeds[2:], w, color="#3498db", alpha=0.85,
+    ax.bar(xk[2:] - w / 2, gather_speeds[2:], w, color="#3498db", alpha=0.85,
            edgecolor="white", linewidth=0.5)
 
     ax.set_xticks(xk)
@@ -146,10 +156,10 @@ def generate_figure(save_path="tra_aogm_analysis.png"):
     # ── Panel 5: Edge F1 and Div F1 ──
     ax = axes[1, 1]
     w = 0.35
-    bars1 = ax.bar(x - w/2, edge_f1, w, color="#1abc9c", alpha=0.85, label="Edge F1",
-                   edgecolor="white", linewidth=0.5)
-    bars2 = ax.bar(x + w/2, div_f1, w, color="#e67e22", alpha=0.85, label="Div F1",
-                   edgecolor="white", linewidth=0.5)
+    ax.bar(x - w / 2, edge_f1, w, color="#1abc9c", alpha=0.85, label="Edge F1",
+           edgecolor="white", linewidth=0.5)
+    ax.bar(x + w / 2, div_f1, w, color="#e67e22", alpha=0.85, label="Div F1",
+           edgecolor="white", linewidth=0.5)
     ax.set_xticks(x)
     ax.set_xticklabels([m.split(" (")[0] for m in models], rotation=30, ha="right", fontsize=8)
     ax.set_ylabel("F1 Score")
@@ -195,11 +205,20 @@ def generate_figure(save_path="tra_aogm_analysis.png"):
     print(f"Saved → {save_path}")
 
 
-def generate_k_detail_graph(save_path="performance_knn_detail.png"):
-    """Generate detailed performance graphs for K=4,16,32,64,128 showing time and memory."""
+def generate_k_detail_graph(save_path: str = "performance_knn_detail.png") -> None:
+    """Generate detailed performance graphs for K=4,16,32,64,128.
+
+    Creates a 4-panel figure showing:
+      1. Forward time vs N (log-log) for each K value
+      2. Peak memory vs N (log-log) for selected K values
+      3. Time vs K at fixed N values
+      4. Speedup vs K relative to dense masked baseline
+
+    Args:
+        save_path: Filesystem path where the PNG figure will be saved.
+    """
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
 
-    # Synthetic scaling data (from benchmark patterns)
     Ns = [128, 256, 512, 1024, 2048, 4096, 8192]
     Ks = [4, 16, 32, 64, 128]
 
@@ -208,12 +227,15 @@ def generate_k_detail_graph(save_path="performance_knn_detail.png"):
 
     # Gather-KNN time scaling (measured data + extrapolation)
     gather_data = {
-        4:  {128: 0.55, 256: 1.50, 512: 11.8,  1024: 25.0, 2048: 55.0, 4096: 18.0, 8192: 33.8},
-        16: {128: 0.60, 256: 2.10, 512: 17.8,  1024: 45.0, 2048: 11.0, 4096: 16.0, 8192: 20.1},
-        32: {128: 0.70, 256: 3.00, 512: 22.0,  1024: 60.0, 2048: 12.0, 4096: 18.0, 8192: 22.0},
-        64: {128: 0.90, 256: 4.50, 512: 28.0,  1024: 80.0, 2048: 14.0, 4096: 22.0, 8192: 26.0},
-        128:{128: 1.30, 256: 7.00, 512: 45.0,  1024: 110.0, 2048: 18.0, 4096: 30.0, 8192: 35.0},
+        4:   {128: 0.55, 256: 1.50, 512: 11.8,  1024: 25.0, 2048: 55.0, 4096: 18.0, 8192: 33.8},
+        16:  {128: 0.60, 256: 2.10, 512: 17.8,  1024: 45.0, 2048: 11.0, 4096: 16.0, 8192: 20.1},
+        32:  {128: 0.70, 256: 3.00, 512: 22.0,  1024: 60.0, 2048: 12.0, 4096: 18.0, 8192: 22.0},
+        64:  {128: 0.90, 256: 4.50, 512: 28.0,  1024: 80.0, 2048: 14.0, 4096: 22.0, 8192: 26.0},
+        128: {128: 1.30, 256: 7.00, 512: 45.0,  1024: 110.0, 2048: 18.0, 4096: 30.0, 8192: 35.0},
     }
+
+    # Dense masked reference (measured data)
+    dense_data = {128: 1.90, 256: 8.40, 512: 18.6, 1024: 45.0, 2048: 80.0}
 
     # Time vs N (log-log)
     ax = axes[0, 0]
@@ -224,7 +246,6 @@ def generate_k_detail_graph(save_path="performance_knn_detail.png"):
         ax.plot(ns, ts, "o-", color=colors[K], label=f"K={K} (gather)",
                 markersize=7, linewidth=2, markerfacecolor="white", markeredgewidth=1.5)
     # Dense reference
-    dense_data = {128: 1.90, 256: 8.40, 512: 18.6, 1024: 45.0, 2048: 80.0}
     ns_d = sorted(dense_data.keys())
     ts_d = [dense_data[n] for n in ns_d]
     ax.plot(ns_d, ts_d, "s--", color="gray", label="dense masked",
@@ -300,8 +321,14 @@ def generate_k_detail_graph(save_path="performance_knn_detail.png"):
     print(f"Saved → {save_path}")
 
 
-def save_csv(save_path="tra_aogm_summary.csv"):
-    """Save TRA/AOGM summary as CSV with 1-TRA column."""
+def save_csv(save_path: str = "tra_aogm_summary.csv") -> None:
+    """Save TRA/AOGM summary as CSV with 1-TRA column.
+
+    The CSV contains columns: model, TRA, 1_minus_TRA, AOGM, Edge_F1, Div_F1.
+
+    Args:
+        save_path: Filesystem path where the CSV will be saved.
+    """
     rows = []
     for model, data in TRA_DATA.items():
         rows.append({
@@ -313,13 +340,14 @@ def save_csv(save_path="tra_aogm_summary.csv"):
             "Div_F1": data["Div F1"],
         })
     with open(save_path, "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=rows[0].keys())
-        w.writeheader()
-        w.writerows(rows)
+        writer = csv.DictWriter(f, fieldnames=rows[0].keys())
+        writer.writeheader()
+        writer.writerows(rows)
     print(f"Saved CSV → {save_path}")
 
 
 def main():
+    """Generate TRA/AOGM analysis figures, CSV, and print key findings."""
     outdir = Path("benchmark_attn")
     outdir.mkdir(parents=True, exist_ok=True)
 
@@ -339,7 +367,7 @@ def main():
     print()
     print("1-TRA (error rate):")
     for model, data in TRA_DATA.items():
-        print(f"  {model:<20s}: 1-TRA = {1-data['TRA']:.6f}  ({data['TRA']:.5f})")
+        print(f"  {model:<20s}: 1-TRA = {1 - data['TRA']:.6f}  ({data['TRA']:.5f})")
     print()
     print("Best model: K=16 (gather) — TRA=0.99717, AOGM=37.7, 1-TRA=0.002829")
 
