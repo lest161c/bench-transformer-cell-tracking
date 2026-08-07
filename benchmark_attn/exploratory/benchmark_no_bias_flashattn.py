@@ -27,6 +27,16 @@ import numpy as np
 
 
 def timed_benchmark(fn, warmup=7, n_repeat=30):
+    """Measure mean GPU execution time of *fn* in milliseconds.
+
+    Args:
+        fn: Callable to benchmark.
+        warmup: Number of untimed warmup iterations.
+        n_repeat: Number of timed repetitions.
+
+    Returns:
+        Mean execution time in milliseconds.
+    """
     for _ in range(warmup):
         fn()
     torch.cuda.synchronize()
@@ -40,6 +50,14 @@ def timed_benchmark(fn, warmup=7, n_repeat=30):
 
 
 def measure_memory(fn):
+    """Measure peak GPU memory increment from *fn* in MiB.
+
+    Args:
+        fn: Callable whose memory footprint is measured.
+
+    Returns:
+        Peak memory delta in MiB.
+    """
     gc.collect()
     torch.cuda.empty_cache()
     torch.cuda.reset_peak_memory_stats()
@@ -87,6 +105,28 @@ def verify_flashattn_dispatches():
 
 def run_benchmark(Ns=(128, 256, 512, 1024), d_head=40, n_head=8,
                   d_max=256, lam=5):
+    """Benchmark current hard-mask attention vs no-bias FlashAttention.
+
+    For each sequence length *N*, generates random Q/K/V and spatial
+    coordinates, then times:
+      A) current hard mask + decay bias (cuDNN fallback),
+      B) no-bias FlashAttention (no mask, no bias → FlashAttn dispatched).
+
+    Also measures numerical difference (cosine similarity, max abs diff)
+    between the current and no-bias outputs.
+
+    Args:
+        Ns: Tuple of sequence lengths to benchmark.
+        d_head: Head dimension.
+        n_head: Number of attention heads.
+        d_max: Spatial cutoff distance for the hard mask.
+        lam: Decay strength for the distance bias.
+
+    Returns:
+        Tuple of (results, dispatch) where *results* is a list of
+        per-N dictionaries and *dispatch* is the FlashAttn dispatch
+        verification dictionary.
+    """
     device = torch.device("cuda")
     dtype = torch.float16
     scale = math.sqrt(d_head)
@@ -161,6 +201,7 @@ def run_benchmark(Ns=(128, 256, 512, 1024), d_head=40, n_head=8,
 
 
 def main():
+    """Run the no-bias FlashAttention benchmark and save CSV/JSON."""
     p = argparse.ArgumentParser()
     p.add_argument("--outdir", default="benchmark_attn")
     args = p.parse_args()

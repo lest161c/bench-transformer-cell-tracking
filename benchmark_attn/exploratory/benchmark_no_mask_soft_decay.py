@@ -32,6 +32,16 @@ sns.set_theme(style="whitegrid")
 
 
 def measure(fn, warmup=10, n_repeat=30):
+    """Measure mean GPU execution time of *fn* in milliseconds.
+
+    Args:
+        fn: Callable to benchmark.
+        warmup: Number of untimed warmup iterations.
+        n_repeat: Number of timed repetitions.
+
+    Returns:
+        Mean execution time in milliseconds.
+    """
     for _ in range(warmup):
         fn()
     torch.cuda.synchronize()
@@ -45,6 +55,14 @@ def measure(fn, warmup=10, n_repeat=30):
 
 
 def measure_memory(fn):
+    """Measure peak GPU memory increment from *fn* in MiB.
+
+    Args:
+        fn: Callable whose memory footprint is measured.
+
+    Returns:
+        Peak memory delta in MiB.
+    """
     gc.collect()
     torch.cuda.empty_cache()
     torch.cuda.reset_peak_memory_stats()
@@ -56,6 +74,25 @@ def measure_memory(fn):
 
 def run_benchmark(Ns=(32, 64, 128, 256, 512, 1024), d_head=40, n_head=8,
                   d_max=256, lam=5):
+    """Benchmark hard mask vs soft mask vs no-mask manual attention.
+
+    For each sequence length *N* in *Ns*, generates random Q/K/V and
+    spatial coordinates, then times four strategies:
+      A) hard mask + decay bias (cuDNN fallback),
+      B) soft mask (finite additive bias, still cuDNN),
+      C) no-mask manual matmul + softmax (FlashAttn compatible),
+      D) pure FlashAttention (reference, no spatial cutoff).
+
+    Args:
+        Ns: Tuple of sequence lengths to benchmark.
+        d_head: Head dimension.
+        n_head: Number of attention heads.
+        d_max: Spatial cutoff distance for the hard mask.
+        lam: Decay strength for the distance bias.
+
+    Returns:
+        List of result dictionaries, one per *N*.
+    """
     device = torch.device("cuda")
     dtype = torch.float16
     d = d_head * n_head
@@ -161,6 +198,7 @@ def run_benchmark(Ns=(32, 64, 128, 256, 512, 1024), d_head=40, n_head=8,
 
 
 def main():
+    """Run the no-mask soft decay benchmark and save results to CSV."""
     p = argparse.ArgumentParser()
     p.add_argument("--outdir", default="benchmark_attn")
     args = p.parse_args()

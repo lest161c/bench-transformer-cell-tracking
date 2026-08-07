@@ -83,6 +83,12 @@ def predict_windows_total_ms(N, T_total=63, T_window=4, batch_size=4):
 
 
 def run_analysis():
+    """Run analytical pipeline breakdown across cell counts.
+
+    Returns:
+        Tuple of (rows, Ns) where *rows* is a list of per-N timing
+        dictionaries and *Ns* is the list of cell counts tested.
+    """
     Ns = [10, 25, 50, 100, 200, 500, 1000, 2000]
     rows = []
 
@@ -106,6 +112,13 @@ def run_analysis():
 
 
 def generate_figures(rows, Ns, outdir="benchmark_attn"):
+    """Generate inference time breakdown figures.
+
+    Args:
+        rows: List of per-N timing dictionaries from :func:`run_analysis`.
+        Ns: List of cell counts tested.
+        outdir: Directory to write figure PNGs.
+    """
     outdir = Path(outdir)
 
     fig, axes = plt.subplots(2, 2, figsize=(16, 13))
@@ -208,6 +221,12 @@ def generate_figures(rows, Ns, outdir="benchmark_attn"):
 
 
 def save_csv(rows, path):
+    """Save pipeline breakdown rows to *path* as CSV.
+
+    Args:
+        rows: List of dictionaries to write.
+        path: Output CSV file path.
+    """
     fieldnames = list(rows[0].keys())
     with open(path, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fieldnames)
@@ -217,6 +236,7 @@ def save_csv(rows, path):
 
 
 def main():
+    """Run the data pipeline benchmark and save CSV/figures."""
     p = argparse.ArgumentParser()
     p.add_argument("--out", default="benchmark_attn/data_pipeline_results.csv")
     p.add_argument("--outdir", default="benchmark_attn")

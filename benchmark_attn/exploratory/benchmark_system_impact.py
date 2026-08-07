@@ -235,6 +235,12 @@ def generate_figures(rows, Ns, outdir="benchmark_attn"):
 
 
 def save_csv(rows, path):
+    """Save system impact rows to *path* as CSV.
+
+    Args:
+        rows: List of dictionaries to write.
+        path: Output CSV file path.
+    """
     fieldnames = ["N", "attn_gflops", "ffn_gflops", "einsum_gflops", "norm_gflops",
                   "total_gflops", "attn_pct", "ffn_pct", "memory_mb"]
     with open(path, "w", newline="") as f:
@@ -245,6 +251,7 @@ def save_csv(rows, path):
 
 
 def main():
+    """Run the system impact benchmark and save CSV/figures."""
     p = argparse.ArgumentParser()
     p.add_argument("--out", default="benchmark_attn/system_impact_results.csv")
     p.add_argument("--outdir", default="benchmark_attn")

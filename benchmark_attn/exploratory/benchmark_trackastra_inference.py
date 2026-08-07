@@ -134,6 +134,19 @@ def _measure_predict_windows(features, model, batch_size=4):
 
 
 def run_benchmark():
+    """Run the full Trackastra inference benchmark.
+
+    Executes two test suites:
+      1. Example bacteria data (real microscopy frames).
+      2. Synthetic scaling with varying cell counts (N = 10..1000).
+
+    For each test, measures ``get_features()`` and ``predict_windows()``
+    wall time and peak GPU memory.
+
+    Returns:
+        Tuple of (rows, device) where *rows* is a list of per-test
+        result dictionaries and *device* is the compute device string.
+    """
     rows = []
 
     print("Loading model...")
@@ -221,6 +234,12 @@ def run_benchmark():
 
 
 def save_results(rows, path="trackastra_inference_benchmark.csv"):
+    """Save benchmark rows to *path* as CSV.
+
+    Args:
+        rows: List of dictionaries to write.
+        path: Output CSV file path.
+    """
     fieldnames = ["test", "N_mean", "N_max", "T", "stage", "time_s", "mem_mb", "n_total"]
     with open(path, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
@@ -321,6 +340,7 @@ def generate_figure(rows, save_path="trackastra_inference_scaling.png"):
 
 
 def main():
+    """Run the Trackastra inference benchmark and save CSV/figure."""
     p = argparse.ArgumentParser(description="Trackastra inference benchmark")
     p.add_argument("--out-csv", default="trackastra_inference_benchmark.csv")
     p.add_argument("--out-png", default="trackastra_inference_scaling.png")

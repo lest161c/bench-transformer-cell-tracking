@@ -22,6 +22,16 @@ import numpy as np
 
 
 def timed_benchmark(fn, warmup=5, n_repeat=20):
+    """Measure mean GPU execution time of *fn* in milliseconds.
+
+    Args:
+        fn: Callable to benchmark.
+        warmup: Number of untimed warmup iterations.
+        n_repeat: Number of timed repetitions.
+
+    Returns:
+        Mean execution time in milliseconds.
+    """
     for _ in range(warmup):
         fn()
     torch.cuda.synchronize()
@@ -35,6 +45,14 @@ def timed_benchmark(fn, warmup=5, n_repeat=20):
 
 
 def measure_memory(fn):
+    """Measure peak GPU memory increment from *fn* in MiB.
+
+    Args:
+        fn: Callable whose memory footprint is measured.
+
+    Returns:
+        Peak memory delta in MiB.
+    """
     gc.collect()
     torch.cuda.empty_cache()
     torch.cuda.reset_peak_memory_stats()
@@ -44,7 +62,30 @@ def measure_memory(fn):
     return (torch.cuda.max_memory_allocated() - baseline) / (1024**2)
 
 
-def run_benchmark(Ns=(128, 256, 512, 1024), d_head=40, n_head=8, d_max=256, lam=5):
+def run_benchmark(Ns=(128, 256, 512, 1024), d_head=40, n_head=8,
+                  d_max=256, lam=5):
+    """Benchmark FlexAttention with spatial cutoff vs hard mask SDPA.
+
+    For each sequence length *N*, generates random Q/K/V and spatial
+    coordinates, then times:
+      A) hard mask SDPA (cuDNN fallback),
+      D) FlexAttention with hard cutoff + soft decay (FlashAttn dispatched),
+      E) FlexAttention with soft decay only (FlashAttn dispatched),
+      C) no-bias FlashAttention (reference).
+
+    Also measures numerical equivalence (cosine similarity) between the
+    hard-mask output and the FlexAttention output.
+
+    Args:
+        Ns: Tuple of sequence lengths to benchmark.
+        d_head: Head dimension.
+        n_head: Number of attention heads.
+        d_max: Spatial cutoff distance.
+        lam: Decay strength for the distance bias.
+
+    Returns:
+        List of result dictionaries, one per *N*.
+    """
     device = torch.device("cuda")
     dtype = torch.float16
     scale = math.sqrt(d_head)
@@ -166,6 +207,7 @@ def run_benchmark(Ns=(128, 256, 512, 1024), d_head=40, n_head=8, d_max=256, lam=
 
 
 def main():
+    """Run the FlexAttention spatial benchmark and save results to CSV."""
     p = argparse.ArgumentParser()
     p.add_argument("--outdir", default="benchmark_attn")
     args = p.parse_args()

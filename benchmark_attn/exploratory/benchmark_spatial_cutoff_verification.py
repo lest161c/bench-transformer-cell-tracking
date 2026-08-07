@@ -26,6 +26,24 @@ def attention_weights(Q, K, V, bias=None, d_max=256, lam=5):
 
 
 def run_verification(d_head=40, n_head=8, d_max=256, lam=5, seed=42):
+    """Run spatial cutoff verification with cells at known distances.
+
+    Places 6 cells at distances [0, 50, 100, 300, 500, 800] and measures
+    attention weights under three methods: hard mask (cutoff at d_max),
+    soft decay (exp(-lam*dist/d_max)), and no-bias FlashAttn.
+
+    Args:
+        d_head: Head dimension for Q/K/V tensors.
+        n_head: Number of attention heads.
+        d_max: Spatial cutoff distance; cells farther than this are masked.
+        lam: Decay strength for the soft decay method.
+        seed: Random seed for reproducible Q/K/V generation.
+
+    Returns:
+        Tuple of (results, verdict).  *results* is a list of per-cell
+        weight dictionaries.  *verdict* is a summary dictionary with
+        cutoff-enforcement booleans and a human-readable conclusion.
+    """
     device = "cuda" if torch.cuda.is_available() else "cpu"
     dtype = torch.float32  # fp32 for clean numerical comparison
 
@@ -119,6 +137,7 @@ def run_verification(d_head=40, n_head=8, d_max=256, lam=5, seed=42):
 
 
 def main():
+    """Run the spatial cutoff verification and save CSV/JSON outputs."""
     print("=" * 60)
     print("Spatial Cutoff Verification: Does no-bias FlashAttn enforce distance?")
     print("=" * 60)

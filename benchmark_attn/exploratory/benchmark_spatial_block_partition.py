@@ -84,6 +84,12 @@ def dense_flash_time(N):
 
 
 def run_analysis():
+    """Run spatial block partition analysis across cell counts and block sizes.
+
+    Returns:
+        Tuple of (rows, Ns, block_sizes) where *rows* is a list of
+        per-configuration timing dictionaries.
+    """
     Ns = [64, 128, 256, 512, 1024, 2048, 4096, 8192]
     block_sizes = [32, 64, 128]
     overlaps = [0, 1, 2]
@@ -121,6 +127,14 @@ def run_analysis():
 
 
 def generate_figures(rows, Ns, block_sizes, outdir="benchmark_attn"):
+    """Generate spatial block partition figures from benchmark rows.
+
+    Args:
+        rows: List of result dictionaries from :func:`run_analysis`.
+        Ns: List of cell counts tested.
+        block_sizes: List of block sizes tested.
+        outdir: Directory to write figure PNGs.
+    """
     outdir = Path(outdir)
 
     # Figure 1: Time vs N — spatial blocks vs baselines
@@ -230,6 +244,12 @@ def generate_figures(rows, Ns, block_sizes, outdir="benchmark_attn"):
 
 
 def save_csv(rows, path):
+    """Save spatial block partition rows to *path* as CSV.
+
+    Args:
+        rows: List of dictionaries to write.
+        path: Output CSV file path.
+    """
     fieldnames = list(rows[0].keys())
     with open(path, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fieldnames)
@@ -239,6 +259,7 @@ def save_csv(rows, path):
 
 
 def main():
+    """Run the spatial block partition benchmark and save CSV/figures."""
     p = argparse.ArgumentParser()
     p.add_argument("--out", default="benchmark_attn/spatial_block_results.csv")
     p.add_argument("--outdir", default="benchmark_attn")

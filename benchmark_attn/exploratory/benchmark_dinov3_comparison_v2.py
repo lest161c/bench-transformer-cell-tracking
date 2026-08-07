@@ -133,6 +133,7 @@ def load_model_hf(model_id, device="cpu"):
 
 
 def main():
+    """Run DINOv2 vs DINOv3 feature quality comparison and save CSV."""
     p = argparse.ArgumentParser()
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     p.add_argument("--n-patches", type=int, default=N_PATCHES)

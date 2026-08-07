@@ -163,6 +163,12 @@ def run_gpu_benchmark(Ns, d_head=40, n_head=8, d_max=256, lam=5, n_repeat=15):
 
 
 def generate_figure(rows, outdir="benchmark_attn"):
+    """Generate soft decay measurement figures from benchmark rows.
+
+    Args:
+        rows: List of result dictionaries from :func:`run_gpu_benchmark`.
+        outdir: Directory to write the figure PNG.
+    """
     outdir = Path(outdir)
 
     fig, axes = plt.subplots(1, 2, figsize=(16, 7))
@@ -220,6 +226,12 @@ def generate_figure(rows, outdir="benchmark_attn"):
 
 
 def save_csv(rows, path):
+    """Save benchmark rows to *path* as CSV.
+
+    Args:
+        rows: List of dictionaries to write.
+        path: Output CSV file path.
+    """
     if not rows:
         return
     with open(path, "w", newline="") as f:
@@ -229,6 +241,7 @@ def save_csv(rows, path):
 
 
 def main():
+    """Run the soft decay GPU measurement benchmark and save CSV/figure."""
     p = argparse.ArgumentParser()
     p.add_argument("--cuda", action="store_true", help="Use CUDA GPU")
     p.add_argument("--cpu", action="store_true", default=True, help="Use CPU")

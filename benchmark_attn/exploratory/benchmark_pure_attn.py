@@ -25,6 +25,16 @@ import torch.utils.benchmark as benchmark
 
 @torch.no_grad()
 def measure(fn, warmup=5, min_run_time=0.5):
+    """Measure mean execution time and peak GPU memory of *fn*.
+
+    Args:
+        fn: Callable to benchmark.
+        warmup: Number of untimed warmup iterations.
+        min_run_time: Minimum run time for ``torch.utils.benchmark``.
+
+    Returns:
+        Tuple of (mean_time_seconds, peak_memory_megabytes).
+    """
     for _ in range(warmup):
         fn()
     torch.cuda.synchronize()
@@ -42,6 +52,18 @@ def measure(fn, warmup=5, min_run_time=0.5):
 
 
 def run_pure_benchmark(args):
+    """Run pure attention kernel benchmark across all configurations.
+
+    Benchmarks five attention strategies for each sequence length *N*:
+      pure_dense, pure_flash, pure_gather_K, pure_mask_K, pure_minimax.
+
+    Args:
+        args: Parsed argparse namespace with fields ``Ns``, ``Ks``,
+            ``block_sizes``, ``d``, ``nhead``, ``warmup``, ``rep``.
+
+    Returns:
+        List of rows ``[method, N, time_ms, memory_mb, status]``.
+    """
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     dtype = torch.float16 if device.type == "cuda" else torch.float32
     print(f"Device: {device}  dtype: {dtype}  d={args.d}  nhead={args.nhead}")
@@ -157,6 +179,12 @@ def run_pure_benchmark(args):
 
 
 def print_table(rows, Ns):
+    """Print a formatted timing table for each method across *Ns*.
+
+    Args:
+        rows: List of ``[method, N, time_ms, memory_mb, status]``.
+        Ns: Sequence lengths to include as columns.
+    """
     methods = sorted(set(r[0] for r in rows))
     print(f"\n{'method':>30s}", end="")
     for N in Ns:
@@ -175,6 +203,7 @@ def print_table(rows, Ns):
 
 
 def main():
+    """Run the pure attention benchmark and save results to CSV."""
     p = argparse.ArgumentParser(description="Pure attention kernel benchmark")
     p.add_argument("--d", type=int, default=320)
     p.add_argument("--nhead", type=int, default=8)

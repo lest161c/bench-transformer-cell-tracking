@@ -137,6 +137,12 @@ def estimate_speedup(approach_id, N, K=16):
 
 
 def run_analysis():
+    """Run spatial flash analysis across approaches and cell counts.
+
+    Returns:
+        Tuple of (rows, Ns) where *rows* is a list of per-approach
+        per-N speedup dictionaries.
+    """
     Ns = [128, 256, 512, 1024, 2048, 4096, 8192]
     rows = []
     for approach_id, info in APPROACHES.items():
@@ -155,6 +161,13 @@ def run_analysis():
 
 
 def generate_figure(rows, Ns, outdir="benchmark_attn"):
+    """Generate spatial flash solution figures from benchmark rows.
+
+    Args:
+        rows: List of result dictionaries from :func:`run_analysis`.
+        Ns: List of cell counts tested.
+        outdir: Directory to write the figure PNG.
+    """
     outdir = Path(outdir)
 
     fig, axes = plt.subplots(1, 2, figsize=(16, 7))
@@ -217,6 +230,12 @@ def generate_figure(rows, Ns, outdir="benchmark_attn"):
 
 
 def save_csv(rows, path):
+    """Save spatial flash rows to *path* as CSV.
+
+    Args:
+        rows: List of dictionaries to write.
+        path: Output CSV file path.
+    """
     fieldnames = ["approach", "N", "speedup_vs_baseline", "feasibility", "enforces_spatial_cutoff"]
     with open(path, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fieldnames)
@@ -226,6 +245,7 @@ def save_csv(rows, path):
 
 
 def main():
+    """Run the spatial flash analysis and save CSV/figure."""
     p = argparse.ArgumentParser()
     p.add_argument("--out", default="benchmark_attn/spatial_flash_results.csv")
     p.add_argument("--outdir", default="benchmark_attn")

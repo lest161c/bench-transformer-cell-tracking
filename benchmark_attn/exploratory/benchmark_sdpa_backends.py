@@ -254,6 +254,12 @@ def generate_figures(rows, Ns, d_heads, outdir="benchmark_attn"):
 
 
 def save_csv(rows, path):
+    """Save SDPA backend dispatch rows to *path* as CSV.
+
+    Args:
+        rows: List of dictionaries to write.
+        path: Output CSV file path.
+    """
     with open(path, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=["d_head", "N", "backend", "time_ms", "flash_compatible"])
         w.writeheader()
@@ -262,6 +268,7 @@ def save_csv(rows, path):
 
 
 def main():
+    """Run the SDPA backend dispatch benchmark and save CSV/figures."""
     p = argparse.ArgumentParser()
     p.add_argument("--out", default="benchmark_attn/sdpa_backend_results.csv")
     p.add_argument("--outdir", default="benchmark_attn")
