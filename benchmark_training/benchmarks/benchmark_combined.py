@@ -37,6 +37,7 @@ from ssl_pipeline import load_experiment_frames, features_from_frame
 # ============================================================
 
 def create_tracking_pairs(frames, max_pairs=80):
+    """Create src→tgt pairs from adjacent frames with real association labels."""
     """Create src→tgt pairs from adjacent frames with real assoc labels."""
     pairs = []
     for i in range(0, len(frames) - 1, 2):
@@ -75,6 +76,7 @@ def create_tracking_pairs(frames, max_pairs=80):
 
 
 def collate_pairs(batch):
+    """Collate a batch of tracking pairs into padded tensors."""
     batch = [b for b in batch if b["ns"] > 0 and b["nt"] > 0]
     if not batch: return None
     mx_s = max(b["ns"] for b in batch); mx_t = max(b["nt"] for b in batch)
@@ -231,6 +233,7 @@ def init_from_ssl(model, ssl_state_dict):
 # ============================================================
 
 def run(config_path=None, n_epochs=15, use_wandb=False):
+    """Run combined benchmark: sparse attention + SSL pretraining vs baseline."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"Device: {device}")
 

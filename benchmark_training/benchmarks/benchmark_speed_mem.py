@@ -84,6 +84,7 @@ class BenchModel(nn.Module):
         return self.hd(torch.cat([se[:,:,None].expand(-1,-1,N2,-1),te[:,None].expand(-1,N1,-1,-1)],-1)).squeeze(-1)
 
 def bench(use_wandb=False):
+    """Run speed + memory benchmark for all K configs."""
     device=torch.device("cuda")
     logger.info(f"GPU: {torch.cuda.get_device_name(0)}")
 

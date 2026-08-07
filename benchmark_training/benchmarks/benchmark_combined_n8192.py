@@ -75,12 +75,14 @@ class FullModel(nn.Module):
 SSL_PATH=ROOT/"benchmark_ssl"/"runs"/"ssl_K=16"/"best_model.pt"
 
 def init_ssl(m):
+    """Transfer SSL-pretrained weights to model."""
     sd=m.state_dict();ss=torch.load(SSL_PATH,map_location="cpu",weights_only=False)["model_state_dict"];c=0
     for k in sd:
         if k in ss and sd[k].shape==ss[k].shape:sd[k]=ss[k].clone();c+=1
     m.load_state_dict(sd,strict=False);logger.info(f"SSL: {c}/{len(sd)} keys")
 
 def run():
+    """Run combined N=8192 benchmark on 4GB GPU."""
     device=torch.device("cuda");logger.info(f"{torch.cuda.get_device_name(0)}")
 
     N=8192;E=5;B=1

@@ -84,6 +84,7 @@ class MatchedModel(nn.Module):
 
 # === Data ===
 def load_pairs(frames, max_pairs=200):
+    """Load tracking pairs from frames with real association labels."""
     pairs=[]
     for i in range(0,len(frames)-1,2):
         try:
@@ -111,6 +112,7 @@ def load_pairs(frames, max_pairs=200):
 
 # === Run ===
 def run(use_wandb=False):
+    """Run matched downstream benchmark: SSL pretrained with same attention."""
     device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"Device: {device}")
 

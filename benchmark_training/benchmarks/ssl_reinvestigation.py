@@ -211,6 +211,7 @@ def init_from_ssl(model, ssl_state):
 
 def make_synthetic_data(N, B=2, n_pairs=200):
     """Generate N synthetic src→tgt pairs with controlled cells."""
+    """Generate N synthetic src→tgt pairs with controlled cells."""
     pairs = []
     for _ in range(n_pairs):
         cs = torch.randn(B, N, 2) * 100
@@ -226,6 +227,7 @@ def make_synthetic_data(N, B=2, n_pairs=200):
 
 
 def train_model(model, train_pairs, val_pairs, n_epochs=15, lr=3e-4, device="cuda"):
+    """Train model, return loss history."""
     """Train model, return loss history."""
     opt = AdamW(model.parameters(), lr=lr, weight_decay=0.01)
     pw = torch.tensor(10.0, device=device)
@@ -273,6 +275,7 @@ def train_model(model, train_pairs, val_pairs, n_epochs=15, lr=3e-4, device="cud
 # ============================================================
 
 def run():
+    """Run SSL reinvestigation with proper architecture match."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"Device: {device}")
     if torch.cuda.is_available():

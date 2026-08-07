@@ -32,6 +32,8 @@ from track_encoder import AssociationEncoder, AgentCentricNormalization
 # ============================================================
 
 class DenseEncoder(nn.Module):
+    """Standard TransformerEncoder with dense O(N²) attention."""
+
     def __init__(self, d_model=128, nhead=4, num_layers=4, dim_feedforward=256, dropout=0.1):
         super().__init__()
         layer = nn.TransformerEncoderLayer(d_model, nhead, dim_feedforward, dropout,
@@ -43,6 +45,8 @@ class DenseEncoder(nn.Module):
 
 
 class SparseEncoder(nn.Module):
+    """Encoder using GatherSparseAttention with KNN-based sparse attention."""
+
     def __init__(self, d_model=128, nhead=4, num_layers=4, dim_feedforward=256, dropout=0.1, knn_k=16):
         super().__init__()
         self.knn_k = knn_k
@@ -60,6 +64,7 @@ class SparseEncoder(nn.Module):
         self.norm = nn.LayerNorm(d_model)
 
     def compute_knn(self, coords):
+        """Compute KNN indices from spatial coordinates."""
         B, N, D = coords.shape
         yx = coords[..., -2:]
         dist = torch.cdist(yx, yx)
@@ -70,6 +75,7 @@ class SparseEncoder(nn.Module):
         return idx
 
     def forward(self, x, mask=None, coords=None):
+        """Run forward pass through sparse encoder layers."""
         if coords is None:
             return self.norm(x)
         knn_idx = self.compute_knn(coords)
@@ -153,6 +159,7 @@ def make_synthetic_batch(N, B=2, feat_dim=7, coord_dim=2):
 
 def measure_timing(model, batch, device, warmup=3, repeat=10):
     """Measure forward+backward time and peak memory."""
+    """Measure forward+backward time and peak memory."""
     batch = {k: v.to(device) if torch.is_tensor(v) else v for k, v in batch.items()}
     opt = AdamW(model.parameters(), lr=3e-4)
     pos_w = torch.tensor(10.0, device=device)
@@ -182,6 +189,7 @@ def measure_timing(model, batch, device, warmup=3, repeat=10):
 # ============================================================
 
 def run(use_wandb=False):
+    """Run full ablation benchmark: speed scaling + convergence."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"Device: {device}")
     if torch.cuda.is_available():

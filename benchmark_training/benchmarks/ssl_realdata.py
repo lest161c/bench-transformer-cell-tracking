@@ -235,6 +235,7 @@ def init_from_ssl(model, ssl_state):
 
 def load_real_pairs(frames, max_pairs=200):
     """Create src→tgt pairs from adjacent frames with real assoc labels."""
+    """Create src→tgt pairs from adjacent frames with real assoc labels."""
     pairs = []
     for i in range(0, len(frames) - 1, 2):
         try:
@@ -280,6 +281,7 @@ def load_real_pairs(frames, max_pairs=200):
 # ============================================================
 
 def run(use_wandb=False):
+    """Run SSL reinvestigation on real vanvliet data."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"Device: {device}")
 

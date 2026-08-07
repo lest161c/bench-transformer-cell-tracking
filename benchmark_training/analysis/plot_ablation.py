@@ -157,6 +157,7 @@ fig.tight_layout(); figures.append(fig); plt.close(fig)
 
 # HTML
 def fig_to_b64(fig):
+    """Convert a matplotlib Figure to a base64-encoded PNG string."""
     buf = io.BytesIO(); fig.savefig(buf, format="png", dpi=130, bbox_inches="tight")
     buf.seek(0); return base64.b64encode(buf.read()).decode()
 
