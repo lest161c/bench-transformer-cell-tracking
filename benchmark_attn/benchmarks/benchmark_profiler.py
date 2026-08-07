@@ -66,17 +66,18 @@ def build_activities(device):
 # Benchmark workloads  (mirror benchmark_sparse.py, single forward)
 # ------------------------------------------------------------------
 
-def make_workload_dense(N, device, dtype, L=1, B=2, d=256, h=4, coord_dim=3):
-    """Build a closure that runs L layers of RelativePositionalAttention (dense).
+def make_workload_dense(seq_len, device, dtype, n_layers=1, batch_size=2,
+                        embed_dim=256, n_head=4, coord_dim=3):
+    """Build a closure that runs n_layers layers of RelativePositionalAttention (dense).
 
     Args:
-        N: Sequence length.
+        seq_len: Sequence length.
         device: torch device.
         dtype: torch dtype.
-        L: Number of layers.
-        B: Batch size.
-        d: Embedding dimension.
-        h: Number of attention heads.
+        n_layers: Number of layers.
+        batch_size: Batch size.
+        embed_dim: Embedding dimension.
+        n_head: Number of attention heads.
         coord_dim: Number of coordinate dimensions.
 
     Returns:
@@ -84,35 +85,36 @@ def make_workload_dense(N, device, dtype, L=1, B=2, d=256, h=4, coord_dim=3):
     """
     layers = torch.nn.ModuleList([
         RelativePositionalAttention(
-            coord_dim=coord_dim, embed_dim=d, n_head=h,
+            coord_dim=coord_dim, embed_dim=embed_dim, n_head=n_head,
             cutoff_spatial=128.0, mode="none", attn_dist_mode="v0",
         ).to(device).to(dtype)
-        for _ in range(L)
+        for _ in range(n_layers)
     ])
-    q = torch.randn(B, N, d, device=device, dtype=dtype)
-    coords = torch.randn(B, N, coord_dim, device=device, dtype=dtype)
+    query = torch.randn(batch_size, seq_len, embed_dim, device=device, dtype=dtype)
+    coords = torch.randn(batch_size, seq_len, coord_dim, device=device, dtype=dtype)
 
     def fn():
-        x = q
+        x = query
         for layer in layers:
             x = layer(x, x, x, coords)
         return x
     return fn
 
 
-def make_workload_sparse(N, K, device, dtype, L=1, B=2, d=256, h=4,
+def make_workload_sparse(seq_len, knn_neighbors, device, dtype, n_layers=1,
+                         batch_size=2, embed_dim=256, n_head=4,
                          coord_dim=3, reorder=False):
-    """Build a closure that runs L layers of GatherSparseAttention.
+    """Build a closure that runs n_layers layers of GatherSparseAttention.
 
     Args:
-        N: Sequence length.
-        K: Number of KNN neighbors.
+        seq_len: Sequence length.
+        knn_neighbors: Number of KNN neighbors.
         device: torch device.
         dtype: torch dtype.
-        L: Number of layers.
-        B: Batch size.
-        d: Embedding dimension.
-        h: Number of attention heads.
+        n_layers: Number of layers.
+        batch_size: Batch size.
+        embed_dim: Embedding dimension.
+        n_head: Number of attention heads.
         coord_dim: Number of coordinate dimensions.
         reorder: If True, reorder tokens by spatial proximity.
 
@@ -120,16 +122,16 @@ def make_workload_sparse(N, K, device, dtype, L=1, B=2, d=256, h=4,
         A callable ``fn()`` that runs the forward pass.
     """
     layers = torch.nn.ModuleList([
-        GatherSparseAttention(embed_dim=d, n_head=h, knn_neighbors=K, mode="none")
+        GatherSparseAttention(embed_dim=embed_dim, n_head=n_head, knn_neighbors=knn_neighbors, mode="none")
         .to(device).to(dtype)
-        for _ in range(L)
+        for _ in range(n_layers)
     ])
-    q = torch.randn(B, N, d, device=device, dtype=dtype)
-    coords = torch.randn(B, N, coord_dim, device=device, dtype=dtype)
+    query = torch.randn(batch_size, seq_len, embed_dim, device=device, dtype=dtype)
+    coords = torch.randn(batch_size, seq_len, coord_dim, device=device, dtype=dtype)
 
     yx = coords[..., 1:]
     dist = torch.cdist(yx, yx)
-    _, knn_idx = torch.topk(dist, k=K, dim=-1, largest=False)
+    _, knn_idx = torch.topk(dist, k=knn_neighbors, dim=-1, largest=False)
 
     if reorder:
         sr = SpatialReorder(n_bins=32)
@@ -137,17 +139,17 @@ def make_workload_sparse(N, K, device, dtype, L=1, B=2, d=256, h=4,
         coords_re = sr.reorder(coords, reorder_idx)
         yx_re = coords_re[..., 1:]
         dist_re = torch.cdist(yx_re, yx_re)
-        _, knn_idx_re = torch.topk(dist_re, k=K, dim=-1, largest=False)
+        _, knn_idx_re = torch.topk(dist_re, k=knn_neighbors, dim=-1, largest=False)
 
         def fn():
-            q_re = sr.reorder(q, reorder_idx)
-            x = q_re
+            query_re = sr.reorder(query, reorder_idx)
+            x = query_re
             for layer in layers:
                 x = layer(x, x, x, knn_idx_re, coords_re)
             return sr.unreorder(x, unreorder_idx)
     else:
         def fn():
-            x = q
+            x = query
             for layer in layers:
                 x = layer(x, x, x, knn_idx, coords)
             return x
@@ -246,8 +248,8 @@ def profile_workload(name, make_fn, device, dtype, output_dir,
 def extract_memory_timeline_from_trace(trace_path):
     """Parse chrome trace json for memory timeline events."""
     try:
-        with open(trace_path) as f:
-            trace = json.load(f)
+        with open(trace_path) as file_handle:
+            trace = json.load(file_handle)
         mem_events = []
         t0 = trace["traceEvents"][0]["ts"] if trace.get("traceEvents") else 0
         for evt in trace.get("traceEvents", []):
@@ -304,14 +306,14 @@ def make_charts(prof_result, output_dir, device_side):
     # --- Top-12 time bar (total device time) ---
     time_key = f"{device_side}_time_total"
     time_recs = sorted(
-        [r for r in records if r.get(time_key, 0) > 0],
-        key=lambda r: r.get(time_key, 0), reverse=True
+        [record for record in records if record.get(time_key, 0) > 0],
+        key=lambda record: record.get(time_key, 0), reverse=True
     )[:12]
 
     if time_recs:
         fig, ax = plt.subplots(figsize=(12, 5))
-        labels = [r["name"] for r in time_recs][::-1]
-        values = [r[time_key] / 1000 for r in time_recs][::-1]  # us -> ms
+        labels = [record["name"] for record in time_recs][::-1]
+        values = [record[time_key] / 1000 for record in time_recs][::-1]  # us -> ms
         colors = plt.cm.viridis(np.linspace(0.2, 0.85, len(labels)))
         bars = ax.barh(labels, values, color=colors, edgecolor="white")
         ax.set_xlabel(f"Total {device_side.upper()} Time (ms)")
@@ -320,23 +322,23 @@ def make_charts(prof_result, output_dir, device_side):
             ax.text(bar.get_width() + max(values) * 0.01, bar.get_y() + bar.get_height() / 2,
                     f"{val:.3f} ms", va="center", fontsize=8)
         fig.tight_layout()
-        p = os.path.join(output_dir, f"{name}_time.png")
-        fig.savefig(p, dpi=130, bbox_inches="tight")
+        path = os.path.join(output_dir, f"{name}_time.png")
+        fig.savefig(path, dpi=130, bbox_inches="tight")
         plt.close(fig)
-        paths["time_bar"] = p
+        paths["time_bar"] = path
 
     # --- Self vs total time comparison ---
     self_key = f"self_{device_side}_time_total"
     top_time = sorted(
-        [r for r in records if r.get(time_key, 0) > 0],
-        key=lambda r: r.get(time_key, 0), reverse=True
+        [record for record in records if record.get(time_key, 0) > 0],
+        key=lambda record: record.get(time_key, 0), reverse=True
     )[:10]
 
     if top_time:
         fig, ax = plt.subplots(figsize=(12, 5))
-        labels = [r["name"] for r in top_time][::-1]
-        self_vals = [r.get(self_key, 0) / 1000 for r in top_time][::-1]
-        total_vals = [r[time_key] / 1000 for r in top_time][::-1]
+        labels = [record["name"] for record in top_time][::-1]
+        self_vals = [record.get(self_key, 0) / 1000 for record in top_time][::-1]
+        total_vals = [record[time_key] / 1000 for record in top_time][::-1]
         x = np.arange(len(labels))
         w = 0.35
         ax.barh(x + w / 2, total_vals, w, label="Total", color="steelblue", edgecolor="white")
@@ -347,22 +349,22 @@ def make_charts(prof_result, output_dir, device_side):
         ax.set_title(f"{name} — Self vs Total {device_side.upper()} Time")
         ax.legend()
         fig.tight_layout()
-        p = os.path.join(output_dir, f"{name}_time_selfvtotal.png")
-        fig.savefig(p, dpi=130, bbox_inches="tight")
+        path = os.path.join(output_dir, f"{name}_time_selfvtotal.png")
+        fig.savefig(path, dpi=130, bbox_inches="tight")
         plt.close(fig)
-        paths["time_selfvtotal"] = p
+        paths["time_selfvtotal"] = path
 
     # --- Top-12 memory bar ---
     mem_key = f"self_{device_side}_memory_usage"
     mem_recs = sorted(
-        [r for r in records if r.get(mem_key, 0) > 0],
-        key=lambda r: r.get(mem_key, 0), reverse=True
+        [record for record in records if record.get(mem_key, 0) > 0],
+        key=lambda record: record.get(mem_key, 0), reverse=True
     )[:12]
 
     if mem_recs:
         fig, ax = plt.subplots(figsize=(12, 5))
-        labels = [r["name"] for r in mem_recs][::-1]
-        values = [r[mem_key] / (1024 ** 2) for r in mem_recs][::-1]
+        labels = [record["name"] for record in mem_recs][::-1]
+        values = [record[mem_key] / (1024 ** 2) for record in mem_recs][::-1]
         colors = plt.cm.plasma(np.linspace(0.2, 0.85, len(labels)))
         bars = ax.barh(labels, values, color=colors, edgecolor="white")
         ax.set_xlabel("Self Memory Usage (MiB)")
@@ -371,10 +373,10 @@ def make_charts(prof_result, output_dir, device_side):
             ax.text(bar.get_width() + max(values) * 0.01, bar.get_y() + bar.get_height() / 2,
                     f"{val:.2f} MiB", va="center", fontsize=8)
         fig.tight_layout()
-        p = os.path.join(output_dir, f"{name}_memory.png")
-        fig.savefig(p, dpi=130, bbox_inches="tight")
+        path = os.path.join(output_dir, f"{name}_memory.png")
+        fig.savefig(path, dpi=130, bbox_inches="tight")
         plt.close(fig)
-        paths["memory_bar"] = p
+        paths["memory_bar"] = path
 
     # --- Memory timeline ---
     if mem_timeline:
@@ -391,20 +393,20 @@ def make_charts(prof_result, output_dir, device_side):
         ax.set_title(f"{name} — Memory Timeline (from trace)")
         ax.grid(True, alpha=0.3, ls="--")
         fig.tight_layout()
-        p = os.path.join(output_dir, f"{name}_memory_timeline.png")
-        fig.savefig(p, dpi=130, bbox_inches="tight")
+        path = os.path.join(output_dir, f"{name}_memory_timeline.png")
+        fig.savefig(path, dpi=130, bbox_inches="tight")
         plt.close(fig)
-        paths["mem_timeline"] = p
+        paths["mem_timeline"] = path
 
     # --- Calls count ---
     calls_recs = sorted(
-        [r for r in records if r["count"] > 1],
-        key=lambda r: r["count"], reverse=True
+        [record for record in records if record["count"] > 1],
+        key=lambda record: record["count"], reverse=True
     )[:12]
     if calls_recs:
         fig, ax = plt.subplots(figsize=(12, 4))
-        labels = [r["name"] for r in calls_recs][::-1]
-        counts = [r["count"] for r in calls_recs][::-1]
+        labels = [record["name"] for record in calls_recs][::-1]
+        counts = [record["count"] for record in calls_recs][::-1]
         bars = ax.barh(labels, counts, color="mediumseagreen", edgecolor="white")
         ax.set_xlabel("# of Calls")
         ax.set_title(f"{name} — Operator Call Counts")
@@ -412,10 +414,10 @@ def make_charts(prof_result, output_dir, device_side):
             ax.text(bar.get_width() + max(counts) * 0.01, bar.get_y() + bar.get_height() / 2,
                     str(val), va="center", fontsize=9)
         fig.tight_layout()
-        p = os.path.join(output_dir, f"{name}_calls.png")
-        fig.savefig(p, dpi=130, bbox_inches="tight")
+        path = os.path.join(output_dir, f"{name}_calls.png")
+        fig.savefig(path, dpi=130, bbox_inches="tight")
         plt.close(fig)
-        paths["calls"] = p
+        paths["calls"] = path
 
     return paths
 
@@ -426,8 +428,8 @@ def make_charts(prof_result, output_dir, device_side):
 
 def fig_to_b64(fig_path):
     """Read a PNG file and return its base64-encoded string."""
-    with open(fig_path, "rb") as f:
-        return base64.b64encode(f.read()).decode()
+    with open(fig_path, "rb") as file_handle:
+        return base64.b64encode(file_handle.read()).decode()
 
 
 def build_html_report(all_results, output_dir):
@@ -489,8 +491,8 @@ def build_html_report(all_results, output_dir):
     parts.append("</body></html>")
 
     html_path = os.path.join(output_dir, "profiler_report.html")
-    with open(html_path, "w") as f:
-        f.write("\n".join(parts))
+    with open(html_path, "w") as file_handle:
+        file_handle.write("\n".join(parts))
     return html_path
 
 
@@ -511,22 +513,22 @@ def main():
     print(f"Device: {device}, dtype: {dtype}")
     print(f"Output:  {output_dir}\n")
 
-    B = 2
-    d = 256
-    h = 4
+    batch_size = 2
+    embed_dim = 256
+    n_head = 4
     coord_dim = 3
-    L = 1
+    n_layers = 1
 
     all_results = []
 
     # --- Scan over N, K ---
     for N in [512, 2048, 8192]:
         # Dense
-        name = f"dense_N{N}_L{L}"
+        name = f"dense_N{N}_L{n_layers}"
         try:
             res = profile_workload(
                 name,
-                lambda: make_workload_dense(N, device, dtype, L=L, B=B, d=d, h=h, coord_dim=coord_dim),
+                lambda: make_workload_dense(N, device, dtype, n_layers=n_layers, batch_size=batch_size, embed_dim=embed_dim, n_head=n_head, coord_dim=coord_dim),
                 device, dtype, output_dir,
             )
             all_results.append(res)
@@ -537,12 +539,13 @@ def main():
         for K in [16, 64]:
             for reorder in [False, True]:
                 tag = "reorder" if reorder else "noreorder"
-                name = f"sparse_N{N}_K{K}_{tag}_L{L}"
+                name = f"sparse_N{N}_K{K}_{tag}_L{n_layers}"
                 try:
                     res = profile_workload(
                         name,
                         lambda N=N, K=K, reorder=reorder: make_workload_sparse(
-                            N, K, device, dtype, L=L, B=B, d=d, h=h,
+                            N, K, device, dtype, n_layers=n_layers, batch_size=batch_size,
+                            embed_dim=embed_dim, n_head=n_head,
                             coord_dim=coord_dim, reorder=reorder,
                         ),
                         device, dtype, output_dir,

@@ -61,77 +61,78 @@ def run_benchmark(Ns=(128, 256, 512, 1024, 2048, 4096), d_head=40, n_head=8,
     scale = math.sqrt(d_head)
 
     results = []
-    for N in Ns:
+    for seq_len in Ns:
         torch.manual_seed(seed)
-        Q = torch.randn(1, n_head, N, d_head, device=device, dtype=dtype) / scale
-        K = torch.randn(1, n_head, N, d_head, device=device, dtype=dtype) / scale
-        V = torch.randn(1, n_head, N, d_head, device=device, dtype=dtype)
-        coords = torch.rand(N, 2, device=device) * 512
+        query = torch.randn(1, n_head, seq_len, d_head, device=device, dtype=dtype) / scale
+        key = torch.randn(1, n_head, seq_len, d_head, device=device, dtype=dtype) / scale
+        value = torch.randn(1, n_head, seq_len, d_head, device=device, dtype=dtype)
+        coords = torch.rand(seq_len, 2, device=device) * 512
         dist = torch.cdist(coords, coords)
         dist_cache = dist.to(device)
 
         # ── hard mask cuDNN (CachedDistAttention baseline) ──
         decay = (-lam * dist / d_max).to(dtype)
-        hard_mask = torch.zeros(1, n_head, N, N, device=device, dtype=dtype)
+        hard_mask = torch.zeros(1, n_head, seq_len, seq_len, device=device, dtype=dtype)
         hard_mask[:, :, dist > d_max] = float("-inf")
         hard_mask = hard_mask + decay.unsqueeze(0).unsqueeze(0)
 
         def hard_fn():
-            return F.scaled_dot_product_attention(Q, K, V, attn_mask=hard_mask)
+            return F.scaled_dot_product_attention(query, key, value, attn_mask=hard_mask)
 
         # ── mask-KNN: scatter KNN mask, cuDNN masked SDPA ──
-        knn_k_actual = min(knn_k, N)
+        knn_k_actual = min(knn_k, seq_len)
         _, knn_idx = torch.topk(dist, knn_k_actual, dim=-1, largest=False)
-        mask_knn = torch.full((1, n_head, N, N), float("-inf"), device=device, dtype=dtype)
-        mask_knn[0, :, torch.arange(N).unsqueeze(1), knn_idx] = 0
+        mask_knn = torch.full((1, n_head, seq_len, seq_len), float("-inf"), device=device, dtype=dtype)
+        mask_knn[0, :, torch.arange(seq_len).unsqueeze(1), knn_idx] = 0
         mask_knn = mask_knn + decay.unsqueeze(0).unsqueeze(0)
 
         def mask_knn_fn():
-            return F.scaled_dot_product_attention(Q, K, V, attn_mask=mask_knn)
+            return F.scaled_dot_product_attention(query, key, value, attn_mask=mask_knn)
 
         # ── gather-KNN: pre-gather K/V, FlashAttn on N×K ──
         def gather_knn_fn():
-            K_g = K[0, :, knn_idx, :]  # (nH, N, K, dh)
-            V_g = V[0, :, knn_idx, :]
-            K_g = K_g.permute(2, 0, 1, 3).reshape(knn_k_actual, n_head * N, d_head).unsqueeze(0)
-            V_g = V_g.permute(2, 0, 1, 3).reshape(knn_k_actual, n_head * N, d_head).unsqueeze(0)
-            Q_r = Q.reshape(1, 1, n_head * N, d_head)
-            out = F.scaled_dot_product_attention(Q_r, K_g, V_g)
-            return out.reshape(1, n_head, N, d_head)
+            key_gathered = key[0, :, knn_idx, :]  # (nH, N, K, dh)
+            value_gathered = value[0, :, knn_idx, :]
+            key_gathered = key_gathered.permute(2, 0, 1, 3).reshape(knn_k_actual, n_head * seq_len, d_head).unsqueeze(0)
+            value_gathered = value_gathered.permute(2, 0, 1, 3).reshape(knn_k_actual, n_head * seq_len, d_head).unsqueeze(0)
+            query_reshaped = query.reshape(1, 1, n_head * seq_len, d_head)
+            output = F.scaled_dot_product_attention(query_reshaped, key_gathered, value_gathered)
+            return output.reshape(1, n_head, seq_len, d_head)
 
         # ── FlexAttention + spatial cutoff ──
         def make_score_mod(dist_mat, d_max_val, lam_val):
-            df = dist_mat.float()
-            def score_mod(score, b, h, q_idx, kv_idx):
-                d = df[q_idx, kv_idx]
-                cutoff_mask = d > d_max_val
-                penalty = (-lam_val * d / d_max_val) - 65504.0
-                return torch.where(cutoff_mask, penalty, score - lam_val * d / d_max_val)
+            dist_float = dist_mat.float()
+            def score_mod(score, batch_idx, head_idx, q_idx, kv_idx):
+                distance = dist_float[q_idx, kv_idx]
+                cutoff_mask = distance > d_max_val
+                penalty = (-lam_val * distance / d_max_val) - 65504.0
+                return torch.where(cutoff_mask, penalty, score - lam_val * distance / d_max_val)
             return score_mod
 
         score_mod_fn = make_score_mod(dist_cache, d_max, lam)
         compiled_flex = torch.compile(flex_attention, dynamic=False)
 
         for _ in range(3):
-            compiled_flex(Q, K, V, score_mod=score_mod_fn)
+            compiled_flex(query, key, value, score_mod=score_mod_fn)
         torch.cuda.synchronize()
 
         def flex_fn():
-            return compiled_flex(Q, K, V, score_mod=score_mod_fn)
+            return compiled_flex(query, key, value, score_mod=score_mod_fn)
 
         # Measure
-        row = {"N": N}
+        row = {"N": seq_len}
         for name, fn in [("hard_cudnn", hard_fn), ("mask_knn", mask_knn_fn),
                           ("gather_knn", gather_knn_fn), ("flex", flex_fn)]:
             try:
-                t = timed_benchmark(fn)
-                row[f"{name}_ms"] = round(t, 4)
-            except RuntimeError as e:
+                time_ms = timed_benchmark(fn)
+                row[f"{name}_ms"] = round(time_ms, 4)
+            except RuntimeError as exc:
                 row[f"{name}_ms"] = -1
-                row[f"{name}_error"] = str(e)[:80]
+                row[f"{name}_error"] = str(exc)[:80]
 
         # Numerical check
         out_hard = hard_fn().float()
+        cos_mask = None
         try:
             out_mask = mask_knn_fn().float()
             cos_mask = F.cosine_similarity(out_hard.flatten(), out_mask.flatten(), dim=0).item()
@@ -139,6 +140,7 @@ def run_benchmark(Ns=(128, 256, 512, 1024, 2048, 4096), d_head=40, n_head=8,
         except:
             pass
 
+        cos_flex = None
         try:
             out_flex = flex_fn().float()
             cos_flex = F.cosine_similarity(out_hard.flatten(), out_flex.flatten(), dim=0).item()
@@ -149,12 +151,12 @@ def run_benchmark(Ns=(128, 256, 512, 1024, 2048, 4096), d_head=40, n_head=8,
         results.append(row)
 
         # Print
-        t_h = row["hard_cudnn_ms"]
-        print(f"  N={N:>4d}: hard={t_h:.3f}ms  "
-              f"mask-KNN={row['mask_knn_ms']:.3f}ms ({t_h/row['mask_knn_ms']:.2f}×)  "
-              f"gather-KNN={row['gather_knn_ms']:.3f}ms ({t_h/row['gather_knn_ms']:.2f}×)  "
-              f"flex={row['flex_ms']:.3f}ms ({t_h/row['flex_ms']:.2f}×)"
-              + (f"  cos_flex={cos_flex:.4f}" if 'cos_flex_vs_hard' in row else ""))
+        time_hard = row["hard_cudnn_ms"]
+        print(f"  N={seq_len:>4d}: hard={time_hard:.3f}ms  "
+              f"mask-KNN={row['mask_knn_ms']:.3f}ms ({time_hard/row['mask_knn_ms']:.2f}×)  "
+              f"gather-KNN={row['gather_knn_ms']:.3f}ms ({time_hard/row['gather_knn_ms']:.2f}×)  "
+              f"flex={row['flex_ms']:.3f}ms ({time_hard/row['flex_ms']:.2f}×)"
+              + (f"  cos_flex={cos_flex:.4f}" if cos_flex is not None and 'cos_flex_vs_hard' in row else ""))
 
         gc.collect()
         torch.cuda.empty_cache()
@@ -169,11 +171,11 @@ def main():
     mask-KNN, and hard-cudnn. Writes results to CSV and prints the
     winner for each N.
     """
-    p = argparse.ArgumentParser()
-    p.add_argument("--outdir", default="benchmark_attn")
-    p.add_argument("--knn-k", type=int, default=16)
-    p.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
-    args = p.parse_args()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--outdir", default="benchmark_attn")
+    parser.add_argument("--knn-k", type=int, default=16)
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
+    args = parser.parse_args()
 
     print("=" * 65)
     print("All Spatial-Cutoff Methods: FlexAttn vs gather-KNN vs mask-KNN")
@@ -185,21 +187,22 @@ def main():
 
     outdir = Path(args.outdir)
     path = outdir / "all_spatial_methods.csv"
-    with open(path, "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=list(results[0].keys()))
-        w.writeheader(); w.writerows(results)
+    with open(path, "w", newline="") as file_handle:
+        writer = csv.DictWriter(file_handle, fieldnames=list(results[0].keys()))
+        writer.writeheader()
+        writer.writerows(results)
     print(f"\nSaved: {path}")
 
     print(f"\n{'='*65}")
     print("WINNER BY N")
     print(f"{'='*65}")
-    for r in results:
+    for row in results:
         times = {}
-        for k in ["hard_cudnn_ms", "mask_knn_ms", "gather_knn_ms", "flex_ms"]:
-            if r[k] > 0:
-                times[k.replace("_ms", "")] = r[k]
+        for col_name in ["hard_cudnn_ms", "mask_knn_ms", "gather_knn_ms", "flex_ms"]:
+            if row[col_name] > 0:
+                times[col_name.replace("_ms", "")] = row[col_name]
         best = min(times, key=times.get)
-        print(f"  N={r['N']:>4d}: {best} ({times[best]:.3f}ms)")
+        print(f"  N={row['N']:>4d}: {best} ({times[best]:.3f}ms)")
 
     print(f"\n  Crossovers (estimated):")
     print(f"    flex overtakes cuDNN at N≈1500")

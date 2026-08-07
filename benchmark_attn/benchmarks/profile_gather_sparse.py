@@ -23,7 +23,7 @@ import numpy as np
 from model_parts import GatherSparseAttention
 
 
-def make_profile_input(N, K, B=2, d=256, h=4, coord_dim=3, mode="none",
+def make_profile_input(seq_len, knn_neighbors, batch_size=2, embed_dim=256, n_head=4, coord_dim=3, mode="none",
                        device="cuda", dtype=torch.float16):
     """Create model, input tensors, and KNN indices for profiling.
 
@@ -41,16 +41,16 @@ def make_profile_input(N, K, B=2, d=256, h=4, coord_dim=3, mode="none",
     Returns:
         Tuple (model, query, coords, knn_idx).
     """
-    m = GatherSparseAttention(embed_dim=d, n_head=h, knn_neighbors=K, mode=mode).to(device, dtype)
-    q = torch.randn(B, N, d, device=device, dtype=dtype)
-    coords = torch.randn(B, N, coord_dim, device=device, dtype=dtype)
+    m = GatherSparseAttention(embed_dim=embed_dim, n_head=n_head, knn_neighbors=knn_neighbors, mode=mode).to(device, dtype)
+    query = torch.randn(batch_size, seq_len, embed_dim, device=device, dtype=dtype)
+    coords = torch.randn(batch_size, seq_len, coord_dim, device=device, dtype=dtype)
     yx = coords[..., 1:]
     dist = torch.cdist(yx, yx)
-    _, knn_idx = torch.topk(dist, k=K, dim=-1, largest=False)
-    return m, q, coords, knn_idx
+    _, knn_idx = torch.topk(dist, k=knn_neighbors, dim=-1, largest=False)
+    return m, query, coords, knn_idx
 
 
-def profile_forward(N, K, device, dtype, mode="none", warmup=3, output_dir="profiler_out"):
+def profile_forward(seq_len, knn_neighbors, device, dtype, mode="none", warmup=3, output_dir="profiler_out"):
     """Profile a forward-only pass of GatherSparseAttention.
 
     Args:
@@ -65,13 +65,13 @@ def profile_forward(N, K, device, dtype, mode="none", warmup=3, output_dir="prof
     Returns:
         Dict with tag, records, total_cuda_ms, table, trace_path, chart_path.
     """
-    m, q, coords, knn_idx = make_profile_input(N, K, device=device, dtype=dtype, mode=mode)
+    m, query, coords, knn_idx = make_profile_input(seq_len, knn_neighbors, device=device, dtype=dtype, mode=mode)
     os.makedirs(output_dir, exist_ok=True)
-    tag = f"sparse_N{N}_K{K}_{mode}"
+    tag = f"sparse_N{seq_len}_K{knn_neighbors}_{mode}"
 
     # warmup
     for _ in range(warmup):
-        _ = m(q, q, q, knn_idx, coords)
+        _ = m(query, query, query, knn_idx, coords)
     torch.cuda.synchronize()
 
     with profile(
@@ -80,7 +80,7 @@ def profile_forward(N, K, device, dtype, mode="none", warmup=3, output_dir="prof
         profile_memory=True,
     ) as prof:
         with record_function(tag):
-            y = m(q, q, q, knn_idx, coords)
+            y = m(query, query, query, knn_idx, coords)
             torch.cuda.synchronize()
 
     key = prof.key_averages()
@@ -106,18 +106,18 @@ def profile_forward(N, K, device, dtype, mode="none", warmup=3, output_dir="prof
             "self_cuda_mem_mb": getattr(evt, "self_cuda_memory_usage", 0) / (1024**2),
         })
 
-    records.sort(key=lambda r: r["cuda_time_us"], reverse=True)
+    records.sort(key=lambda row: row["cuda_time_us"], reverse=True)
 
     # Relative percentages
-    for r in records:
-        r["cuda_pct"] = (r["cuda_time_us"] / total_cuda * 100) if total_cuda > 0 else 0
+    for row in records:
+        row["cuda_pct"] = (row["cuda_time_us"] / total_cuda * 100) if total_cuda > 0 else 0
 
     # ----- chart -----
     top12 = records[:12]
     fig, ax = plt.subplots(figsize=(13, 5.5))
-    labels = [r["name"] for r in top12][::-1]
-    values = [r["cuda_time_us"] / 1000 for r in top12][::-1]
-    pcts = [r["cuda_pct"] for r in top12][::-1]
+    labels = [row["name"] for row in top12][::-1]
+    values = [row["cuda_time_us"] / 1000 for row in top12][::-1]
+    pcts = [row["cuda_pct"] for row in top12][::-1]
     colors = plt.cm.viridis(np.linspace(0.15, 0.9, len(labels)))
     bars = ax.barh(labels, values, color=colors, edgecolor="white")
     ax.set_xlabel("CUDA Time (ms)")
@@ -141,7 +141,7 @@ def profile_forward(N, K, device, dtype, mode="none", warmup=3, output_dir="prof
     }
 
 
-def profile_forward_backward(N, K, device, dtype, mode="none", warmup=3, output_dir="profiler_out"):
+def profile_forward_backward(seq_len, knn_neighbors, device, dtype, mode="none", warmup=3, output_dir="profiler_out"):
     """Profile a forward+backward pass of GatherSparseAttention.
 
     Args:
@@ -156,14 +156,14 @@ def profile_forward_backward(N, K, device, dtype, mode="none", warmup=3, output_
     Returns:
         Dict with tag, records, total_cuda_ms, table, trace_path, chart_path.
     """
-    m, q, coords, knn_idx = make_profile_input(N, K, device=device, dtype=dtype, mode=mode)
+    m, query, coords, knn_idx = make_profile_input(seq_len, knn_neighbors, device=device, dtype=dtype, mode=mode)
     os.makedirs(output_dir, exist_ok=True)
-    tag = f"sparse_N{N}_K{K}_{mode}"
+    tag = f"sparse_N{seq_len}_K{knn_neighbors}_{mode}"
 
     # warmup
     for _ in range(warmup):
         m.zero_grad(set_to_none=True)
-        y = m(q, q, q, knn_idx, coords)
+        y = m(query, query, query, knn_idx, coords)
         loss = y.sum()
         loss.backward()
     torch.cuda.synchronize()
@@ -175,7 +175,7 @@ def profile_forward_backward(N, K, device, dtype, mode="none", warmup=3, output_
         profile_memory=True,
     ) as prof:
         with record_function(f"{tag}_fwbw"):
-            y = m(q, q, q, knn_idx, coords)
+            y = m(query, query, query, knn_idx, coords)
             loss = y.sum()
             loss.backward()
             torch.cuda.synchronize()
@@ -203,16 +203,16 @@ def profile_forward_backward(N, K, device, dtype, mode="none", warmup=3, output_
             "self_cuda_mem_mb": getattr(evt, "self_cuda_memory_usage", 0) / (1024**2),
         })
 
-    records.sort(key=lambda r: r["cuda_time_us"], reverse=True)
-    for r in records:
-        r["cuda_pct"] = (r["cuda_time_us"] / total_cuda * 100) if total_cuda > 0 else 0
+    records.sort(key=lambda row: row["cuda_time_us"], reverse=True)
+    for row in records:
+        row["cuda_pct"] = (row["cuda_time_us"] / total_cuda * 100) if total_cuda > 0 else 0
 
     # ----- chart -----
     top12 = records[:12]
     fig, ax = plt.subplots(figsize=(13, 5.5))
-    labels = [r["name"] for r in top12][::-1]
-    values = [r["cuda_time_us"] / 1000 for r in top12][::-1]
-    pcts = [r["cuda_pct"] for r in top12][::-1]
+    labels = [row["name"] for row in top12][::-1]
+    values = [row["cuda_time_us"] / 1000 for row in top12][::-1]
+    pcts = [row["cuda_pct"] for row in top12][::-1]
     colors = plt.cm.viridis(np.linspace(0.15, 0.9, len(labels)))
     bars = ax.barh(labels, values, color=colors, edgecolor="white")
     ax.set_xlabel("CUDA Time (ms)")
@@ -248,21 +248,21 @@ def categorize_records(records):
         "other": [],
     }
     buckets = {k: 0.0 for k in cats}
-    for r in records:
-        name = r["name"]
+    for row in records:
+        name = row["name"]
         placed = False
         for cat, patterns in cats.items():
             if cat == "other":
                 continue
-            for p in patterns:
-                if p in name:
-                    buckets[cat] += r["cuda_time_us"]
+            for pattern in patterns:
+                if pattern in name:
+                    buckets[cat] += row["cuda_time_us"]
                     placed = True
                     break
             if placed:
                 break
         if not placed:
-            buckets["other"] += r["cuda_time_us"]
+            buckets["other"] += row["cuda_time_us"]
     total = sum(buckets.values())
     for k in buckets:
         buckets[k] = (buckets[k] / total * 100) if total > 0 else 0
@@ -318,15 +318,15 @@ def build_html_report(all_results, output_dir):
 
     parts.append("</body></html>")
     html_path = os.path.join(output_dir, "profile_gather_report.html")
-    with open(html_path, "w") as f:
-        f.write("\n".join(parts))
+    with open(html_path, "w") as file_handle:
+        file_handle.write("\n".join(parts))
     print(f"\nReport: {html_path}")
     return html_path
 
 
 def _b64(path):
-    with open(path, "rb") as f:
-        return base64.b64encode(f.read()).decode()
+    with open(path, "rb") as file_handle:
+        return base64.b64encode(file_handle.read()).decode()
 
 
 def main():
@@ -377,8 +377,8 @@ def main():
 
     # 3. Save JSON results
     json_path = os.path.join(output_dir, "profile_gather_results.json")
-    with open(json_path, "w") as f:
-        json.dump(all_results, f, indent=2, default=str)
+    with open(json_path, "w") as file_handle:
+        json.dump(all_results, file_handle, indent=2, default=str)
     print(f"\nJSON results: {json_path}")
 
     # 4. Build HTML
