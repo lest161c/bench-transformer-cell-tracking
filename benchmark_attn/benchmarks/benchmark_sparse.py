@@ -16,6 +16,21 @@ from model_parts import RelativePositionalAttention, GatherSparseAttention, Gath
 
 
 def bench_dense(N, L, B, d, h, coord_dim, device, dtype):
+    """Build a closure that runs L layers of RelativePositionalAttention.
+
+    Args:
+        N: Sequence length.
+        L: Number of transformer layers.
+        B: Batch size.
+        d: Embedding dimension.
+        h: Number of attention heads.
+        coord_dim: Number of coordinate dimensions.
+        device: torch device.
+        dtype: torch dtype.
+
+    Returns:
+        A callable ``fn()`` that runs the forward pass and returns the output.
+    """
     layers = torch.nn.ModuleList([
         RelativePositionalAttention(
             coord_dim=coord_dim, embed_dim=d, n_head=h,
@@ -35,6 +50,23 @@ def bench_dense(N, L, B, d, h, coord_dim, device, dtype):
 
 
 def bench_sparse(N, K, L, B, d, h, coord_dim, device, dtype, reorder=False):
+    """Build a closure that runs L layers of GatherSparseAttention.
+
+    Args:
+        N: Sequence length.
+        K: Number of KNN neighbors.
+        L: Number of transformer layers.
+        B: Batch size.
+        d: Embedding dimension.
+        h: Number of attention heads.
+        coord_dim: Number of coordinate dimensions.
+        device: torch device.
+        dtype: torch dtype.
+        reorder: If True, reorder tokens by spatial proximity.
+
+    Returns:
+        A callable ``fn()`` that runs the forward pass and returns the output.
+    """
     layers = torch.nn.ModuleList([
         GatherSparseAttention(embed_dim=d, n_head=h, knn_neighbors=K, mode="none").to(device).to(dtype)
         for _ in range(L)
@@ -71,6 +103,24 @@ def bench_sparse(N, K, L, B, d, h, coord_dim, device, dtype, reorder=False):
 
 
 def bench_sparse_v2(N, K, L, B, d, h, coord_dim, device, dtype):
+    """Build a closure that runs L layers of GatherSparseAttentionV2.
+
+    V2 eliminates unnecessary copies via view+unsqueeze for flat_query.
+
+    Args:
+        N: Sequence length.
+        K: Number of KNN neighbors.
+        L: Number of transformer layers.
+        B: Batch size.
+        d: Embedding dimension.
+        h: Number of attention heads.
+        coord_dim: Number of coordinate dimensions.
+        device: torch device.
+        dtype: torch dtype.
+
+    Returns:
+        A callable ``fn()`` that runs the forward pass and returns the output.
+    """
     layers = torch.nn.ModuleList([
         GatherSparseAttentionV2(embed_dim=d, n_head=h, knn_neighbors=K, mode="none").to(device).to(dtype)
         for _ in range(L)
@@ -90,6 +140,21 @@ def bench_sparse_v2(N, K, L, B, d, h, coord_dim, device, dtype):
 
 
 def bench_dense_flash(N, L, B, d, h, coord_dim, device, dtype):
+    """Build a closure that runs L layers of DenseFlashAttention.
+
+    Args:
+        N: Sequence length.
+        L: Number of transformer layers.
+        B: Batch size.
+        d: Embedding dimension.
+        h: Number of attention heads.
+        coord_dim: Number of coordinate dimensions (unused, kept for interface).
+        device: torch device.
+        dtype: torch dtype.
+
+    Returns:
+        A callable ``fn()`` that runs the forward pass and returns the output.
+    """
     layers = torch.nn.ModuleList([
         DenseFlashAttention(embed_dim=d, n_head=h).to(device).to(dtype)
         for _ in range(L)
@@ -108,6 +173,26 @@ def bench_nsa(N, L, B, d, h, coord_dim, device, dtype,
               sliding_window_size=64, compress_block_size=32,
               compress_block_sliding_stride=16, selection_block_size=32,
               num_selected_blocks=4):
+    """Build a closure that runs L layers of NSASparseAttention.
+
+    Args:
+        N: Sequence length.
+        L: Number of transformer layers.
+        B: Batch size.
+        d: Embedding dimension.
+        h: Number of attention heads.
+        coord_dim: Number of coordinate dimensions (unused, kept for interface).
+        device: torch device.
+        dtype: torch dtype.
+        sliding_window_size: NSA sliding window size.
+        compress_block_size: NSA compressed block size.
+        compress_block_sliding_stride: NSA compressed block sliding stride.
+        selection_block_size: NSA selection block size.
+        num_selected_blocks: NSA number of selected blocks.
+
+    Returns:
+        A callable ``fn()`` that runs the forward pass and returns the output.
+    """
     layers = torch.nn.ModuleList([
         NSASparseAttention(
             embed_dim=d, n_head=h,
@@ -155,6 +240,16 @@ def measure(fn, warmup=3, min_run_time=0.5):
 
 
 def try_bench(bench_fn, *args, **kwargs):
+    """Try to build and benchmark a function, catching OOM/errors.
+
+    Args:
+        bench_fn: Function that builds and returns a callable.
+        *args: Positional arguments passed to bench_fn.
+        **kwargs: Keyword arguments passed to bench_fn.
+
+    Returns:
+        Tuple (time_s, mem_mb, status) where status is "ok", "oom", or "err: ...".
+    """
     try:
         fn = bench_fn(*args, **kwargs)
         t, mem = measure(fn)
@@ -169,6 +264,14 @@ def try_bench(bench_fn, *args, **kwargs):
 
 
 def sanity_check(device):
+    """Verify that gather-sparse attention dispatches FlashAttention.
+
+    Tests both fp16 and fp32 with CUDNN_ATTENTION and FLASH_ATTENTION
+    backends. Raises RuntimeError if fp16 fails to dispatch.
+
+    Args:
+        device: torch device to run the check on.
+    """
     if device.type != "cuda":
         print("  [skip] no CUDA")
         return
@@ -201,6 +304,17 @@ def sanity_check(device):
 
 
 def main():
+    """Run the full sparse vs dense benchmark and write results to CSV.
+
+    Sweeps over sequence lengths N and KNN neighbors K, comparing:
+    - dense (RelativePositionalAttention)
+    - dense_flash (DenseFlashAttention)
+    - nsa (NSASparseAttention with varying selected blocks)
+    - sparse (GatherSparseAttention)
+    - sparse_v2 (GatherSparseAttentionV2)
+
+    Results are written to benchmark_attn/results/benchmark_sparse_results.csv.
+    """
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     dtype = torch.float16 if torch.cuda.is_available() else torch.float32
     print(f"Device: {device}, dtype: {dtype}")
