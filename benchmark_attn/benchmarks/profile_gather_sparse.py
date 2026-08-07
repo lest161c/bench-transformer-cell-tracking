@@ -25,6 +25,22 @@ from model_parts import GatherSparseAttention
 
 def make_profile_input(N, K, B=2, d=256, h=4, coord_dim=3, mode="none",
                        device="cuda", dtype=torch.float16):
+    """Create model, input tensors, and KNN indices for profiling.
+
+    Args:
+        N: Sequence length.
+        K: Number of KNN neighbors.
+        B: Batch size.
+        d: Embedding dimension.
+        h: Number of attention heads.
+        coord_dim: Number of coordinate dimensions.
+        mode: Positional encoding mode.
+        device: torch device.
+        dtype: torch dtype.
+
+    Returns:
+        Tuple (model, query, coords, knn_idx).
+    """
     m = GatherSparseAttention(embed_dim=d, n_head=h, knn_neighbors=K, mode=mode).to(device, dtype)
     q = torch.randn(B, N, d, device=device, dtype=dtype)
     coords = torch.randn(B, N, coord_dim, device=device, dtype=dtype)
@@ -35,6 +51,20 @@ def make_profile_input(N, K, B=2, d=256, h=4, coord_dim=3, mode="none",
 
 
 def profile_forward(N, K, device, dtype, mode="none", warmup=3, output_dir="profiler_out"):
+    """Profile a forward-only pass of GatherSparseAttention.
+
+    Args:
+        N: Sequence length.
+        K: Number of KNN neighbors.
+        device: torch device.
+        dtype: torch dtype.
+        mode: Positional encoding mode.
+        warmup: Number of warmup iterations.
+        output_dir: Directory for trace and chart output.
+
+    Returns:
+        Dict with tag, records, total_cuda_ms, table, trace_path, chart_path.
+    """
     m, q, coords, knn_idx = make_profile_input(N, K, device=device, dtype=dtype, mode=mode)
     os.makedirs(output_dir, exist_ok=True)
     tag = f"sparse_N{N}_K{K}_{mode}"
@@ -112,6 +142,20 @@ def profile_forward(N, K, device, dtype, mode="none", warmup=3, output_dir="prof
 
 
 def profile_forward_backward(N, K, device, dtype, mode="none", warmup=3, output_dir="profiler_out"):
+    """Profile a forward+backward pass of GatherSparseAttention.
+
+    Args:
+        N: Sequence length.
+        K: Number of KNN neighbors.
+        device: torch device.
+        dtype: torch dtype.
+        mode: Positional encoding mode.
+        warmup: Number of warmup iterations.
+        output_dir: Directory for trace and chart output.
+
+    Returns:
+        Dict with tag, records, total_cuda_ms, table, trace_path, chart_path.
+    """
     m, q, coords, knn_idx = make_profile_input(N, K, device=device, dtype=dtype, mode=mode)
     os.makedirs(output_dir, exist_ok=True)
     tag = f"sparse_N{N}_K{K}_{mode}"
@@ -226,6 +270,15 @@ def categorize_records(records):
 
 
 def build_html_report(all_results, output_dir):
+    """Build an HTML report with profiler results for all N values.
+
+    Args:
+        all_results: List of result dicts from profile_forward/profile_forward_backward.
+        output_dir: Directory to save the HTML report.
+
+    Returns:
+        Path to the generated HTML file.
+    """
     parts = [
         "<!DOCTYPE html><html><head><meta charset='utf-8'>",
         "<title>GatherSparseAttention Profiler Report</title>",
@@ -277,6 +330,11 @@ def _b64(path):
 
 
 def main():
+    """Run the GatherSparseAttention profiler across N=128,256,512.
+
+    Profiles both forward-only and forward+backward passes,
+    saves JSON results, generates charts, and builds an HTML report.
+    """
     device = torch.device("cuda")
     dtype = torch.float16
     output_dir = str(Path(__file__).resolve().parents[2] / "profiler_out")
