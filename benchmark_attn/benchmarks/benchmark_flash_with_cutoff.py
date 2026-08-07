@@ -57,7 +57,20 @@ def predict_dispatch(method, N, d_head=40):
 
 
 def theoretical_time(N, method, d_head=40, n_head=8):
-    """Theoretical per-layer attention time (ms)."""
+    """Compute theoretical per-layer attention time in milliseconds.
+
+    Uses an analytical model calibrated to A500 GPU measurements.
+
+    Args:
+        N: Sequence length.
+        method: One of "A_no_cutoff", "B_soft_decay", "C_hard_mask",
+            "D_block_sparse", "E_flex_attention", "F_spatial_blocks".
+        d_head: Head dimension.
+        n_head: Number of attention heads.
+
+    Returns:
+        Theoretical time in milliseconds.
+    """
     d = d_head * n_head
     base_flash = 0.20 * (N / 256) ** 2
 
@@ -89,6 +102,12 @@ def theoretical_time(N, method, d_head=40, n_head=8):
 
 
 def run_analysis():
+    """Run analytical dispatch prediction for all methods.
+
+    Returns:
+        Tuple (rows, Ns, methods, method_labels) where rows is a list
+        of dicts with predicted_backend, time_ms, flash_dispatches, etc.
+    """
     methods = ["A_no_cutoff", "B_soft_decay", "C_hard_mask",
                "D_block_sparse", "E_flex_attention", "F_spatial_blocks"]
     method_labels = {
@@ -121,6 +140,18 @@ def run_analysis():
 
 
 def generate_figures(rows, Ns, methods, method_labels, outdir="benchmark_attn"):
+    """Generate and save two figures: time-vs-N and dispatch matrix.
+
+    Args:
+        rows: List of result dicts from :func:`run_analysis`.
+        Ns: List of sequence lengths.
+        methods: List of method identifiers.
+        method_labels: Dict mapping method IDs to display labels.
+        outdir: Output directory for PNG files.
+
+    Returns:
+        None; figures are saved to ``outdir``.
+    """
     outdir = Path(outdir)
 
     # Figure 1: Time vs N by method
@@ -206,6 +237,12 @@ def generate_figures(rows, Ns, methods, method_labels, outdir="benchmark_attn"):
 
 
 def save_csv(rows, path):
+    """Save benchmark results to a CSV file.
+
+    Args:
+        rows: List of result dicts.
+        path: Output CSV path.
+    """
     fieldnames = list(rows[0].keys())
     with open(path, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fieldnames)
@@ -215,6 +252,12 @@ def save_csv(rows, path):
 
 
 def main():
+    """Run the FlashAttention + spatial cutoff dispatch verification.
+
+    Generates analytical predictions for 6 methods (A-F), saves results
+    to CSV, generates figures, and prints a verification summary showing
+    which methods can enforce spatial cutoffs AND dispatch FlashAttention.
+    """
     p = argparse.ArgumentParser()
     p.add_argument("--analytical", action="store_true", default=True)
     p.add_argument("--gpu", action="store_true")

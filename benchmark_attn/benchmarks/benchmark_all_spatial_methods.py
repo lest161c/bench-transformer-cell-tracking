@@ -15,6 +15,16 @@ import numpy as np
 
 
 def timed_benchmark(fn, warmup=5, n_repeat=20):
+    """Time a function with warmup and multiple repeats.
+
+    Args:
+        fn: Callable to benchmark.
+        warmup: Number of warmup iterations.
+        n_repeat: Number of timed repetitions.
+
+    Returns:
+        Mean time in milliseconds.
+    """
     for _ in range(warmup):
         fn()
     torch.cuda.synchronize()
@@ -29,6 +39,23 @@ def timed_benchmark(fn, warmup=5, n_repeat=20):
 
 def run_benchmark(Ns=(128, 256, 512, 1024, 2048, 4096), d_head=40, n_head=8,
                   d_max=256, lam=5, knn_k=16):
+    """Run all spatial-cutoff methods head-to-head across sequence lengths.
+
+    Benchmarks: hard-cudnn (CachedDistAttention baseline), mask-KNN
+    (scatter mask + cuDNN), gather-KNN (pre-gather + FlashAttn),
+    and FlexAttention with spatial cutoff score_mod.
+
+    Args:
+        Ns: Tuple of sequence lengths to benchmark.
+        d_head: Head dimension.
+        n_head: Number of attention heads.
+        d_max: Spatial cutoff distance.
+        lam: Distance decay lambda.
+        knn_k: Number of KNN neighbors.
+
+    Returns:
+        List of result dicts, one per N.
+    """
     device = torch.device("cuda")
     dtype = torch.float16
     scale = math.sqrt(d_head)
@@ -136,6 +163,12 @@ def run_benchmark(Ns=(128, 256, 512, 1024, 2048, 4096), d_head=40, n_head=8,
 
 
 def main():
+    """Parse CLI arguments and run the all-spatial-methods benchmark.
+
+    Sweeps N=[128..4096] with K=16, comparing FlexAttention, gather-KNN,
+    mask-KNN, and hard-cudnn. Writes results to CSV and prints the
+    winner for each N.
+    """
     p = argparse.ArgumentParser()
     p.add_argument("--outdir", default="benchmark_attn")
     p.add_argument("--knn-k", type=int, default=16)
