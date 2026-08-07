@@ -339,8 +339,8 @@ def save_csv(save_path: str = "tra_aogm_summary.csv") -> None:
             "Edge_F1": data["Edge F1"],
             "Div_F1": data["Div F1"],
         })
-    with open(save_path, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=rows[0].keys())
+    with open(save_path, "w", newline="") as file_handle:
+        writer = csv.DictWriter(file_handle, fieldnames=rows[0].keys())
         writer.writeheader()
         writer.writerows(rows)
     print(f"Saved CSV → {save_path}")

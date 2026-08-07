@@ -94,16 +94,16 @@ def load_results():
         ``N``, ``L``, ``K``, ``reorder``, ``status``, and ``label``.
     """
     rows = []
-    with open(RESULT_DIR / "benchmark_sparse_results.csv") as f:
-        reader = csv.DictReader(f)
-        for r in reader:
-            r["time_s"] = float(r["time_s"]) if r["time_s"] else float("nan")
-            r["mem_mb"] = float(r["mem_mb"]) if r["mem_mb"] else float("nan")
-            r["N"] = int(r["N"])
-            r["L"] = int(r["L"])
-            r["K"] = int(r["K"])
-            r["reorder"] = int(r["reorder"])
-            rows.append(r)
+    with open(RESULT_DIR / "benchmark_sparse_results.csv") as file_handle:
+        reader = csv.DictReader(file_handle)
+        for row in reader:
+            row["time_s"] = float(row["time_s"]) if row["time_s"] else float("nan")
+            row["mem_mb"] = float(row["mem_mb"]) if row["mem_mb"] else float("nan")
+            row["N"] = int(row["N"])
+            row["L"] = int(row["L"])
+            row["K"] = int(row["K"])
+            row["reorder"] = int(row["reorder"])
+            rows.append(row)
     df = pd.DataFrame(rows)
     df["label"] = df.apply(make_label, axis=1)
     return df
@@ -188,7 +188,7 @@ def plot_feasibility_map(df, all_L):
         if sparse_rows.empty:
             continue
         sparse_rows["feas_key"] = sparse_rows.apply(
-            lambda r: f"K={int(r['K'])}" + ("+r" if r["reorder"] else ""), axis=1
+            lambda row: f"K={int(row['K'])}" + ("+r" if row["reorder"] else ""), axis=1
         )
         sparse_rows["status_code"] = (sparse_rows["status"] == "ok").astype(int)
         pivot = sparse_rows.pivot_table(index="N", columns="feas_key",
@@ -287,8 +287,8 @@ def main():
 
     html_parts.append("</body></html>")
 
-    with open(RESULT_DIR / "benchmark_sparse.html", "w") as f:
-        f.write("\n".join(html_parts))
+    with open(RESULT_DIR / "benchmark_sparse.html", "w") as file_handle:
+        file_handle.write("\n".join(html_parts))
 
     print(f"Saved benchmark_sparse.html with {len(figures)} figures")
 

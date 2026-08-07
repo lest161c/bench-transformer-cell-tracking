@@ -127,27 +127,27 @@ def extract_dino_features(patches, device="cuda", use_v3=False):
                 feats = dino(batch).cpu().numpy()
             feats_list.append(feats)
         return np.concatenate(feats_list, axis=0)
-    except Exception as e:
-        logger.warning(f"DINO extraction failed: {e}")
+    except Exception as exc:
+        logger.warning(f"DINO extraction failed: {exc}")
         return None
 
 
 def extract_patches(img, centroids, patch_size=64):
     """Extract square patches around centroids."""
-    h, w = img.shape[-2:]
+    height, width = img.shape[-2:]
     half = patch_size // 2
     patches = []
     for cy, cx in centroids:
         cy_i = int(round(float(cy)))
         cx_i = int(round(float(cx)))
-        cy_i = np.clip(cy_i, 0, h - 1)
-        cx_i = np.clip(cx_i, 0, w - 1)
+        cy_i = np.clip(cy_i, 0, height - 1)
+        cx_i = np.clip(cx_i, 0, width - 1)
         y1, y2 = cy_i - half, cy_i + half
         x1, x2 = cx_i - half, cx_i + half
-        pt = max(0, -y1); pb = max(0, y2 - h)
-        pl = max(0, -x1); pr = max(0, x2 - w)
-        y1c, y2c = max(0, y1), min(h, y2)
-        x1c, x2c = max(0, x1), min(w, x2)
+        pt = max(0, -y1); pb = max(0, y2 - height)
+        pl = max(0, -x1); pr = max(0, x2 - width)
+        y1c, y2c = max(0, y1), min(height, y2)
+        x1c, x2c = max(0, x1), min(width, x2)
         if y2c <= y1c or x2c <= x1c:
             patches.append(np.zeros((patch_size, patch_size), dtype=np.float32))
             continue
@@ -222,21 +222,21 @@ def main():
     features, computes intra-cell and inter-cell cosine similarity
     distributions, saves a multi-panel PNG figure and a CSV summary.
     """
-    p = argparse.ArgumentParser()
-    p.add_argument("--config", default="config.yaml", help="benchmark_ssl config path")
-    p.add_argument("--conditions", default="rpsM", help="comma-separated conditions")
-    p.add_argument("--max-frames", type=int, default=200)
-    p.add_argument("--outdir", default="benchmark_attn")
-    p.add_argument("--no-dino", action="store_true", help="skip DINO feature extraction")
-    p.add_argument("--dinov3", action="store_true", help="use DINOv3 instead of DINOv2")
-    p.add_argument("--nbins", type=int, default=50)
-    args = p.parse_args()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", default="config.yaml", help="benchmark_ssl config path")
+    parser.add_argument("--conditions", default="rpsM", help="comma-separated conditions")
+    parser.add_argument("--max-frames", type=int, default=200)
+    parser.add_argument("--outdir", default="benchmark_attn")
+    parser.add_argument("--no-dino", action="store_true", help="skip DINO feature extraction")
+    parser.add_argument("--dinov3", action="store_true", help="use DINOv3 instead of DINOv2")
+    parser.add_argument("--nbins", type=int, default=50)
+    args = parser.parse_args()
 
     (load_experiment_frames, extract_rich, FEATURE_DIMS, FEATURE_NAMES,
      DistortionPipeline) = load_benchmark_ssl_modules()
 
-    with open(args.config) as f:
-        cfg = yaml.safe_load(f)
+    with open(args.config) as file_handle:
+        cfg = yaml.safe_load(file_handle)
     cfg["conditions"] = [c.strip() for c in args.conditions.split(",")]
 
     frames = load_experiment_frames(cfg["data_root"], conditions=cfg["conditions"])
@@ -357,10 +357,10 @@ def main():
     outdir = Path(args.outdir)
     outdir.mkdir(parents=True, exist_ok=True)
     csv_path = outdir / "cosine_similarity_results.csv"
-    with open(csv_path, "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=csv_rows[0].keys())
-        w.writeheader()
-        w.writerows(csv_rows)
+    with open(csv_path, "w", newline="") as file_handle:
+        writer = csv.DictWriter(file_handle, fieldnames=csv_rows[0].keys())
+        writer.writeheader()
+        writer.writerows(csv_rows)
     logger.info(f"Saved results to {csv_path}")
 
     # Generate figure

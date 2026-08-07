@@ -378,8 +378,8 @@ def main():
 
     # Save analytical CSV
     csv_path = args.out
-    with open(csv_path, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=bench_rows_analytic[0].keys())
+    with open(csv_path, "w", newline="") as file_handle:
+        writer = csv.DictWriter(file_handle, fieldnames=bench_rows_analytic[0].keys())
         writer.writeheader()
         writer.writerows(bench_rows_analytic)
     print(f"\nSaved analytical results → {csv_path}")
@@ -392,8 +392,8 @@ def main():
         try:
             gpu_rows = run_gpu_benchmark(seed=args.seed)
             gpu_csv = csv_path.replace(".csv", "_gpu.csv")
-            with open(gpu_csv, "w", newline="") as f:
-                writer = csv.DictWriter(f, fieldnames=gpu_rows[0].keys())
+            with open(gpu_csv, "w", newline="") as file_handle:
+                writer = csv.DictWriter(file_handle, fieldnames=gpu_rows[0].keys())
                 writer.writeheader()
                 writer.writerows(gpu_rows)
             print(f"Saved GPU results → {gpu_csv}")
