@@ -46,10 +46,19 @@ HAS_SPATIAL_CUTOFF = {
 
 
 def analytical_model(N, K, method):
-    """Calibrated to labbook relative speeds at N=256 (2026-06-08).
+    """Calibrated analytical model for KNN attention methods.
 
-    CachedDistAttention = our baseline (cdist once + mask per layer + SDPA with mask).
-    At N=256 it takes ~T_base. We calibrate all methods relative to this.
+    Calibrated to labbook relative speeds at N=256 (2026-06-08).
+    CachedDistAttention at N=256 baseline: ~0.8ms.
+
+    Args:
+        N: Sequence length.
+        K: Number of KNN neighbors.
+        method: One of "cached_dense (baseline)", "mask-KNN",
+            "gather-KNN", "MiniMax", "dense_flash".
+
+    Returns:
+        Estimated forward time in milliseconds.
     """
     # CachedDistAttention at N=256 baseline: estimate ~0.8ms
     # (includes: SDPA with mask ~0.3ms + mask construction from cached 2D cdist ~0.5ms)
@@ -103,6 +112,15 @@ def analytical_model(N, K, method):
 
 
 def run_analytical():
+    """Run the analytical model for all KNN methods across N and K.
+
+    Sweeps N=[32..512] and K=[4..128], computing calibrated analytical
+    times for cached_dense, dense_flash, mask-KNN, gather-KNN, and MiniMax.
+
+    Returns:
+        Tuple (rows, Ns, Ks) where rows is a list of dicts with
+        method, N, K, time_ms, spatial_cutoff, and data_source.
+    """
     Ns = [32, 64, 128, 256, 512]
     Ks = [4, 8, 16, 32, 64, 128]
     methods = ["cached_dense (baseline)", "dense_flash", "mask-KNN", "gather-KNN", "MiniMax"]
@@ -138,6 +156,14 @@ def run_analytical():
 
 
 def generate_figures(rows, Ns, Ks, outdir="benchmark_attn"):
+    """Generate and save two figures: time-vs-N and mask-vs-gather crossover.
+
+    Args:
+        rows: List of result dicts from :func:`run_analytical`.
+        Ns: List of sequence lengths.
+        Ks: List of KNN neighbor counts.
+        outdir: Output directory for PNG files.
+    """
     outdir = Path(outdir)
 
     # ── Figure 1: Time vs N — all methods, K=16 ──
@@ -232,6 +258,12 @@ def generate_figures(rows, Ns, Ks, outdir="benchmark_attn"):
 
 
 def save_csv(rows, path):
+    """Save benchmark results to a CSV file.
+
+    Args:
+        rows: List of result dicts.
+        path: Output CSV path.
+    """
     fieldnames = ["method", "N", "K", "time_ms", "spatial_cutoff", "data_source"]
     with open(path, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fieldnames)
