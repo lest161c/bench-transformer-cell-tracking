@@ -64,7 +64,16 @@ def analytical_model(N, B, window=4, serial=True):
 
 
 def compute_non_normalization_time(N, B, window=4):
-    """Estimate the REST of the training step time (attention + FFN + BCE)."""
+    """Estimate the REST of the training step time (attention + FFN + BCE).
+
+    Args:
+        N: Sequence length (cells per sample).
+        B: Batch size (unused; time is per-sample).
+        window: Attention window (unused; kept for interface consistency).
+
+    Returns:
+        Estimated time in milliseconds for all non-norm components.
+    """
     # Attention: 12 layers, each O(N²·d) + O(N·d²)
     attn_per_layer = (N / 256) ** 2 * 0.20  # ms per attention layer
     attn_total = attn_per_layer * 12
@@ -80,6 +89,12 @@ def compute_non_normalization_time(N, B, window=4):
 
 
 def run_analysis():
+    """Run the blockwise norm analytical model across N and batch size.
+
+    Returns:
+        Tuple (rows, Ns, Bs) where rows is a list of dicts with
+        norm_serial_ms, norm_vectorized_ms, speedup, etc.
+    """
     Ns = [64, 128, 256, 512, 1024]
     Bs = [1, 4, 8, 16]
     rows = []
@@ -112,6 +127,14 @@ def run_analysis():
 
 
 def generate_figures(rows, Ns, Bs, outdir="benchmark_attn"):
+    """Generate and save two figures: serial-vs-vectorized and speedup heatmap.
+
+    Args:
+        rows: List of result dicts from :func:`run_analysis`.
+        Ns: List of sequence lengths.
+        Bs: List of batch sizes.
+        outdir: Output directory for PNG files.
+    """
     outdir = Path(outdir)
 
     # Figure 1: Norm time vs N for different B (serial vs vectorized)
@@ -186,6 +209,12 @@ def generate_figures(rows, Ns, Bs, outdir="benchmark_attn"):
 
 
 def save_csv(rows, path):
+    """Save benchmark results to a CSV file.
+
+    Args:
+        rows: List of result dicts.
+        path: Output CSV path.
+    """
     fieldnames = ["N", "batch_size", "norm_serial_ms", "norm_vectorized_ms",
                   "other_components_ms", "norm_pct_of_step_serial",
                   "norm_pct_of_step_vectorized", "total_step_serial_ms",
@@ -198,6 +227,12 @@ def save_csv(rows, path):
 
 
 def main():
+    """Run the blockwise norm benchmark, save CSV and figures.
+
+    Analytical model comparing serial (Python for-loop) vs vectorized
+    (single batched scatter_reduce) implementations of
+    blockwise_causal_norm across N=[64..1024] and B=[1,4,8,16].
+    """
     p = argparse.ArgumentParser()
     p.add_argument("--out", default="benchmark_attn/blockwise_norm_results.csv")
     p.add_argument("--outdir", default="benchmark_attn")
