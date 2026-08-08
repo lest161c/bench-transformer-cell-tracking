@@ -123,3 +123,6 @@ html.append("</body></html>")
 with open(RES / "combined_attention_ssl_report.html", "w") as f:
     f.write("\n".join(html))
 print(f"Saved {RES / 'combined_attention_ssl_report.html'} with {len(figures)} figures")
+
+if __name__ == "__main__":
+    pass  # Script runs at import; guard for future main() refactor

@@ -280,7 +280,7 @@ def load_real_pairs(frames, max_pairs=200):
 # Training
 # ============================================================
 
-def run(use_wandb=False):
+def run(use_wandb=False, seed=42):
     """Run SSL reinvestigation on real vanvliet data."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"Device: {device}")
@@ -296,7 +296,7 @@ def run(use_wandb=False):
 
     # Load real data
     frames = load_experiment_frames(str(ROOT / "data/vanvliet"), conditions=["rpsM", "recA", "pheA"])
-    np.random.seed(42)
+    np.random.seed(seed)
     np.random.shuffle(frames)
     all_pairs = load_real_pairs(frames, max_pairs=300)
     val_pairs = all_pairs[:40]
@@ -434,5 +434,6 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--wandb", action="store_true")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     args = parser.parse_args()
-    run(use_wandb=args.wandb)
+    run(use_wandb=args.wandb, seed=args.seed)

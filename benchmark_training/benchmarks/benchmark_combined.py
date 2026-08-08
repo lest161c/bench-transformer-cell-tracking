@@ -232,7 +232,7 @@ def init_from_ssl(model, ssl_state_dict):
 # Main benchmark
 # ============================================================
 
-def run(config_path=None, n_epochs=15, use_wandb=False):
+def run(config_path=None, n_epochs=15, use_wandb=False, seed=42):
     """Run combined benchmark: sparse attention + SSL pretraining vs baseline."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"Device: {device}")
@@ -244,7 +244,7 @@ def run(config_path=None, n_epochs=15, use_wandb=False):
 
     # Data
     frames = load_experiment_frames(str(ROOT / "data/vanvliet"), conditions=["rpsM", "recA", "pheA"])
-    np.random.seed(42); np.random.shuffle(frames)
+    np.random.seed(seed); np.random.shuffle(frames)
     n_val = max(1, int(len(frames) * 0.1))
     train_f, val_f = frames[n_val:], frames[:n_val]
     train_pairs = create_tracking_pairs(train_f)
@@ -376,5 +376,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--wandb", action="store_true", help="Enable wandb logging")
     parser.add_argument("--epochs", type=int, default=15)
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     args = parser.parse_args()
-    run(n_epochs=args.epochs, use_wandb=args.wandb)
+    run(n_epochs=args.epochs, use_wandb=args.wandb, seed=args.seed)

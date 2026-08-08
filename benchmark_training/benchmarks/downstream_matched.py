@@ -111,7 +111,7 @@ def load_pairs(frames, max_pairs=200):
     return pairs
 
 # === Run ===
-def run(use_wandb=False):
+def run(use_wandb=False, seed=42):
     """Run matched downstream benchmark: SSL pretrained with same attention."""
     device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"Device: {device}")
@@ -122,7 +122,7 @@ def run(use_wandb=False):
         ))
 
     frames=load_experiment_frames(str(ROOT/"data/vanvliet"),conditions=["rpsM","recA","pheA"])
-    np.random.seed(42); np.random.shuffle(frames)
+    np.random.seed(seed); np.random.shuffle(frames)
     all_pairs=load_pairs(frames)
     val_pairs=all_pairs[:40]; train_pool=all_pairs[40:]
     logger.info(f"Pairs: {len(train_pool)} train, {len(val_pairs)} val")
@@ -206,5 +206,6 @@ if __name__=="__main__":
     import argparse
     p=argparse.ArgumentParser()
     p.add_argument("--wandb",action="store_true")
+    p.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     a=p.parse_args()
-    run(use_wandb=a.wandb)
+    run(use_wandb=a.wandb, seed=a.seed)

@@ -177,4 +177,7 @@ html.append("</body></html>")
 
 with open(RES / "full_attention_ablation_report.html", "w") as f:
     f.write("\n".join(html))
+
+if __name__ == "__main__":
+    pass  # Script runs at import; guard for future main() refactor
 print(f"Saved {RES / 'full_attention_ablation_report.html'} with {len(figures)} figures")
