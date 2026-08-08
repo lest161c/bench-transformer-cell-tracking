@@ -13,21 +13,21 @@ RES = Path(__file__).resolve().parents[1] / "results"
 
 # === Load data ===
 conv_rows=[]
-with open(RES / "matched_downstream_ssl_results.csv") as f:
-    for r in csv.DictReader(f):
-        for k in r:
-            try:r[k]=float(r[k])if r[k]else float("nan")
+with open(RES / "matched_downstream_ssl_results.csv") as file_handle:
+    for row in csv.DictReader(file_handle):
+        for col in row:
+            try:row[col]=float(row[col])if row[col]else float("nan")
             except:pass
-        conv_rows.append(r)
+        conv_rows.append(row)
 conv=pd.DataFrame(conv_rows)
 
 spd_rows=[]
-with open(RES / "training_speed_memory_by_N_K.csv") as f:
-    for r in csv.DictReader(f):
-        for k in r:
-            try:r[k]=float(r[k])if r[k]else float("nan")
+with open(RES / "training_speed_memory_by_N_K.csv") as file_handle:
+    for row in csv.DictReader(file_handle):
+        for col in row:
+            try:row[col]=float(row[col])if row[col]else float("nan")
             except:pass
-        spd_rows.append(r)
+        spd_rows.append(row)
 spd=pd.DataFrame(spd_rows)
 
 PAL={"dense":"#3498db","K=4":"#e67e22","K=8":"#2ecc71","K=16":"#e74c3c","K=32":"#9b59b6"}

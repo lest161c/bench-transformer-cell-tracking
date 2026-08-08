@@ -13,12 +13,12 @@ figures = []
 RES = Path(__file__).resolve().parents[1] / "results"
 
 rows = []
-with open(RES / "combined_attention_ssl_2x2.csv") as f:
-    for r in csv.DictReader(f):
-        for k in r:
-            try: r[k] = float(r[k])
+with open(RES / "combined_attention_ssl_2x2.csv") as file_handle:
+    for row in csv.DictReader(file_handle):
+        for col in row:
+            try: row[col] = float(row[col])
             except ValueError: pass
-        rows.append(r)
+        rows.append(row)
 df = pd.DataFrame(rows)
 
 PAL = {"dense+rand": "#3498db", "dense+ssl": "#2ecc71",

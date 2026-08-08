@@ -13,12 +13,12 @@ figures = []
 RES = Path(__file__).resolve().parents[1] / "results"
 
 rows = []
-with open(RES / "full_attention_ablation_results.csv") as f:
-    for r in csv.DictReader(f):
-        for k in r:
-            try: r[k] = float(r[k]) if r[k] else float("nan")
+with open(RES / "full_attention_ablation_results.csv") as file_handle:
+    for row in csv.DictReader(file_handle):
+        for col in row:
+            try: row[col] = float(row[col]) if row[col] else float("nan")
             except: pass
-        rows.append(r)
+        rows.append(row)
 df = pd.DataFrame(rows)
 
 PAL = {"dense": "#3498db", "sparseK4": "#e67e22", "sparseK16": "#e74c3c"}
@@ -175,8 +175,8 @@ for i, fig in enumerate(figures):
     html.append(f"<figure><figcaption>Figure {i+1}</figcaption><img src='data:image/png;base64,{b64}' /></figure>")
 html.append("</body></html>")
 
-with open(RES / "full_attention_ablation_report.html", "w") as f:
-    f.write("\n".join(html))
+with open(RES / "full_attention_ablation_report.html", "w") as file_handle:
+    file_handle.write("\n".join(html))
 
 if __name__ == "__main__":
     pass  # Script runs at import; guard for future main() refactor
