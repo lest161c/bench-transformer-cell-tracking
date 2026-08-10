@@ -39,6 +39,7 @@ labbook/.venv/
 *~
 
 # Personal notes
+AGENTS.md
 HANDOVER.md
 IMPLEMENT.md
 meeting_*.txt
