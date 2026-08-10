@@ -44,11 +44,23 @@ def load_benchmark_ssl_modules():
 def compute_histograms(feats1, feats2, labels1, labels2, nbins=50):
     """Compute intra- and inter-cell cosine similarity histograms.
 
+    L2-normalizes the feature vectors, computes pairwise cosine similarity,
+    then separates same-cell (intra) from different-cell (inter) pairs using
+    the labels.
+
+    Args:
+        feats1: (N1, D) feature array for view 1.
+        feats2: (N2, D) feature array for view 2.
+        labels1: (N1,) cell identity labels for view 1.
+        labels2: (N2,) cell identity labels for view 2.
+        nbins: Number of histogram bins.
+
     Returns:
         intra:  (nbins,) bin counts for same-cell pairs
         inter:  (nbins,) bin counts for different-cell pairs
         bins:   (nbins+1,) bin edges
         stats:  dict with mean, std, median per category
+        raw:    dict with 'intra' and 'inter' lists of raw similarity values
     """
     f1 = feats1 / (np.linalg.norm(feats1, axis=1, keepdims=True) + 1e-12)
     f2 = feats2 / (np.linalg.norm(feats2, axis=1, keepdims=True) + 1e-12)
@@ -56,12 +68,13 @@ def compute_histograms(feats1, feats2, labels1, labels2, nbins=50):
 
     intra_vals, inter_vals = [], []
     for i, lbl_i in enumerate(labels1):
-        matches = np.where(labels2 == lbl_i)[0]
+        match_mask = labels2 == lbl_i
         for j in range(len(labels2)):
-            if j in matches:
-                intra_vals.append(float(sim[i, j]))
+            val = float(sim[i, j])
+            if match_mask[j]:
+                intra_vals.append(val)
             else:
-                inter_vals.append(float(sim[i, j]))
+                inter_vals.append(val)
 
     intra_vals = np.array(intra_vals)
     inter_vals = np.array(inter_vals)
@@ -87,7 +100,8 @@ def compute_histograms(feats1, feats2, labels1, labels2, nbins=50):
     stats["n_intra_pairs"] = len(intra_vals)
     stats["n_inter_pairs"] = len(inter_vals)
 
-    return intra_hist, inter_hist, bins, stats
+    raw = {"intra": intra_vals, "inter": inter_vals}
+    return intra_hist, inter_hist, bins, stats, raw
 
 
 def extract_dino_features(patches, device="cuda", use_v3=False):
@@ -266,22 +280,12 @@ def main():
         f1 = np.concatenate(list(f1_dict.values()), axis=-1).astype(np.float32)
         f2 = np.concatenate(list(f2_dict.values()), axis=-1).astype(np.float32)
 
-        # Regionprops features
-        intra_rp, inter_rp, _, _ = compute_histograms(
+        # Regionprops features — compute_histograms returns raw values too
+        _, _, _, _, raw_rp = compute_histograms(
             f1, f2, l1, l2, nbins=args.nbins
         )
-        # Actually compute raw values for aggregation
-        f1n = f1 / (np.linalg.norm(f1, axis=1, keepdims=True) + 1e-12)
-        f2n = f2 / (np.linalg.norm(f2, axis=1, keepdims=True) + 1e-12)
-        sim = f1n @ f2n.T
-        for i, lbl_i in enumerate(l1):
-            matches = np.where(l2 == lbl_i)[0]
-            for j in range(len(l2)):
-                val = float(sim[i, j])
-                if j in matches:
-                    rp_intra_all.append(val)
-                else:
-                    rp_inter_all.append(val)
+        rp_intra_all.extend(raw_rp["intra"].tolist())
+        rp_inter_all.extend(raw_rp["inter"].tolist())
 
         # DINO features (optional)
         if not args.no_dino:
@@ -294,16 +298,11 @@ def main():
                     dino_feats = extract_dino_features(patches)
                 if dino_feats is not None:
                     dino_feats = dino_feats.astype(np.float32)
-                    dino_feats_n = dino_feats / (np.linalg.norm(dino_feats, axis=1, keepdims=True) + 1e-12)
-                    sim_dino = dino_feats_n @ dino_feats_n.T
-                    for i, lbl_i in enumerate(l1):
-                        matches = np.where(l2 == lbl_i)[0]
-                        for j in range(len(l2)):
-                            val = float(sim_dino[i, j])
-                            if j in matches:
-                                dino_intra_all.append(val)
-                            else:
-                                dino_inter_all.append(val)
+                    _, _, _, _, raw_dino = compute_histograms(
+                        dino_feats, dino_feats, l1, l2, nbins=args.nbins
+                    )
+                    dino_intra_all.extend(raw_dino["intra"].tolist())
+                    dino_inter_all.extend(raw_dino["inter"].tolist())
 
         n_frames += 1
         if n_frames % 10 == 0:
