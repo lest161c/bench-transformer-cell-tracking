@@ -1316,9 +1316,9 @@ class MiniMaxSparseAttention(nn.Module):
         k_pad = F.pad(projected_key, (0, 0, 0, pad))
         k_block = k_pad.view(batch_size, n_head, num_blocks, block_size, head_dim)
 
-        q_exp = projected_query.unsqueeze(3).unsqueeze(-3)
-        k_block_exp = k_block.unsqueeze(2)
-        scores_raw = (q_exp * k_block_exp).sum(dim=-1)
+        expanded_query = projected_query.unsqueeze(3).unsqueeze(-3)
+        expanded_key_block = k_block.unsqueeze(2)
+        scores_raw = (expanded_query * expanded_key_block).sum(dim=-1)
         block_scores, _ = scores_raw.max(dim=-1)
 
         _, topk_blk = torch.topk(block_scores, k=ksel, dim=-1)
