@@ -6,7 +6,7 @@ Standalone benchmarks for sparse attention mechanisms in transformer-based cell 
 
 ## Key Results
 
-Tested on NVIDIA RTX 4090 (fp16, B=2, d=256, h=4). All numbers single-layer forward pass.
+Tested on NVIDIA A500 (fp16, B=2, d=256, h=4). All numbers single-layer forward pass.
 
 | N | Method | Time (s) | GPU Mem (MB) | vs Dense |
 |---|--------|----------|-------------|----------|

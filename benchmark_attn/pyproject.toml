@@ -1,5 +1,5 @@
 [project]
-name = "project"
+name = "benchmark_attn"
 version = "0.1.0"
 requires-python = ">=3.14.0"
 dependencies = [

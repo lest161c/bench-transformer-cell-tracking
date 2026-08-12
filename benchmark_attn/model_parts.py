@@ -433,6 +433,7 @@ class KNNRelativePositionalAttention(nn.Module):
         projected_key = self.k_pro(key)
         projected_value = self.v_pro(value)
 
+        # split embedding into chunks for n_heads
         reshaped_query = projected_query.view(
             batch_size, seq_len, self.n_head, head_dim
         ).transpose(1, 2)
@@ -783,6 +784,150 @@ class GatherSparseAttentionV2(nn.Module):
         return output
 
 
+class GatherSparseAttentionV3(nn.Module):
+    """Gather-sparse attention with manual ``torch.matmul`` instead of SDPA.
+
+    The V1/V2 reshape to ``(batch_size * seq_len, n_head, 1, knn_neighbors)``
+    creates many tiny ``1 x K`` attention problems — no SDPA backend
+    handles ``q_len=1`` efficiently.
+
+    V3 keeps the native ``(batch_size, n_head, seq_len, head_dim)`` shape
+    and uses ``torch.matmul`` for per-query attention, avoiding SDPA
+    kernel-launch overhead.  No mask is needed; all operations use
+    optimised cuBLAS/cuDNN matmul kernels.
+    """
+
+    def __init__(
+        self,
+        embed_dim: int,
+        n_head: int,
+        knn_neighbors: int,
+        dropout: float = 0.0,
+        mode: Literal["none", "bias", "rope"] = "none",
+        coord_dim: int = 3,
+        cutoff_spatial: float = 256,
+        cutoff_temporal: float = 16,
+        n_spatial: int = 32,
+        n_temporal: int = 16,
+    ):
+        """Initialise projections and optional positional encoding.
+
+        Args:
+            embed_dim: Total embedding dimension (divisible by ``n_head``).
+            n_head: Number of attention heads.
+            knn_neighbors: Number of nearest neighbours per query.
+            dropout: Dropout probability on attention weights.
+            mode: Positional encoding mode.
+            coord_dim: Number of coordinate dimensions.
+            cutoff_spatial: Spatial cutoff for positional bias bins.
+            cutoff_temporal: Temporal cutoff for positional bias bins.
+            n_spatial: Number of spatial bin edges.
+            n_temporal: Number of temporal bin edges per direction.
+
+        Raises:
+            ValueError: If ``embed_dim`` is not divisible by ``n_head``
+                or ``mode`` is unrecognised.
+        """
+        super().__init__()
+        assert embed_dim % n_head == 0
+        self.q_pro = nn.Linear(embed_dim, embed_dim, bias=True)
+        self.k_pro = nn.Linear(embed_dim, embed_dim, bias=True)
+        self.v_pro = nn.Linear(embed_dim, embed_dim, bias=True)
+        self.proj = nn.Linear(embed_dim, embed_dim)
+        self.n_head = n_head
+        self.embed_dim = embed_dim
+        self.knn_neighbors = knn_neighbors
+        self.dropout = dropout
+        self._mode = mode
+        self._scale = (embed_dim // n_head) ** -0.5
+
+        if mode == "bias":
+            self.pos_bias = KNNRelativePositionalBias(
+                n_head=n_head,
+                cutoff_spatial=cutoff_spatial,
+                cutoff_temporal=cutoff_temporal,
+                n_spatial=n_spatial,
+                n_temporal=n_temporal,
+            )
+        elif mode == "rope":
+            n_split = 2 * (embed_dim // (2 * (coord_dim + 1) * n_head))
+            self.rot_pos_enc = RotaryPositionalEncoding(
+                cutoffs=((cutoff_temporal,) + (cutoff_spatial,) * coord_dim),
+                n_pos=(embed_dim // n_head - coord_dim * n_split,)
+                + (n_split,) * coord_dim,
+            )
+        elif mode == "none":
+            pass
+        else:
+            raise ValueError(f"Unknown mode {mode!r}")
+
+    def forward(
+        self,
+        query: torch.Tensor,
+        key: torch.Tensor,
+        value: torch.Tensor,
+        knn_indices: torch.Tensor,
+        coords: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """Run manual-matmul gather-sparse attention.
+
+        Args:
+            query: Query tensor ``(batch_size, seq_len, embed_dim)``.
+            key: Key tensor, same shape as ``query``.
+            value: Value tensor, same shape as ``query``.
+            knn_indices: KNN index tensor
+                ``(batch_size, seq_len, knn_neighbors)``.
+            coords: Optional coordinates for positional bias.
+
+        Returns:
+            Output tensor ``(batch_size, seq_len, embed_dim)``.
+        """
+        batch_size, seq_len, embed_dim = query.shape
+        n_head = self.n_head
+        head_dim = embed_dim // n_head
+        knn_neighbors = self.knn_neighbors
+
+        projected_query = self.q_pro(query).view(batch_size, seq_len, n_head, head_dim).transpose(1, 2)
+        projected_key = self.k_pro(key).view(batch_size, seq_len, n_head, head_dim).transpose(1, 2)
+        projected_value = self.v_pro(value).view(batch_size, seq_len, n_head, head_dim).transpose(1, 2)
+
+        if self._mode == "rope" and coords is not None:
+            projected_query, projected_key = self.rot_pos_enc(
+                projected_query, projected_key, coords
+            )
+
+        batch_idx = torch.arange(batch_size, device=query.device).view(batch_size, 1, 1, 1)
+        head_idx = torch.arange(n_head, device=query.device).view(1, n_head, 1, 1)
+        idx_expanded = knn_indices.unsqueeze(1).expand(batch_size, n_head, seq_len, knn_neighbors)
+        gathered_key = projected_key[batch_idx, head_idx, idx_expanded, :]
+        gathered_value = projected_value[batch_idx, head_idx, idx_expanded, :]
+
+        # scores: (batch_size, n_head, seq_len, knn_neighbors)
+        # Manual SDPA Step 1: Compute dot-product scores (Q @ K^T)
+        scores = torch.matmul(
+            projected_query.unsqueeze(3), gathered_key.transpose(-2, -1)
+        ).squeeze(3)
+
+        # Manual SDPA Step 2: Scale scores
+        scores = scores * self._scale
+
+        if self._mode == "bias" and coords is not None:
+            bias = self.pos_bias(coords, knn_indices)
+            scores = scores + bias
+
+        # Manual SDPA Step 3: Softmax normalization
+        attn = F.softmax(scores, dim=-1)
+        attn = F.dropout(attn, p=self.dropout, training=self.training)
+
+        # Manual SDPA Step 4: Weighted sum of values (Weights @ V)
+        # This manual sequence avoids the kernel dispatch overhead of F.scaled_dot_product_attention
+        # when dealing with tiny (1 x K) attention problems.
+        output = torch.matmul(attn.unsqueeze(3), gathered_value).squeeze(3)
+        output = output.transpose(1, 2).contiguous().view(batch_size, seq_len, embed_dim)
+        output = self.proj(output)
+        return output
+
+
 class KNNMaskSparseAttention(nn.Module):
     """KNN-sparse attention via an ``N x N`` boolean mask.
 
@@ -946,143 +1091,6 @@ class KNNMaskSparseAttention(nn.Module):
         )
 
         output = attn_output.transpose(1, 2).contiguous().view(batch_size, seq_len, embed_dim)
-        output = self.proj(output)
-        return output
-
-
-class GatherSparseAttentionV3(nn.Module):
-    """Gather-sparse attention with manual ``torch.matmul`` instead of SDPA.
-
-    The V1/V2 reshape to ``(batch_size * seq_len, n_head, 1, knn_neighbors)``
-    creates many tiny ``1 x K`` attention problems — no SDPA backend
-    handles ``q_len=1`` efficiently.
-
-    V3 keeps the native ``(batch_size, n_head, seq_len, head_dim)`` shape
-    and uses ``torch.matmul`` for per-query attention, avoiding SDPA
-    kernel-launch overhead.  No mask is needed; all operations use
-    optimised cuBLAS/cuDNN matmul kernels.
-    """
-
-    def __init__(
-        self,
-        embed_dim: int,
-        n_head: int,
-        knn_neighbors: int,
-        dropout: float = 0.0,
-        mode: Literal["none", "bias", "rope"] = "none",
-        coord_dim: int = 3,
-        cutoff_spatial: float = 256,
-        cutoff_temporal: float = 16,
-        n_spatial: int = 32,
-        n_temporal: int = 16,
-    ):
-        """Initialise projections and optional positional encoding.
-
-        Args:
-            embed_dim: Total embedding dimension (divisible by ``n_head``).
-            n_head: Number of attention heads.
-            knn_neighbors: Number of nearest neighbours per query.
-            dropout: Dropout probability on attention weights.
-            mode: Positional encoding mode.
-            coord_dim: Number of coordinate dimensions.
-            cutoff_spatial: Spatial cutoff for positional bias bins.
-            cutoff_temporal: Temporal cutoff for positional bias bins.
-            n_spatial: Number of spatial bin edges.
-            n_temporal: Number of temporal bin edges per direction.
-
-        Raises:
-            ValueError: If ``embed_dim`` is not divisible by ``n_head``
-                or ``mode`` is unrecognised.
-        """
-        super().__init__()
-        assert embed_dim % n_head == 0
-        self.q_pro = nn.Linear(embed_dim, embed_dim, bias=True)
-        self.k_pro = nn.Linear(embed_dim, embed_dim, bias=True)
-        self.v_pro = nn.Linear(embed_dim, embed_dim, bias=True)
-        self.proj = nn.Linear(embed_dim, embed_dim)
-        self.n_head = n_head
-        self.embed_dim = embed_dim
-        self.knn_neighbors = knn_neighbors
-        self.dropout = dropout
-        self._mode = mode
-        self._scale = (embed_dim // n_head) ** -0.5
-
-        if mode == "bias":
-            self.pos_bias = KNNRelativePositionalBias(
-                n_head=n_head,
-                cutoff_spatial=cutoff_spatial,
-                cutoff_temporal=cutoff_temporal,
-                n_spatial=n_spatial,
-                n_temporal=n_temporal,
-            )
-        elif mode == "rope":
-            n_split = 2 * (embed_dim // (2 * (coord_dim + 1) * n_head))
-            self.rot_pos_enc = RotaryPositionalEncoding(
-                cutoffs=((cutoff_temporal,) + (cutoff_spatial,) * coord_dim),
-                n_pos=(embed_dim // n_head - coord_dim * n_split,)
-                + (n_split,) * coord_dim,
-            )
-        elif mode == "none":
-            pass
-        else:
-            raise ValueError(f"Unknown mode {mode!r}")
-
-    def forward(
-        self,
-        query: torch.Tensor,
-        key: torch.Tensor,
-        value: torch.Tensor,
-        knn_indices: torch.Tensor,
-        coords: torch.Tensor | None = None,
-    ) -> torch.Tensor:
-        """Run manual-matmul gather-sparse attention.
-
-        Args:
-            query: Query tensor ``(batch_size, seq_len, embed_dim)``.
-            key: Key tensor, same shape as ``query``.
-            value: Value tensor, same shape as ``query``.
-            knn_indices: KNN index tensor
-                ``(batch_size, seq_len, knn_neighbors)``.
-            coords: Optional coordinates for positional bias.
-
-        Returns:
-            Output tensor ``(batch_size, seq_len, embed_dim)``.
-        """
-        batch_size, seq_len, embed_dim = query.shape
-        n_head = self.n_head
-        head_dim = embed_dim // n_head
-        knn_neighbors = self.knn_neighbors
-
-        projected_query = self.q_pro(query).view(batch_size, seq_len, n_head, head_dim).transpose(1, 2)
-        projected_key = self.k_pro(key).view(batch_size, seq_len, n_head, head_dim).transpose(1, 2)
-        projected_value = self.v_pro(value).view(batch_size, seq_len, n_head, head_dim).transpose(1, 2)
-
-        if self._mode == "rope" and coords is not None:
-            projected_query, projected_key = self.rot_pos_enc(
-                projected_query, projected_key, coords
-            )
-
-        batch_idx = torch.arange(batch_size, device=query.device).view(batch_size, 1, 1, 1)
-        head_idx = torch.arange(n_head, device=query.device).view(1, n_head, 1, 1)
-        idx_expanded = knn_indices.unsqueeze(1).expand(batch_size, n_head, seq_len, knn_neighbors)
-        gathered_key = projected_key[batch_idx, head_idx, idx_expanded, :]
-        gathered_value = projected_value[batch_idx, head_idx, idx_expanded, :]
-
-        # scores: (batch_size, n_head, seq_len, knn_neighbors)
-        scores = torch.matmul(
-            projected_query.unsqueeze(3), gathered_key.transpose(-2, -1)
-        ).squeeze(3)
-        scores = scores * self._scale
-
-        if self._mode == "bias" and coords is not None:
-            bias = self.pos_bias(coords, knn_indices)
-            scores = scores + bias
-
-        attn = F.softmax(scores, dim=-1)
-        attn = F.dropout(attn, p=self.dropout, training=self.training)
-
-        output = torch.matmul(attn.unsqueeze(3), gathered_value).squeeze(3)
-        output = output.transpose(1, 2).contiguous().view(batch_size, seq_len, embed_dim)
         output = self.proj(output)
         return output
 
@@ -1408,13 +1416,6 @@ class MiniMaxSparseAttention(nn.Module):
         max-pooling scores -> Top-k block selection per head per query
       - Main Branch: block-sparse matmul attention over selected k*Bk tokens
       - Complexity: O(N * k*B_k * d) compute per forward pass
-
-    NOTE (2026-06-22): This implementation is for benchmarking only. The
-    labbook (2026-06-16) already documents architectural incompatibility:
-    MSA requires GQA (Trackastra uses MHA), operates at 1M+ context (ours
-    is 128-512), and provides no cross-attention path. Expect speed inferior
-    to KNNMaskSparseAttention at our N scale. Included for completeness per
-    meeting directive (meeting_18_06_26.txt line 2).
     """
 
     def __init__(
@@ -1824,6 +1825,7 @@ class CachedDistAttention(nn.Module):
                 projected_query, projected_key, coords
             )
 
+        # Use cached 2D distances if provided; otherwise compute per call.
         if dist_2d is not None:
             spatial_mask = (dist_2d > self.cutoff_spatial).unsqueeze(1).expand(
                 -1, n_head, -1, -1
@@ -1847,6 +1849,7 @@ class CachedDistAttention(nn.Module):
                 full_dist = torch.cdist(coords, coords, p=2)
                 mask = mask + torch.exp(-0.1 * full_dist.unsqueeze(1))
             elif self.attn_dist_mode == "v1" and dist_2d is not None:
+                # Reuse cached 2D distances for the decay term instead of recomputing.
                 mask = mask + torch.exp(-5 * dist_2d.unsqueeze(1) / self.cutoff_spatial)
 
         if padding_mask is not None:
