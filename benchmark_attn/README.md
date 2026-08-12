@@ -18,7 +18,7 @@ Tested on NVIDIA A500 (fp16, B=2, d=256, h=4). All numbers single-layer forward 
 | 8192 L=4 | Dense | OOM | OOM | — |
 | 8192 L=4 | Sparse K=4 | 0.0935 | 385 | Fits when dense OOMs |
 
-**Spatial reorder** (Hassani et al. 2024): negligible speedup on random data (~1-3%). Real data may differ.
+**Spatial reorder** (Wu et al., Point Transformer V3, CVPR 2024): negligible speedup on random data (~1-3%). Real data may differ.
 
 **Attention backends:** FlashAttention/CuDNN vs Math backend ~1.5-2× throughput difference at N≥512.
 
@@ -45,16 +45,18 @@ python scripts/benchmarks/benchmark_sweep.py --methods gather-sdpa,dense_flash,d
 python scripts/benchmarks/benchmark_sweep.py --methods gather-sdpa,gather-fused,gather-matmul,mask-knn,knn-relpos,minimax,nsa,dense_flash,dense_masked
 
 # CachedDistAttention real measurement (classes in local src/attention_modules.py)
-python benchmarks/benchmark_cached_dist.py
+python scripts/benchmarks/benchmark_cached_dist.py
 
 # Gather variants: gather-sdpa (GatherSparseAttention), gather-fused (GatherSparseFusedAttention), gather-matmul (GatherSparseMatmulAttention)
 python scripts/benchmarks/benchmark_sweep.py --methods gather-sdpa,gather-fused,gather-matmul
 
 # Profiler (per-operation CUDA time breakdown) → profiler_out/profile_gather_results.json
-python benchmarks/profile_gather_sparse.py
+# Merged profiler: general mode (dense/sparse sweep) or gather mode (GatherSparseAttention)
+python scripts/benchmarks/benchmark_profiler.py --mode general
+python scripts/benchmarks/benchmark_profiler.py --mode gather
 
 # Mask vs gather numerical equivalence across 18 configs (console output)
-python benchmarks/validate_mask_vs_gather.py
+python tests/validate_equivalence.py
 
 # Plot main results → benchmark_sparse.html
 python analysis/plot_sparse.py
@@ -63,27 +65,17 @@ python analysis/plot_sparse.py
 ### Additional benchmarks
 
 ```bash
-# KNN method comparison (analytical model)
-python benchmarks/benchmark_knn_methods.py
-
 # Mask vs gather at small N (N ≤ 512)
-python benchmarks/benchmark_mask_vs_gather.py
-
-# Blockwise norm / FFN vs attention ratio (analytical)
-python benchmarks/benchmark_blockwise_norm.py
-python benchmarks/benchmark_ffn_attention_ratio.py
+python scripts/benchmarks/benchmark_mask_vs_gather.py
 
 # Generic profiler wrapper
-python benchmarks/benchmark_profiler.py
+python scripts/benchmarks/benchmark_profiler.py
 
 # All spatial methods (NOTE: gather_knn_ms column is not populated; do not cite gather)
-python benchmarks/benchmark_all_spatial_methods.py
+python scripts/benchmarks/benchmark_all_spatial_methods.py
 
 # Small-N behavior (N ≤ 512)
 python scripts/benchmarks/benchmark_sweep.py --methods gather-sdpa,gather-fused,gather-matmul --Ns 128,256,512 --Ks 16 --layers 1
-
-# FlashAttention with learned cutoff
-python benchmarks/benchmark_flash_with_cutoff.py
 ```
 
 ### Exploratory / one-off
@@ -112,9 +104,6 @@ python exploratory/profiler_recipe.py
 # Tile size analysis
 python analysis/tile_size_analysis.py
 
-# Cosine histogram analysis
-python analysis/cosine_histogram.py
-
 # Verify CUDA attention backends
 python analysis/verify_cudnn.py
 
@@ -131,6 +120,7 @@ python analysis/make_report.py
 ## Structure
 
 ```
+benchmark_attn/
 ├── src/                            # library / implementation code
 │   ├── attention_modules.py        # core attention classes
 │   ├── positional_encoding.py      # RoPE + bin helpers
@@ -143,14 +133,36 @@ python analysis/make_report.py
 │
 ├── scripts/                        # runnable entry points
 │   └── benchmarks/
-│       └── benchmark_sweep.py      # consolidated method × L × N × K sweep
+│       ├── benchmark_sweep.py      # consolidated method × L × N × K sweep
+│       ├── benchmark_cached_dist.py # CachedDistAttention measurement
+│       ├── benchmark_mask_vs_gather.py # mask vs gather + SDPA dispatch
+│       ├── benchmark_all_spatial_methods.py # FlexAttention comparison
+│       └── benchmark_profiler.py   # merged profiler (general + gather)
 │
-├── docs/                           # SPEC.md, REPRODUCTION.md, sidecar READMEs, REFACTOR_REMARKS.md
+├── tests/                          # validation scripts
+│   └── validate_equivalence.py     # mask vs gather numerical equivalence
+│
 ├── exploratory/                    # one-off research scripts
-└── results/                        # generated artifacts
+├── docs/                           # REPRODUCTION.md, sidecar READMEs
+├── results/                        # generated artifacts
+├── config.yaml
+├── pyproject.toml
+└── README.md
 ```
 
 ## Reference
 
-- Gallusser & Weigert, *Trackastra*, ECCV 2024 — [github.com/weigertlab/trackastra](https://github.com/weigertlab/trackastra)
-- Hassani et al., *Neighborhood Attention*, ECCV 2024
+- \citep{gallusser2024trackastra} — Gallusser, B., & Weigert, M. (2024). *Trackastra: Transformer-based cell tracking for live-cell microscopy.* ECCV 2024. arXiv:2405.15700. — [github.com/weigertlab/trackastra](https://github.com/weigertlab/trackastra)
+- \citep{hassani2023neighborhood} — Hassani, A., Walton, S., Li, J., Li, S., & Shi, H. (2023). *Neighborhood Attention Transformer.* CVPR 2023. arXiv:2204.07143.
+- \citep{hassani2024faster} — Hassani, A., Hwu, W.-M., & Shi, H. (2024). *Faster Neighborhood Attention: Reducing the O(n²) Cost of Self Attention at the Threadblock Level.* NeurIPS 2024. arXiv:2403.04690.
+- \citep{wu2024ptv3} — Wu, X., Jiang, L., Wang, P.-S., Liu, Z., Liu, X., Qiao, Y., Ouyang, W., He, T., & Zhao, H. (2024). *Point Transformer V3: Simpler, Faster, Stronger.* CVPR 2024. arXiv:2312.10035.
+- \citep{dao2023flashattention2} — Dao, T. (2023). *FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning.* arXiv:2307.08691.
+- \citep{yuan2025nsa} — Yuan, J., Gao, H., Dai, D., et al. (2025). *Native Sparse Attention: Hardware-Aligned and Natively Trainable Sparse Attention.* arXiv:2502.11089.
+- \citep{lai2026minimax} — Lai, X., Xu, W., Yang, Y., et al. (2026). *MiniMax Sparse Attention.* arXiv:2606.13392.
+
+## Further reading
+
+- [KNN Methods Benchmark](docs/README_knn_methods.md) — gather-KNN, mask-KNN, MiniMax, dense flash comparison
+- [Pure Attention Kernel Benchmark](docs/README_pure_attn.md) — raw attention kernel isolation
+- [SDPA Backend Dispatch](docs/README_sdpa_backends.md) — which SDPA backend PyTorch selects
+- [System Impact Benchmark](docs/README_system_impact.md) — FLOP and memory breakdown

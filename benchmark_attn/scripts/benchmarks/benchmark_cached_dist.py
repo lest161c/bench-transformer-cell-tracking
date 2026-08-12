@@ -23,7 +23,7 @@ Usage:
         [--cutoff 256] [--dist-mode v1]
 
 N=8192 (fp16, mask N*N) exceeds the A500 4 GB VRAM and is recorded as OOM.
-Both attention classes are self-contained copies in the local model_parts.py
+Both attention classes are self-contained copies in the local src/attention_modules.py
 (no trackastra dependency).
 """
 
@@ -34,9 +34,13 @@ import torch
 import torch.nn.functional as F
 import torch.utils.benchmark as benchmark
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from model_parts import CachedDistAttention, RelativePositionalAttention
+import torch
+import torch.nn.functional as F
+import torch.utils.benchmark as benchmark
+
+from src.attention_modules import CachedDistAttention, RelativePositionalAttention
 
 
 def measure(fn, warmup=5, min_run_time=0.3):

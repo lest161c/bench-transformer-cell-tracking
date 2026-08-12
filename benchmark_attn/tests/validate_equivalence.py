@@ -19,7 +19,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import torch
-from model_parts import KNNMaskSparseAttention, GatherSparseAttention
+from src.attention_modules import KNNMaskSparseAttention, GatherSparseAttention
 
 FW_RTOL = 1e-2
 FW_ATOL = 1e-3

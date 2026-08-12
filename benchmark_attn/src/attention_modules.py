@@ -1431,10 +1431,19 @@ class NSASparseAttention(nn.Module):
 
 
 class SpatialReorder:
-    """Reorders sequence by spatial proximity for memory locality (Hassani et al. 2024).
+    """Reorders sequence by spatial proximity for memory locality (Wu et al. 2024).
 
     Quantizes coords to grid, computes linearized index (Z-order-like), sorts by it.
     Neighboring tokens in original space → close indices → gather hits contiguous memory.
+
+    This is the spatial reorder concept from Point Transformer V3: reordering
+    tokens by spatial proximity via a Z-order-like linearized index so
+    neighbours land adjacent in memory — exactly PTv3's point cloud
+    serialization (§4.1), using Z-order/Hilbert space-filling curves.
+
+    Wu, X., Jiang, L., Wang, P.-S., Liu, Z., Liu, X., Qiao, Y., Ouyang, W.,
+    He, T., & Zhao, H. (2024). Point Transformer V3: Simpler, Faster,
+    Stronger. CVPR 2024. arXiv:2312.10035.
     """
 
     def __init__(self, n_bins: int = 32):

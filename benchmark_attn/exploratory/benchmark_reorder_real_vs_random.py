@@ -15,7 +15,7 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, '.')
 
-from model_parts import GatherSparseAttention, SpatialReorder
+from src.attention_modules import GatherSparseAttention, SpatialReorder
 
 
 def load_real_centroids() -> np.ndarray:

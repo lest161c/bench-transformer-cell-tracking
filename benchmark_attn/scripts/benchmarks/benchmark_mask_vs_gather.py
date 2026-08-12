@@ -3,14 +3,14 @@ vs DenseFlashAttention. All at N=128,256,512 with K=16 L=1 mode=none."""
 
 import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import torch, torch.nn.functional as F, gc, csv
 from torch.profiler import profile, record_function, ProfilerActivity
 from torch.nn.attention import SDPBackend, sdpa_kernel
 import torch.utils.benchmark as benchmark
 
-from model_parts import (
+from src.attention_modules import (
     GatherSparseAttention, DenseFlashAttention, KNNMaskSparseAttention,
     RelativePositionalAttention,
 )
