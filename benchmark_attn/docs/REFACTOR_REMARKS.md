@@ -80,20 +80,14 @@ benchmark_attn/
 │       ├── __init__.py
 │       ├── timing.py                   # measure(), try_bench()
 │       ├── data.py                     # make_inputs(), compute_knn_indices()
-│       ├── registry.py                 # METHOD_REGISTRY
+│       ├── registry.py                 # METHOD_REGISTRY (9 methods)
 │       ├── io.py                       # write_results_csv()
-│       └── cli.py                      # add_common_args()
+│       └── cli.py                      # add_common_args(), parse_int_list()
 ├── scripts/                            # runnable entry points
-│   ├── benchmarks/                     # consolidated benchmark scripts
-│   ├── analysis/                       # visualization / report scripts
-│   └── slurm/                          # SLURM batch scripts
-├── tests/                              # validation scripts
+│   └── benchmarks/                     # consolidated benchmark_sweep.py
+├── docs/                               # REPRODUCTION.md, sidecar READMEs, REFACTOR_REMARKS.md
 ├── exploratory/                        # one-off research scripts (unchanged)
-├── results/                            # generated outputs
-├── docs/                               # SPEC.md, REPRODUCTION.md, sidecar READMEs
-├── README.md
-├── pyproject.toml
-└── config.yaml
+└── results/                            # generated artifacts
 ```
 
 ## Naming convention for attention variants
@@ -131,6 +125,13 @@ Other descriptive names to keep: `dense_masked`, `dense_flash`, `mask-knn`,
       `--methods`, `--Ns`, `--Ks`, `--layers`, `--mode`, `--dist-mode`.
 - [x] **Fix `.gitignore`.** Anchored `scripts/` to `/scripts/` so
       `benchmark_attn/scripts/` is trackable.
+- [x] **Update method naming in documentation.** All `.md` files now use the
+      new registry keys (`gather-sdpa`, `gather-fused`, `gather-matmul`,
+      `mask-knn`, `knn-relpos`, `nsa`, `minimax`, `dense_flash`,
+      `dense_masked`) instead of `sparse`, `sparse_v2`, `V1/V2/V3`, etc.
+- [x] **Update script references in documentation.** `README.md` and
+      `REPRODUCTION.md` now reference `scripts/benchmarks/benchmark_sweep.py`
+      instead of the four old scripts.
 
 ## Remaining work (from user's rework list)
 
@@ -139,5 +140,3 @@ Other descriptive names to keep: `dense_masked`, `dense_flash`, `mask-knn`,
 - [ ] **Other README files** (`README_knn_methods.md`, etc.): Move to `docs/`. Strip duplicates and stale content. Reference from central `README.md`.
 - [ ] **`model_parts.py` (now `attention_modules.py`)**: Rename complete. Helper extraction complete. Verify no remaining references to old `model_parts.py` name in scripts or documentation.
 - [ ] **Directory reorganization**: Move existing benchmark scripts to `scripts/benchmarks/`. Move analysis scripts to `scripts/analysis/`. Move SLURM scripts to `scripts/slurm/`. Move validation scripts to `tests/`. Update all import paths.
-</content>
-</invoke>
