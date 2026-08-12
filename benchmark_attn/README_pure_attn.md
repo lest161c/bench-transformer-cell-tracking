@@ -34,6 +34,6 @@ python benchmark_pure_attn.py --d 320 --nhead 8 --out pure_attn_results.csv
 ## Key Findings
 - Pure SDPA on (B, nH, N, Dh) is 3-10× faster than gather/matmul at all N
 - The overhead in full benchmarks comes from QKV projections (~4%),
-  mask construction (~82% for dense), and gather/contiguous (~44% for sparse)
+  mask construction (~82% for dense), and gather/contiguous (~44% for gather-sdpa)
 - Pure kernel time grows as O(N²·d) for dense, O(N·K·d) for gather
 - FlashAttention achieves near-roofline throughput for d_head ≥ 64

@@ -1,15 +1,15 @@
 # KNN Methods Benchmark
 
 **File:** `benchmark_knn_methods.py`  
-**Goal:** Compare gather-KNN, mask-KNN, MiniMax, and dense flash attention at realistic cell-tracking scale.
+**Goal:** Compare gather-sdpa, mask-knn, minimax, and dense_flash at realistic cell-tracking scale.
 
 ## Methods
 
 | Method | Mechanism | Complexity |
 |--------|-----------|------------|
-| gather-KNN | Advanced indexing K/V → SDPA on (B*N, nH, 1/K, Dh) | O(N·K·d) |
-| mask-KNN (scatter) | KNN → scatter into N×N boolean mask → masked SDPA | O(N²·d) |
-| MiniMax | Block-level index → top-k blocks → matmul on selected KV | O(N·k·Bk·d) |
+| gather-sdpa | Advanced indexing K/V → SDPA on (B*N, nH, 1/K, Dh) | O(N·K·d) |
+| mask-knn (scatter) | KNN → scatter into N×N boolean mask → masked SDPA | O(N²·d) |
+| minimax | Block-level index → top-k blocks → matmul on selected KV | O(N·k·Bk·d) |
 | dense_flash | Pure FlashAttention (no mask, no spatial cutoff) | O(N²·d) |
 
 ## Confounders Excluded
@@ -40,12 +40,12 @@ python benchmark_knn_methods.py --gpu --out knn_methods_results.csv
 | Method | N=128 | N=256 | N=512 | Dominant cost |
 |--------|-------|-------|-------|---------------|
 | dense_flash | 0.80ms | 0.80ms | 0.80ms | Pure SDPA (no overhead) |
-| gather-KNN K=16 | 2.9ms | 5.9ms | 11.8ms | Per-token gather (~23µs/token) |
-| mask-KNN K=16 | 6.5ms | 13.0ms | 26.0ms | Scatter overlay on N² SDPA |
-| MiniMax | 8.9ms | 18.0ms | 36.0ms | Block indexing (~50µs/token) |
+| gather-sdpa K=16 | 2.9ms | 5.9ms | 11.8ms | Per-token gather (~23µs/token) |
+| mask-knn K=16 | 6.5ms | 13.0ms | 26.0ms | Scatter overlay on N² SDPA |
+| minimax | 8.9ms | 18.0ms | 36.0ms | Block indexing (~50µs/token) |
 
 - **dense_flash is fastest at all N ≤ 8192** — FlashAttention is highly optimized
-- **gather-KNN per-token overhead (~23µs) dominates** at N < 2000
-- gather-KNN projected to cross below dense at N ~ 2000-4000
-- **mask-KNN is always slower than dense** (same O(N²) SDPA + scatter cost)
-- **MiniMax is slowest** (block indexing is ~2x gather cost)
+- **gather-sdpa per-token overhead (~23µs) dominates** at N < 2000
+- gather-sdpa projected to cross below dense at N ~ 2000-4000
+- **mask-knn is always slower than dense** (same O(N²) SDPA + scatter cost)
+- **minimax is slowest** (block indexing is ~2x gather cost)
