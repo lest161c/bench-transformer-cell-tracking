@@ -109,10 +109,35 @@ Replace the versioned names with mechanism-descriptive names:
 Other descriptive names to keep: `dense_masked`, `dense_flash`, `mask-knn`,
 `knn-relpos`, `nsa`, `minimax`.
 
-## Status
+## Completed work
 
-- [x] Rework items documented.
-- [ ] Implementation in progress (parallel agents launched).
-- [ ] Documentation updated to reflect new structure.
+- [x] **Extract shared harness.** `src/bench/` package with `timing.py`
+      (`measure`, `try_bench`), `data.py` (`make_inputs`,
+      `compute_knn_indices`), `registry.py` (`METHOD_REGISTRY`,
+      `resolve_class`, `list_methods`), `io.py` (`write_results_csv`),
+      `cli.py` (`add_common_args`, `parse_int_list`). Eliminates 5 copies
+      of `measure()` and 3 copies of `knn_indices()`.
+- [x] **Rename `model_parts.py` → `src/attention_modules.py`.** Updated all
+      imports. Backward-compatible alias kept for external code.
+- [x] **Extract helper functions.** `src/positional_encoding.py` contains
+      `ATTN_IGNORE_VALUE`, `_init_exponential_bins`, `_init_linear_bins`,
+      `_init_fourier_frequencies`, `_rotate_half`, `RotaryPositionalEncoding`.
+- [x] **Rename V2/V3 classes.** `GatherSparseAttentionV2` →
+      `GatherSparseFusedAttention`, `GatherSparseAttentionV3` →
+      `GatherSparseMatmulAttention`. Backward-compatible aliases kept.
+- [x] **Consolidate benchmark scripts.** `scripts/benchmarks/benchmark_sweep.py`
+      replaces `benchmark_sparse.py`, `benchmark_full.py`,
+      `benchmark_gather_v3.py`, `benchmark_small_n.py`. Single CLI with
+      `--methods`, `--Ns`, `--Ks`, `--layers`, `--mode`, `--dist-mode`.
+- [x] **Fix `.gitignore`.** Anchored `scripts/` to `/scripts/` so
+      `benchmark_attn/scripts/` is trackable.
+
+## Remaining work (from user's rework list)
+
+- [ ] **`README.md`**: Update structure listing to reflect new `src/`/`scripts/`/`docs/` layout. Fix Hassani citation (wrong for one entry). Rewrite references as proper LaTeX-style citations. Verify whether `cosine_histogram.py` is deprecated and remove from README if so.
+- [ ] **`REPRODUCTION.md`**: Remove `labbook` references (not pushed). Resolve or delete the "Important notice". Reduce verbosity — restructure toward CLI invocation + minimal commentary. Drop non-scientific hedges like "**This is NOT a real measurement**". Drop `STATUS: DONE` lines. Reassess CAVEATs — each must be fixed or rephrased as quantified uncertainty. Remove hardcoded cluster paths from author's account (sections 3, 4, 5) — rewrite as generic setup instructions. De-duplicate with `README.md`. Section 6 (results ledger): either render CSVs into a separate results-only markdown, or remove. Section 8 (discrepancies): triage each item — resolve, delete, or convert to tracked issue.
+- [ ] **Other README files** (`README_knn_methods.md`, etc.): Move to `docs/`. Strip duplicates and stale content. Reference from central `README.md`.
+- [ ] **`model_parts.py` (now `attention_modules.py`)**: Rename complete. Helper extraction complete. Verify no remaining references to old `model_parts.py` name in scripts or documentation.
+- [ ] **Directory reorganization**: Move existing benchmark scripts to `scripts/benchmarks/`. Move analysis scripts to `scripts/analysis/`. Move SLURM scripts to `scripts/slurm/`. Move validation scripts to `tests/`. Update all import paths.
 </content>
 </invoke>
