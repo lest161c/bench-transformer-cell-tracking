@@ -1,6 +1,6 @@
 """Probe architectures for edge classification.
 
-Three probe heads that take ``(feat_teacher, feat_student)`` pairs and
+Three probe heads that take ``(feat_anchor, feat_query)`` pairs and
 produce a single edge logit per pair:
 
 - ``LinearProbe`` — single linear layer over the concatenated
@@ -17,7 +17,7 @@ from src.models.scaled_cnn import ScaledCNN
 
 
 class LinearProbe(nn.Module):
-    """Linear probe: concat(feat_teacher[i], feat_student[j]) -> score."""
+    """Linear probe: concat(feat_anchor[i], feat_query[j]) -> score."""
 
     def __init__(self, feat_dim):
         """Initialize the linear probe.
@@ -30,22 +30,22 @@ class LinearProbe(nn.Module):
         super().__init__()
         self.fc = nn.Linear(2 * feat_dim, 1)
 
-    def forward(self, feat_teacher, feat_student):
+    def forward(self, feat_anchor, feat_query):
         """Score a batch of cell-cell pairs.
 
         Args:
-            feat_teacher: (N, D) features of cells in frame t.
-            feat_student: (N, D) features of cells in frame t+1.
+            feat_anchor: (N, D) features of cells in frame t.
+            feat_query: (N, D) features of cells in frame t+1.
 
         Returns:
             (N,) logit scores, one per pair.
         """
-        pairs = torch.cat([feat_teacher, feat_student], dim=-1)  # (N, 2D)
+        pairs = torch.cat([feat_anchor, feat_query], dim=-1)  # (N, 2D)
         return self.fc(pairs).squeeze(-1)  # (N,)
 
 
 class MLPProbe(nn.Module):
-    """2-layer MLP probe: concat(feat_teacher[i], feat_student[j]) -> hidden -> score."""
+    """2-layer MLP probe: concat(feat_anchor[i], feat_query[j]) -> hidden -> score."""
 
     def __init__(self, feat_dim, hidden=128):
         """Initialize the 2-layer MLP probe.
@@ -63,17 +63,17 @@ class MLPProbe(nn.Module):
             nn.Linear(hidden, 1),
         )
 
-    def forward(self, feat_teacher, feat_student):
+    def forward(self, feat_anchor, feat_query):
         """Score a batch of cell-cell pairs.
 
         Args:
-            feat_teacher: (N, feat_dim) features of cells in frame t.
-            feat_student: (N, feat_dim) features of cells in frame t+1.
+            feat_anchor: (N, feat_dim) features of cells in frame t.
+            feat_query: (N, feat_dim) features of cells in frame t+1.
 
         Returns:
             (N,) logit scores, one per pair.
         """
-        pairs = torch.cat([feat_teacher, feat_student], dim=-1)  # (N, 2D)
+        pairs = torch.cat([feat_anchor, feat_query], dim=-1)  # (N, 2D)
         return self.net(pairs).squeeze(-1)  # (N,)
 
 
@@ -100,17 +100,17 @@ class CNNProbeE2E(nn.Module):
                 nn.Linear(128, 1),
             )
 
-    def forward(self, patches_teacher, patches_student):
+    def forward(self, patches_anchor, patches_query):
         """Score a batch of cell-cell pairs from raw patches.
 
         Args:
-            patches_teacher: (N, 1, 64, 64) patches of cells in frame t.
-            patches_student: (N, 1, 64, 64) patches of cells in frame t+1.
+            patches_anchor: (N, 1, 64, 64) patches of cells in frame t.
+            patches_query: (N, 1, 64, 64) patches of cells in frame t+1.
 
         Returns:
             (N,) logit scores, one per pair.
         """
-        feat_teacher = self.cnn(patches_teacher)  # (N, D)
-        feat_student = self.cnn(patches_student)  # (N, D)
-        pairs = torch.cat([feat_teacher, feat_student], dim=-1)  # (N, 2D)
+        feat_anchor = self.cnn(patches_anchor)  # (N, D)
+        feat_query = self.cnn(patches_query)  # (N, D)
+        pairs = torch.cat([feat_anchor, feat_query], dim=-1)  # (N, 2D)
         return self.probe(pairs).squeeze(-1)  # (N,)

@@ -7,10 +7,10 @@ sampler that equalizes positive/negative pairs per batch.
 
 All per-frame data is labeled by its role in the edge-probing
 paradigm (see ``evaluation.py`` for the full convention): the
-**teacher** frame (frame t) provides the anchor cells, and the
-**student** frame (frame t+1) provides the cells to be matched.
+**anchor** frame (frame t) provides the anchor cells, and the
+**query** frame (frame t+1) provides the cells to be matched.
 Consequently, the dict keys, class attributes, and function
-parameters use ``_teacher`` / ``_student`` suffixes.
+parameters use ``_anchor`` / ``_query`` suffixes.
 """
 
 import copy
@@ -23,30 +23,30 @@ from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
 class EdgePairDataset(Dataset):
     """Dataset of individual cell-cell pairs.
 
-    Each sample is (feat_teacher, feat_student, label) where
-      feat_teacher = feature of cell i in frame t
-      feat_student = feature of cell j in frame t+1
+    Each sample is (feat_anchor, feat_query, label) where
+      feat_anchor = feature of cell i in frame t
+      feat_query = feature of cell j in frame t+1
       label  = 1 if same-tracklet, 0 otherwise
     """
 
-    def __init__(self, feat_teacher, feat_student, target):
-        """Flatten an (n_cells_teacher, n_cells_student) target matrix into one sample per pair.
+    def __init__(self, feat_anchor, feat_query, target):
+        """Flatten an (n_cells_anchor, n_cells_query) target matrix into one sample per pair.
 
         Args:
-            feat_teacher: (n_cells_teacher, D) features of cells in frame t.
-            feat_student: (n_cells_student, D) features of cells in frame t+1.
-            target: (n_cells_teacher, n_cells_student) binary edge matrix; each entry yields
+            feat_anchor: (n_cells_anchor, D) features of cells in frame t.
+            feat_query: (n_cells_query, D) features of cells in frame t+1.
+            target: (n_cells_anchor, n_cells_query) binary edge matrix; each entry yields
                 one training sample.
         """
-        n_cells_teacher, n_cells_student = target.shape
-        pairs_teacher, pairs_student, labels = [], [], []
-        for i in range(n_cells_teacher):
-            for j in range(n_cells_student):
-                pairs_teacher.append(feat_teacher[i])
-                pairs_student.append(feat_student[j])
+        n_cells_anchor, n_cells_query = target.shape
+        pairs_anchor, pairs_query, labels = [], [], []
+        for i in range(n_cells_anchor):
+            for j in range(n_cells_query):
+                pairs_anchor.append(feat_anchor[i])
+                pairs_query.append(feat_query[j])
                 labels.append(int(target[i, j].item()))
-        self.pairs_teacher = torch.stack(pairs_teacher) if pairs_teacher else torch.empty(0, feat_teacher.shape[-1])
-        self.pairs_student = torch.stack(pairs_student) if pairs_student else torch.empty(0, feat_student.shape[-1])
+        self.pairs_anchor = torch.stack(pairs_anchor) if pairs_anchor else torch.empty(0, feat_anchor.shape[-1])
+        self.pairs_query = torch.stack(pairs_query) if pairs_query else torch.empty(0, feat_query.shape[-1])
         self.labels = torch.tensor(labels, dtype=torch.float32)
 
     def __len__(self):
@@ -54,37 +54,37 @@ class EdgePairDataset(Dataset):
         return len(self.labels)
 
     def __getitem__(self, idx):
-        """Return the (feat_teacher, feat_student, label) sample at index idx."""
-        return self.pairs_teacher[idx], self.pairs_student[idx], self.labels[idx]
+        """Return the (feat_anchor, feat_query, label) sample at index idx."""
+        return self.pairs_anchor[idx], self.pairs_query[idx], self.labels[idx]
 
 
 class EdgePairDatasetPatches(Dataset):
     """Dataset of individual cell-cell pairs where features are patches.
 
-    Each sample is (patch_teacher, patch_student, label) where
-      patch_teacher = image patch of cell i in frame t
-      patch_student = image patch of cell j in frame t+1
+    Each sample is (patch_anchor, patch_query, label) where
+      patch_anchor = image patch of cell i in frame t
+      patch_query = image patch of cell j in frame t+1
       label  = 1 if same-tracklet, 0 otherwise
 
     Unlike EdgePairDataset, the per-cell features are raw image patches
     (used for CNN end-to-end training).
 
     Args:
-        patches_teacher: (n_cells_teacher, 1, H, W) patches of cells in frame t.
-        patches_student: (n_cells_student, 1, H, W) patches of cells in frame t+1.
-        target: (n_cells_teacher, n_cells_student) binary edge matrix.
+        patches_anchor: (n_cells_anchor, 1, H, W) patches of cells in frame t.
+        patches_query: (n_cells_query, 1, H, W) patches of cells in frame t+1.
+        target: (n_cells_anchor, n_cells_query) binary edge matrix.
     """
 
-    def __init__(self, patches_teacher, patches_student, target):
-        n_cells_teacher, n_cells_student = target.shape
-        pairs_teacher, pairs_student, labels = [], [], []
-        for i in range(n_cells_teacher):
-            for j in range(n_cells_student):
-                pairs_teacher.append(patches_teacher[i])
-                pairs_student.append(patches_student[j])
+    def __init__(self, patches_anchor, patches_query, target):
+        n_cells_anchor, n_cells_query = target.shape
+        pairs_anchor, pairs_query, labels = [], [], []
+        for i in range(n_cells_anchor):
+            for j in range(n_cells_query):
+                pairs_anchor.append(patches_anchor[i])
+                pairs_query.append(patches_query[j])
                 labels.append(int(target[i, j].item()))
-        self.pairs_teacher = torch.stack(pairs_teacher) if pairs_teacher else torch.empty(0, *patches_teacher.shape[1:])
-        self.pairs_student = torch.stack(pairs_student) if pairs_student else torch.empty(0, *patches_student.shape[1:])
+        self.pairs_anchor = torch.stack(pairs_anchor) if pairs_anchor else torch.empty(0, *patches_anchor.shape[1:])
+        self.pairs_query = torch.stack(pairs_query) if pairs_query else torch.empty(0, *patches_query.shape[1:])
         self.labels = torch.tensor(labels, dtype=torch.float32)
 
     def __len__(self):
@@ -92,8 +92,8 @@ class EdgePairDatasetPatches(Dataset):
         return len(self.labels)
 
     def __getitem__(self, idx):
-        """Return the (patch_teacher, patch_student, label) sample at index idx."""
-        return self.pairs_teacher[idx], self.pairs_student[idx], self.labels[idx]
+        """Return the (patch_anchor, patch_query, label) sample at index idx."""
+        return self.pairs_anchor[idx], self.pairs_query[idx], self.labels[idx]
 
 
 def _gather_labels(dataset):
@@ -141,7 +141,7 @@ def fit_feature_standardizer(datasets):
     probes would otherwise weight features by their numeric magnitude.
 
     Statistics are pooled over all node features from BOTH sides of every
-    training pair (pairs_teacher and pairs_student) — the exact distribution
+    training pair (pairs_anchor and pairs_query) — the exact distribution
     the probe is trained on. Note the stats are computed on pair-expanded
     rows, so cells are implicitly weighted by their pair multiplicity; the
     probe sees the same weighting, so this is consistent.
@@ -158,7 +158,7 @@ def fit_feature_standardizer(datasets):
         map to 0 after transformation.
     """
     feats = torch.cat(
-        [ds.pairs_teacher for ds in datasets] + [ds.pairs_student for ds in datasets],
+        [ds.pairs_anchor for ds in datasets] + [ds.pairs_query for ds in datasets],
         dim=0,
     )
     mean = feats.mean(dim=0)
@@ -186,12 +186,12 @@ def apply_feature_standardizer(datasets, mean, std):
     """
     out = []
     for dataset in datasets:
-        if not hasattr(dataset, "pairs_teacher"):
+        if not hasattr(dataset, "pairs_anchor"):
             out.append(dataset)  # e.g. EdgePairDatasetPatches (cnn_e2e): skip
             continue
         dataset_copy = copy.copy(dataset)
-        dataset_copy.pairs_teacher = (dataset.pairs_teacher - mean) / std
-        dataset_copy.pairs_student = (dataset.pairs_student - mean) / std
+        dataset_copy.pairs_anchor = (dataset.pairs_anchor - mean) / std
+        dataset_copy.pairs_query = (dataset.pairs_query - mean) / std
         out.append(dataset_copy)
     return out
 
@@ -200,11 +200,11 @@ def flatten_to_pairs(edge_data):
     """Convert list of per-frame-pair dicts into a flat list of datasets, one per frame pair."""
     datasets = []
     for item in edge_data:
-        if "feat_teacher" in item:
-            dataset = EdgePairDataset(item["feat_teacher"], item["feat_student"], item["target"])
+        if "feat_anchor" in item:
+            dataset = EdgePairDataset(item["feat_anchor"], item["feat_query"], item["target"])
         else:
             # For cnn_e2e, patches are stored
-            dataset = EdgePairDatasetPatches(item["patches_teacher"], item["patches_student"], item["target"])
+            dataset = EdgePairDatasetPatches(item["patches_anchor"], item["patches_query"], item["target"])
         if len(dataset) > 0:
             datasets.append(dataset)
     return datasets
@@ -228,19 +228,19 @@ def shuffle_edge_data_features(edge_data_list, seed=42):
     shuffled = []
     for item in edge_data_list:
         item_copy = dict(item)
-        if "feat_teacher" in item:
-            n1 = len(item["feat_teacher"])
-            n2 = len(item["feat_student"])
-            idx_teacher = torch.from_numpy(rng.permutation(n1))
-            idx_student = torch.from_numpy(rng.permutation(n2))
-            item_copy["feat_teacher"] = item["feat_teacher"][idx_teacher].clone()
-            item_copy["feat_student"] = item["feat_student"][idx_student].clone()
-        elif "patches_teacher" in item:
-            n1 = len(item["patches_teacher"])
-            n2 = len(item["patches_student"])
-            idx_teacher = torch.from_numpy(rng.permutation(n1))
-            idx_student = torch.from_numpy(rng.permutation(n2))
-            item_copy["patches_teacher"] = item["patches_teacher"][idx_teacher].clone()
-            item_copy["patches_student"] = item["patches_student"][idx_student].clone()
+        if "feat_anchor" in item:
+            n1 = len(item["feat_anchor"])
+            n2 = len(item["feat_query"])
+            idx_anchor = torch.from_numpy(rng.permutation(n1))
+            idx_query = torch.from_numpy(rng.permutation(n2))
+            item_copy["feat_anchor"] = item["feat_anchor"][idx_anchor].clone()
+            item_copy["feat_query"] = item["feat_query"][idx_query].clone()
+        elif "patches_anchor" in item:
+            n1 = len(item["patches_anchor"])
+            n2 = len(item["patches_query"])
+            idx_anchor = torch.from_numpy(rng.permutation(n1))
+            idx_query = torch.from_numpy(rng.permutation(n2))
+            item_copy["patches_anchor"] = item["patches_anchor"][idx_anchor].clone()
+            item_copy["patches_query"] = item["patches_query"][idx_query].clone()
         shuffled.append(item_copy)
     return shuffled

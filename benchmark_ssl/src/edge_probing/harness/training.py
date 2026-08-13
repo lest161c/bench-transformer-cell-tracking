@@ -53,12 +53,12 @@ def train_probe(probe, train_loader, val_loader, epochs=200, lr=1e-3,
     for epoch in range(epochs):
         probe.train()
         train_losses = []
-        for feats_teacher, feats_student, target in train_loader:
-            feats_teacher = feats_teacher.to(device)
-            feats_student = feats_student.to(device)
+        for feats_anchor, feats_query, target in train_loader:
+            feats_anchor = feats_anchor.to(device)
+            feats_query = feats_query.to(device)
             target = target.to(device)
 
-            scores = probe(feats_teacher, feats_student)
+            scores = probe(feats_anchor, feats_query)
             loss = criterion(scores, target)
 
             optimizer.zero_grad()
@@ -72,12 +72,12 @@ def train_probe(probe, train_loader, val_loader, epochs=200, lr=1e-3,
             val_losses = []
             val_metrics_list = []
             with torch.no_grad():
-                for feats_teacher, feats_student, target in val_loader:
-                    feats_teacher = feats_teacher.to(device)
-                    feats_student = feats_student.to(device)
+                for feats_anchor, feats_query, target in val_loader:
+                    feats_anchor = feats_anchor.to(device)
+                    feats_query = feats_query.to(device)
                     target = target.to(device)
 
-                    scores = probe(feats_teacher, feats_student)
+                    scores = probe(feats_anchor, feats_query)
                     loss = criterion(scores, target)
                     val_losses.append(loss.item())
                     bal_acc, f1, prec, rec = compute_metrics(scores, target)
@@ -118,12 +118,12 @@ def train_probe(probe, train_loader, val_loader, epochs=200, lr=1e-3,
     probe.eval()
     final_metrics_list = []
     with torch.no_grad():
-        for feats_teacher, feats_student, target in val_loader:
-            feats_teacher = feats_teacher.to(device)
-            feats_student = feats_student.to(device)
+        for feats_anchor, feats_query, target in val_loader:
+            feats_anchor = feats_anchor.to(device)
+            feats_query = feats_query.to(device)
             target = target.to(device)
 
-            scores = probe(feats_teacher, feats_student)
+            scores = probe(feats_anchor, feats_query)
             bal_acc, f1, prec, rec = compute_metrics(scores, target)
             final_metrics_list.append({
                 "bal_acc": bal_acc, "f1": f1,

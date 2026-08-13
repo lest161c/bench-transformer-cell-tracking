@@ -15,7 +15,7 @@ Feature types (registered in ``harness.registry``):
   hoct19_fourier -- HOCT 13D + Fourier PE of positions    [43 dim]
 
 Probe architectures (registered in ``harness.registry``):
-  Linear: nn.Linear(2*feat_dim, 1) over concat(feat_teacher, feat_student)
+  Linear: nn.Linear(2*feat_dim, 1) over concat(feat_anchor, feat_query)
   MLP:    nn.Sequential(Linear(2*feat_dim, 128), ReLU, Linear(128, 1))
 
 Usage:

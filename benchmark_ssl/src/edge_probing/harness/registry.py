@@ -9,7 +9,7 @@ edge probing, the registry has two dimensions:
   DINOv2). New feature types are added by registering a new entry
   here; no other harness module needs to change.
 - **Probe architectures** — the classifier head on top of the
-  concatenated (feat_teacher, feat_student) edge representation (Linear, MLP).
+  concatenated (feat_anchor, feat_query) edge representation (Linear, MLP).
   New probe architectures are registered the same way.
 
 Adding a new feature type or probe to the harness is a 3-step

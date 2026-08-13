@@ -51,27 +51,27 @@ def test_list_features_and_probes():
 def test_linear_probe_forward():
     """LinearProbe produces (N,) logits from (N, D) pairs."""
     probe = LinearProbe(feat_dim=7)
-    feats_teacher = torch.randn(4, 7)
-    feats_student = torch.randn(4, 7)
-    scores = probe(feats_teacher, feats_student)
+    feats_anchor = torch.randn(4, 7)
+    feats_query = torch.randn(4, 7)
+    scores = probe(feats_anchor, feats_query)
     assert scores.shape == (4,)
 
 
 def test_mlp_probe_forward():
     """MLPProbe produces (N,) logits from (N, D) pairs."""
     probe = MLPProbe(feat_dim=7, hidden=128)
-    feats_teacher = torch.randn(4, 7)
-    feats_student = torch.randn(4, 7)
-    scores = probe(feats_teacher, feats_student)
+    feats_anchor = torch.randn(4, 7)
+    feats_query = torch.randn(4, 7)
+    scores = probe(feats_anchor, feats_query)
     assert scores.shape == (4,)
 
 
 def test_cnn_probe_e2e_forward():
     """CNNProbeE2E produces (N,) logits from (N, 1, 64, 64) patch pairs."""
     probe = CNNProbeE2E(scale="small", out_dim=64, probe_type="linear")
-    patches_teacher = torch.randn(2, 1, 64, 64)
-    patches_student = torch.randn(2, 1, 64, 64)
-    scores = probe(patches_teacher, patches_student)
+    patches_anchor = torch.randn(2, 1, 64, 64)
+    patches_query = torch.randn(2, 1, 64, 64)
+    scores = probe(patches_anchor, patches_query)
     assert scores.shape == (2,)
 
 
@@ -79,30 +79,30 @@ def test_cnn_probe_e2e_forward():
 
 def test_edge_pair_dataset():
     """EdgePairDataset flattens (N, M) target into N*M pairs."""
-    feats_teacher = torch.randn(5, 7)
-    feats_student = torch.randn(4, 7)
+    feats_anchor = torch.randn(5, 7)
+    feats_query = torch.randn(4, 7)
     target = torch.zeros(5, 4)
     target[0, 0] = 1.0
     target[1, 1] = 1.0
-    dataset = EdgePairDataset(feats_teacher, feats_student, target)
+    dataset = EdgePairDataset(feats_anchor, feats_query, target)
     assert len(dataset) == 20
     feat_t, feat_n, label = dataset[0]
-    assert torch.equal(feat_t, feats_teacher[0])
-    assert torch.equal(feat_n, feats_student[0])
+    assert torch.equal(feat_t, feats_anchor[0])
+    assert torch.equal(feat_n, feats_query[0])
     assert label.item() == 1.0
 
 
 def test_edge_pair_dataset_patches():
     """EdgePairDatasetPatches stores patches for cnn_e2e training."""
-    patches_teacher = torch.randn(3, 1, 64, 64)
-    patches_student = torch.randn(2, 1, 64, 64)
+    patches_anchor = torch.randn(3, 1, 64, 64)
+    patches_query = torch.randn(2, 1, 64, 64)
     target = torch.zeros(3, 2)
     target[0, 0] = 1.0
-    dataset = EdgePairDatasetPatches(patches_teacher, patches_student, target)
+    dataset = EdgePairDatasetPatches(patches_anchor, patches_query, target)
     assert len(dataset) == 6
-    sample_teacher, sample_student, label = dataset[0]
-    assert torch.equal(sample_teacher, patches_teacher[0])
-    assert torch.equal(sample_student, patches_student[0])
+    sample_anchor, sample_query, label = dataset[0]
+    assert torch.equal(sample_anchor, patches_anchor[0])
+    assert torch.equal(sample_query, patches_query[0])
     assert label.item() == 1.0
 
 
@@ -134,14 +134,14 @@ def test_train_probe_runs():
     probe = LinearProbe(feat_dim)
 
     # Create dummy train/val loaders
-    feats_teacher = torch.randn(20, feat_dim)
-    feats_student = torch.randn(20, feat_dim)
+    feats_anchor = torch.randn(20, feat_dim)
+    feats_query = torch.randn(20, feat_dim)
     target = torch.zeros(20, 20)
     for i in range(20):
         target[i, i] = 1.0
 
-    train_ds = EdgePairDataset(feats_teacher, feats_student, target)
-    val_ds = EdgePairDataset(feats_teacher[:10], feats_student[:10], target[:10, :10])
+    train_ds = EdgePairDataset(feats_anchor, feats_query, target)
+    val_ds = EdgePairDataset(feats_anchor[:10], feats_query[:10], target[:10, :10])
 
     train_loader = torch.utils.data.DataLoader(train_ds, batch_size=16, shuffle=True)
     val_loader = torch.utils.data.DataLoader(val_ds, batch_size=16, shuffle=False)

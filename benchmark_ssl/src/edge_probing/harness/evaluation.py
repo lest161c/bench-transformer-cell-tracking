@@ -6,22 +6,20 @@ condition-split fallback), the training loop, and the shuffle
 baseline. These are the functions called by the
 ``unified_edge_probe`` orchestrator script.
 
-Teacher / student naming convention
+Anchor / query naming convention
 -----------------------------------
 Every per-frame-pair datum carries features from two consecutive
-microscopy frames. We name them by their role in the edge-probing
-paradigm:
+microscopy frames. We name them by their role in the link-prediction
+task, borrowing retrieval / metric-learning terminology:
 
-- **Teacher frame**: the reference frame (frame at time t). It
-  provides the anchor cells and (via tracklets) the ground-truth
-  lineage annotations that define which cells in the next frame are
-  daughters of which cells here.
-- **Student frame**: the next frame (frame at time t+1) whose cells
-  must be matched back to the teacher frame. The probe being trained
-  acts as a "student" learning to predict that match.
+- **Anchor** (frame t): the reference cell whose lineage we already
+  know. For each anchor cell the probe must decide which cells in
+  the next frame are the same tracklet or a daughter.
+- **Query** (frame t+1): a candidate cell in the next frame that
+  must be matched back to an anchor.
 
 Variables, dict keys, and class attributes therefore use the
-``_teacher`` / ``_student`` suffix instead of the cryptic ``_t`` /
+``_anchor`` / ``_query`` suffix instead of the cryptic ``_t`` /
 ``_n`` that previously referenced the temporal index only.
 """
 
@@ -108,26 +106,26 @@ def build_frame_pairs(pairs, max_pairs, feature_type, checkpoint_path=None):
     Build per-frame-pair data for a given feature type.
 
     For every consecutive frame pair found by ``scan_consecutive_pairs``,
-    load the teacher (frame t) and student (frame t+1) images and
+    load the anchor (frame t) and query (frame t+1) images and
     segmentation masks, extract per-cell features of the requested
     ``feature_type``, align the two frames by label, and assemble the
-    (teacher features, student features, edge target) tuples used by
+    (anchor features, query features, edge target) tuples used by
     the probe training loop. See the module docstring for the full
-    teacher / student naming convention.
+    anchor / query naming convention.
 
     Returns list of dicts, each containing:
-      - feat_teacher: (n_cells_teacher, D) or
-        patches_teacher: (n_cells_teacher, 1, 64, 64)
-      - feat_student: (n_cells_student, D) or
-        patches_student: (n_cells_student, 1, 64, 64)
-      - target: (n_cells_teacher, n_cells_student) binary matrix
+      - feat_anchor: (n_cells_anchor, D) or
+        patches_anchor: (n_cells_anchor, 1, 64, 64)
+      - feat_query: (n_cells_query, D) or
+        patches_query: (n_cells_query, 1, 64, 64)
+      - target: (n_cells_anchor, n_cells_query) binary matrix
       - n_pos, n_neg: counts
       - condition: string
 
     Args:
         pairs: list of consecutive frame-pair tuples from
-            ``scan_consecutive_pairs`` (mask_teacher, mask_student,
-            img_teacher, img_student, man_track_path, condition,
+            ``scan_consecutive_pairs`` (mask_anchor, mask_query,
+            img_anchor, img_query, man_track_path, condition,
             experiment).
         max_pairs: maximum number of frame pairs to process.
         feature_type: one of 'rp', 'hoct19', 'cnn_frozen', 'dino',
@@ -153,15 +151,15 @@ def build_frame_pairs(pairs, max_pairs, feature_type, checkpoint_path=None):
         cnn_frozen_model.eval()
         logger.info(f"  Loaded checkpoint: {checkpoint_path}")
 
-    for idx, (mask_path_teacher, mask_path_student, img_path_teacher, img_path_student, man_track_path, condition, experiment) in enumerate(pairs[:max_pairs]):
-        frame_teacher = load_frame(mask_path_teacher, img_path_teacher)
-        frame_student = load_frame(mask_path_student, img_path_student)
-        if frame_teacher is None or frame_student is None:
+    for idx, (mask_path_anchor, mask_path_query, img_path_anchor, img_path_query, man_track_path, condition, experiment) in enumerate(pairs[:max_pairs]):
+        frame_anchor = load_frame(mask_path_anchor, img_path_anchor)
+        frame_query = load_frame(mask_path_query, img_path_query)
+        if frame_anchor is None or frame_query is None:
             continue
-        coords_teacher, labels_teacher, img_teacher, mask_teacher = frame_teacher
-        coords_student, labels_student, img_student, mask_student = frame_student
+        coords_anchor, labels_anchor, img_anchor, mask_anchor = frame_anchor
+        coords_query, labels_query, img_query, mask_query = frame_query
 
-        if len(labels_teacher) < 3 or len(labels_student) < 3:
+        if len(labels_anchor) < 3 or len(labels_query) < 3:
             continue
 
         tracklets = load_tracklets(man_track_path)
@@ -169,153 +167,153 @@ def build_frame_pairs(pairs, max_pairs, feature_type, checkpoint_path=None):
         # Extract features based on type
         if feature_type == 'rp':
             # Regionprops 7D
-            _, labels_rp_teacher, feats_teacher = extract_regionprops_7d(mask_teacher, img_teacher)
-            _, labels_rp_student, feats_student = extract_regionprops_7d(mask_student, img_student)
-            if feats_teacher is None or feats_student is None:
+            _, labels_rp_anchor, feats_anchor = extract_regionprops_7d(mask_anchor, img_anchor)
+            _, labels_rp_query, feats_query = extract_regionprops_7d(mask_query, img_query)
+            if feats_anchor is None or feats_query is None:
                 continue
             # Align by label
-            label_map_teacher = {label: i for i, label in enumerate(labels_rp_teacher)}
-            label_map_student = {label: i for i, label in enumerate(labels_rp_student)}
-            idx_teacher = [label_map_teacher[label] for label in labels_teacher if label in label_map_teacher]
-            idx_student = [label_map_student[label] for label in labels_student if label in label_map_student]
-            if len(idx_teacher) < 2 or len(idx_student) < 2:
+            label_map_anchor = {label: i for i, label in enumerate(labels_rp_anchor)}
+            label_map_query = {label: i for i, label in enumerate(labels_rp_query)}
+            idx_anchor = [label_map_anchor[label] for label in labels_anchor if label in label_map_anchor]
+            idx_query = [label_map_query[label] for label in labels_query if label in label_map_query]
+            if len(idx_anchor) < 2 or len(idx_query) < 2:
                 continue
-            feats_teacher = torch.from_numpy(feats_teacher[idx_teacher]).float()
-            feats_student = torch.from_numpy(feats_student[idx_student]).float()
-            labels_teacher_aligned = labels_teacher[[label in label_map_teacher for label in labels_teacher]]
-            labels_student_aligned = labels_student[[label in label_map_student for label in labels_student]]
+            feats_anchor = torch.from_numpy(feats_anchor[idx_anchor]).float()
+            feats_query = torch.from_numpy(feats_query[idx_query]).float()
+            labels_anchor_aligned = labels_anchor[[label in label_map_anchor for label in labels_anchor]]
+            labels_query_aligned = labels_query[[label in label_map_query for label in labels_query]]
 
         elif feature_type == 'rp_fourier':
             # Regionprops 7D + Fourier PE of positions (t, y, x)
-            frame_teacher_num = int(Path(mask_path_teacher).stem.replace("man_track", ""))
-            frame_student_num = int(Path(mask_path_student).stem.replace("man_track", ""))
-            _, labels_rp_teacher, feats_teacher = extract_regionprops_7d_fourier(
-                mask_teacher, img_teacher, frame_idx=frame_teacher_num,
+            frame_anchor_num = int(Path(mask_path_anchor).stem.replace("man_track", ""))
+            frame_query_num = int(Path(mask_path_query).stem.replace("man_track", ""))
+            _, labels_rp_anchor, feats_anchor = extract_regionprops_7d_fourier(
+                mask_anchor, img_anchor, frame_idx=frame_anchor_num,
             )
-            _, labels_rp_student, feats_student = extract_regionprops_7d_fourier(
-                mask_student, img_student, frame_idx=frame_student_num,
+            _, labels_rp_query, feats_query = extract_regionprops_7d_fourier(
+                mask_query, img_query, frame_idx=frame_query_num,
             )
-            if feats_teacher is None or feats_student is None:
+            if feats_anchor is None or feats_query is None:
                 continue
             # Align by label
-            label_map_teacher = {label: i for i, label in enumerate(labels_rp_teacher)}
-            label_map_student = {label: i for i, label in enumerate(labels_rp_student)}
-            idx_teacher = [label_map_teacher[label] for label in labels_teacher if label in label_map_teacher]
-            idx_student = [label_map_student[label] for label in labels_student if label in label_map_student]
-            if len(idx_teacher) < 2 or len(idx_student) < 2:
+            label_map_anchor = {label: i for i, label in enumerate(labels_rp_anchor)}
+            label_map_query = {label: i for i, label in enumerate(labels_rp_query)}
+            idx_anchor = [label_map_anchor[label] for label in labels_anchor if label in label_map_anchor]
+            idx_query = [label_map_query[label] for label in labels_query if label in label_map_query]
+            if len(idx_anchor) < 2 or len(idx_query) < 2:
                 continue
-            feats_teacher = torch.from_numpy(feats_teacher[idx_teacher]).float()
-            feats_student = torch.from_numpy(feats_student[idx_student]).float()
-            labels_teacher_aligned = labels_teacher[[label in label_map_teacher for label in labels_teacher]]
-            labels_student_aligned = labels_student[[label in label_map_student for label in labels_student]]
+            feats_anchor = torch.from_numpy(feats_anchor[idx_anchor]).float()
+            feats_query = torch.from_numpy(feats_query[idx_query]).float()
+            labels_anchor_aligned = labels_anchor[[label in label_map_anchor for label in labels_anchor]]
+            labels_query_aligned = labels_query[[label in label_map_query for label in labels_query]]
 
         elif feature_type == 'hoct19':
             # HOCT 13D (adapted from 19D): keep t, drop z, inertia 3×3→2×2
-            frame_teacher_num = int(Path(mask_path_teacher).stem.replace("man_track", ""))
-            frame_student_num = int(Path(mask_path_student).stem.replace("man_track", ""))
-            _, labels_h_teacher, feats_teacher = extract_hoct19(mask_teacher, img_teacher, frame_idx=frame_teacher_num)
-            _, labels_h_student, feats_student = extract_hoct19(mask_student, img_student, frame_idx=frame_student_num)
-            if feats_teacher is None or feats_student is None:
+            frame_anchor_num = int(Path(mask_path_anchor).stem.replace("man_track", ""))
+            frame_query_num = int(Path(mask_path_query).stem.replace("man_track", ""))
+            _, labels_h_anchor, feats_anchor = extract_hoct19(mask_anchor, img_anchor, frame_idx=frame_anchor_num)
+            _, labels_h_query, feats_query = extract_hoct19(mask_query, img_query, frame_idx=frame_query_num)
+            if feats_anchor is None or feats_query is None:
                 continue
             # Align by label
-            label_map_teacher = {label: i for i, label in enumerate(labels_h_teacher)}
-            label_map_student = {label: i for i, label in enumerate(labels_h_student)}
-            idx_teacher = [label_map_teacher[label] for label in labels_teacher if label in label_map_teacher]
-            idx_student = [label_map_student[label] for label in labels_student if label in label_map_student]
-            if len(idx_teacher) < 2 or len(idx_student) < 2:
+            label_map_anchor = {label: i for i, label in enumerate(labels_h_anchor)}
+            label_map_query = {label: i for i, label in enumerate(labels_h_query)}
+            idx_anchor = [label_map_anchor[label] for label in labels_anchor if label in label_map_anchor]
+            idx_query = [label_map_query[label] for label in labels_query if label in label_map_query]
+            if len(idx_anchor) < 2 or len(idx_query) < 2:
                 continue
-            feats_teacher = torch.from_numpy(feats_teacher[idx_teacher]).float()
-            feats_student = torch.from_numpy(feats_student[idx_student]).float()
-            labels_teacher_aligned = labels_teacher[[label in label_map_teacher for label in labels_teacher]]
-            labels_student_aligned = labels_student[[label in label_map_student for label in labels_student]]
+            feats_anchor = torch.from_numpy(feats_anchor[idx_anchor]).float()
+            feats_query = torch.from_numpy(feats_query[idx_query]).float()
+            labels_anchor_aligned = labels_anchor[[label in label_map_anchor for label in labels_anchor]]
+            labels_query_aligned = labels_query[[label in label_map_query for label in labels_query]]
 
         elif feature_type == 'hoct19_fourier':
             # HOCT 13D + Fourier PE: keep t as scalar, replace raw
             # centroid coords with Fourier PE of (y, x)
-            frame_teacher_num = int(Path(mask_path_teacher).stem.replace("man_track", ""))
-            frame_student_num = int(Path(mask_path_student).stem.replace("man_track", ""))
-            _, labels_h_teacher, feats_teacher = extract_hoct19_fourier(
-                mask_teacher, img_teacher, frame_idx=frame_teacher_num,
+            frame_anchor_num = int(Path(mask_path_anchor).stem.replace("man_track", ""))
+            frame_query_num = int(Path(mask_path_query).stem.replace("man_track", ""))
+            _, labels_h_anchor, feats_anchor = extract_hoct19_fourier(
+                mask_anchor, img_anchor, frame_idx=frame_anchor_num,
             )
-            _, labels_h_student, feats_student = extract_hoct19_fourier(
-                mask_student, img_student, frame_idx=frame_student_num,
+            _, labels_h_query, feats_query = extract_hoct19_fourier(
+                mask_query, img_query, frame_idx=frame_query_num,
             )
-            if feats_teacher is None or feats_student is None:
+            if feats_anchor is None or feats_query is None:
                 continue
             # Align by label
-            label_map_teacher = {label: i for i, label in enumerate(labels_h_teacher)}
-            label_map_student = {label: i for i, label in enumerate(labels_h_student)}
-            idx_teacher = [label_map_teacher[label] for label in labels_teacher if label in label_map_teacher]
-            idx_student = [label_map_student[label] for label in labels_student if label in label_map_student]
-            if len(idx_teacher) < 2 or len(idx_student) < 2:
+            label_map_anchor = {label: i for i, label in enumerate(labels_h_anchor)}
+            label_map_query = {label: i for i, label in enumerate(labels_h_query)}
+            idx_anchor = [label_map_anchor[label] for label in labels_anchor if label in label_map_anchor]
+            idx_query = [label_map_query[label] for label in labels_query if label in label_map_query]
+            if len(idx_anchor) < 2 or len(idx_query) < 2:
                 continue
-            feats_teacher = torch.from_numpy(feats_teacher[idx_teacher]).float()
-            feats_student = torch.from_numpy(feats_student[idx_student]).float()
-            labels_teacher_aligned = labels_teacher[[label in label_map_teacher for label in labels_teacher]]
-            labels_student_aligned = labels_student[[label in label_map_student for label in labels_student]]
+            feats_anchor = torch.from_numpy(feats_anchor[idx_anchor]).float()
+            feats_query = torch.from_numpy(feats_query[idx_query]).float()
+            labels_anchor_aligned = labels_anchor[[label in label_map_anchor for label in labels_anchor]]
+            labels_query_aligned = labels_query[[label in label_map_query for label in labels_query]]
 
         elif feature_type in ('cnn_frozen', 'dino'):
             # Check cache first
-            frame_teacher_num = int(Path(mask_path_teacher).stem.replace("man_track", ""))
-            frame_student_num = int(Path(mask_path_student).stem.replace("man_track", ""))
-            prefix = f"f{frame_teacher_num:06d}"
-            cached_teacher, cached_labels_teacher = _load_cached_features(condition, experiment, frame_teacher_num, feature_type, labels_teacher)
-            cached_student, cached_labels_student = _load_cached_features(condition, experiment, frame_student_num, feature_type, labels_student)
+            frame_anchor_num = int(Path(mask_path_anchor).stem.replace("man_track", ""))
+            frame_query_num = int(Path(mask_path_query).stem.replace("man_track", ""))
+            prefix = f"f{frame_anchor_num:06d}"
+            cached_anchor, cached_labels_anchor = _load_cached_features(condition, experiment, frame_anchor_num, feature_type, labels_anchor)
+            cached_query, cached_labels_query = _load_cached_features(condition, experiment, frame_query_num, feature_type, labels_query)
 
-            if cached_teacher is not None and cached_student is not None:
-                feats_teacher = torch.from_numpy(cached_teacher).float()
-                feats_student = torch.from_numpy(cached_student).float()
-                labels_teacher_aligned = cached_labels_teacher
-                labels_student_aligned = cached_labels_student
+            if cached_anchor is not None and cached_query is not None:
+                feats_anchor = torch.from_numpy(cached_anchor).float()
+                feats_query = torch.from_numpy(cached_query).float()
+                labels_anchor_aligned = cached_labels_anchor
+                labels_query_aligned = cached_labels_query
             else:
                 # Extract patches and compute features
-                patches_teacher = extract_patches(img_teacher, coords_teacher)
-                patches_student = extract_patches(img_student, coords_student)
+                patches_anchor = extract_patches(img_anchor, coords_anchor)
+                patches_query = extract_patches(img_query, coords_query)
 
                 if feature_type == 'cnn_frozen':
-                    patches_tensor_teacher = torch.from_numpy(patches_teacher).float().unsqueeze(1).to(device)
-                    patches_tensor_student = torch.from_numpy(patches_student).float().unsqueeze(1).to(device)
+                    patches_tensor_anchor = torch.from_numpy(patches_anchor).float().unsqueeze(1).to(device)
+                    patches_tensor_query = torch.from_numpy(patches_query).float().unsqueeze(1).to(device)
                     with torch.no_grad():
-                        feats_teacher_np = cnn_frozen_model(patches_tensor_teacher).cpu().numpy()
-                        feats_student_np = cnn_frozen_model(patches_tensor_student).cpu().numpy()
+                        feats_anchor_np = cnn_frozen_model(patches_tensor_anchor).cpu().numpy()
+                        feats_query_np = cnn_frozen_model(patches_tensor_query).cpu().numpy()
                 else:  # dino
-                    feats_teacher_np = compute_dino_embs(patches_teacher)
-                    feats_student_np = compute_dino_embs(patches_student)
+                    feats_anchor_np = compute_dino_embs(patches_anchor)
+                    feats_query_np = compute_dino_embs(patches_query)
 
-                feats_teacher = torch.from_numpy(feats_teacher_np).float()
-                feats_student = torch.from_numpy(feats_student_np).float()
-                labels_teacher_aligned = labels_teacher
-                labels_student_aligned = labels_student
+                feats_anchor = torch.from_numpy(feats_anchor_np).float()
+                feats_query = torch.from_numpy(feats_query_np).float()
+                labels_anchor_aligned = labels_anchor
+                labels_query_aligned = labels_query
 
                 # Cache
-                _save_cached_features(condition, experiment, frame_teacher_num, feature_type, feats_teacher_np, labels_teacher)
-                _save_cached_features(condition, experiment, frame_student_num, feature_type, feats_student_np, labels_student)
+                _save_cached_features(condition, experiment, frame_anchor_num, feature_type, feats_anchor_np, labels_anchor)
+                _save_cached_features(condition, experiment, frame_query_num, feature_type, feats_query_np, labels_query)
 
         elif feature_type == 'cnn_e2e':
             # Just store patches; model is trained jointly
-            patches_teacher = extract_patches(img_teacher, coords_teacher)
-            patches_student = extract_patches(img_student, coords_student)
-            n_cells_teacher, n_cells_student = len(labels_teacher), len(labels_student)
-            target = torch.zeros(n_cells_teacher, n_cells_student, dtype=torch.float32)
+            patches_anchor = extract_patches(img_anchor, coords_anchor)
+            patches_query = extract_patches(img_query, coords_query)
+            n_cells_anchor, n_cells_query = len(labels_anchor), len(labels_query)
+            target = torch.zeros(n_cells_anchor, n_cells_query, dtype=torch.float32)
             n_pos = 0
-            for i, label_teacher in enumerate(labels_teacher):
-                label_teacher_int = int(label_teacher)
-                for j, label_student in enumerate(labels_student):
-                    label_student_int = int(label_student)
-                    if label_teacher_int == label_student_int:
+            for i, label_anchor in enumerate(labels_anchor):
+                label_anchor_int = int(label_anchor)
+                for j, label_query in enumerate(labels_query):
+                    label_query_int = int(label_query)
+                    if label_anchor_int == label_query_int:
                         target[i, j] = 1.0
                         n_pos += 1
-                    elif label_student_int in tracklets and tracklets[label_student_int]['parent'] == label_teacher_int:
+                    elif label_query_int in tracklets and tracklets[label_query_int]['parent'] == label_anchor_int:
                         target[i, j] = 1.0
                         n_pos += 1
             if target.sum() < 1:
                 continue
             edge_data.append({
-                "patches_teacher": torch.from_numpy(patches_teacher).float().unsqueeze(1),  # (N, 1, H, W)
-                "patches_student": torch.from_numpy(patches_student).float().unsqueeze(1),
+                "patches_anchor": torch.from_numpy(patches_anchor).float().unsqueeze(1),  # (N, 1, H, W)
+                "patches_query": torch.from_numpy(patches_query).float().unsqueeze(1),
                 "target": target,
                 "n_pos": n_pos,
-                "n_neg": n_cells_teacher * n_cells_student - n_pos,
+                "n_neg": n_cells_anchor * n_cells_query - n_pos,
                 "condition": condition,
                 "experiment": experiment,
             })
@@ -326,17 +324,17 @@ def build_frame_pairs(pairs, max_pairs, feature_type, checkpoint_path=None):
 
         # Build target matrix
         if feature_type != 'cnn_e2e':
-            n_cells_teacher, n_cells_student = len(labels_teacher_aligned), len(labels_student_aligned)
-            target = torch.zeros(n_cells_teacher, n_cells_student, dtype=torch.float32)
+            n_cells_anchor, n_cells_query = len(labels_anchor_aligned), len(labels_query_aligned)
+            target = torch.zeros(n_cells_anchor, n_cells_query, dtype=torch.float32)
             n_pos = 0
-            for i, label_teacher in enumerate(labels_teacher_aligned):
-                label_teacher_int = int(label_teacher)
-                for j, label_student in enumerate(labels_student_aligned):
-                    label_student_int = int(label_student)
-                    if label_teacher_int == label_student_int:
+            for i, label_anchor in enumerate(labels_anchor_aligned):
+                label_anchor_int = int(label_anchor)
+                for j, label_query in enumerate(labels_query_aligned):
+                    label_query_int = int(label_query)
+                    if label_anchor_int == label_query_int:
                         target[i, j] = 1.0
                         n_pos += 1
-                    elif label_student_int in tracklets and tracklets[label_student_int]['parent'] == label_teacher_int:
+                    elif label_query_int in tracklets and tracklets[label_query_int]['parent'] == label_anchor_int:
                         target[i, j] = 1.0
                         n_pos += 1
 
@@ -344,11 +342,11 @@ def build_frame_pairs(pairs, max_pairs, feature_type, checkpoint_path=None):
                 continue
 
             edge_data.append({
-                "feat_teacher": feats_teacher,
-                "feat_student": feats_student,
+                "feat_anchor": feats_anchor,
+                "feat_query": feats_query,
                 "target": target,
                 "n_pos": n_pos,
-                "n_neg": n_cells_teacher * n_cells_student - n_pos,
+                "n_neg": n_cells_anchor * n_cells_query - n_pos,
                 "condition": condition,
                 "experiment": experiment,
             })
