@@ -17,8 +17,8 @@ For every combination of (method, L, N, K) the sweep:
   5. appends a CSV row ``[method, L, N, K, time_ms, memory_mb, error]``.
 
 Methods are selected with ``--methods`` (registry keys such as
-``gather-sdpa``, ``gather-fused``, ``gather-matmul``, ``mask-knn``,
-``dense_flash``, ``dense_masked``, ``nsa``, ``knn-relpos``, ``minimax``) and
+``gather_sdpa``, ``gather_fused``, ``gather_matmul``, ``mask_knn``,
+``dense_flash``, ``dense_masked``, ``nsa``, ``knn_relpos``, ``minimax``) and
 default to every registered method (``list_methods``).  K is only meaningful
 for KNN-based methods; all other methods are emitted with ``K=0``.
 
@@ -29,7 +29,7 @@ replaced scripts; the effective timing parameters are governed by the harness.
 
 Usage:
     python scripts/benchmarks/benchmark_sweep.py \\
-        --methods gather-sdpa,gather-fused,gather-matmul,mask-knn,dense_flash,dense_masked,nsa,knn-relpos,minimax \\
+        --methods gather_sdpa,gather_fused,gather_matmul,mask_knn,dense_flash,dense_masked,nsa,knn_relpos,minimax \\
         --Ns 128,256,512,1024,2048,4096,8192 --Ks 4,16,64 --layers 1,4 \\
         --mode none --dist-mode v1 --warmup 5 --rep 30 \\
         --d 320 --nhead 8 --coord-dim 2 --seed 42 \\
@@ -62,11 +62,11 @@ from src.attention_modules import (
 # dense masked variant takes ``(query, key, value, coords)``, and everything
 # else (dense_flash, nsa, minimax) is called as ``(query, key, value)``.
 _METHOD_FORWARD_STYLES = {
-    "gather-sdpa": "knn",
-    "gather-fused": "knn",
-    "gather-matmul": "knn",
-    "mask-knn": "knn",
-    "knn-relpos": "relpos",
+    "gather_sdpa": "knn",
+    "gather_fused": "knn",
+    "gather_matmul": "knn",
+    "mask_knn": "knn",
+    "knn_relpos": "relpos",
     "dense_masked": "masked",
     "dense_flash": "qkv",
     "nsa": "qkv",
@@ -102,11 +102,11 @@ def _make_layer(method_key, cls, seq_len, d_model, n_head, knn_neighbors,
     if method_key == "dense_masked":
         return cls(coord_dim, d_model, n_head, mode=mode,
                    attn_dist_mode=dist_mode).to(device, dtype)
-    if method_key == "knn-relpos":
+    if method_key == "knn_relpos":
         return cls(coord_dim, d_model, n_head, mode=mode,
                    knn_neighbors=knn_neighbors).to(device, dtype)
     if METHOD_REGISTRY[method_key].needs_knn:
-        # gather-sdpa / gather-fused / gather-matmul / mask-knn
+        # gather_sdpa / gather_fused / gather_matmul / mask_knn
         return cls(d_model, n_head, knn_neighbors=knn_neighbors,
                    coord_dim=coord_dim, mode=mode).to(device, dtype)
     if method_key == "minimax":

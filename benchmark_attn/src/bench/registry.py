@@ -31,11 +31,11 @@ class MethodEntry:
 METHOD_REGISTRY: dict[str, MethodEntry] = {
     "dense_masked": MethodEntry("dense_masked", "src.attention_modules.RelativePositionalAttention", needs_knn=False, needs_coords=True),
     "dense_flash": MethodEntry("dense_flash", "src.attention_modules.DenseFlashAttention", needs_knn=False, needs_coords=False),
-    "gather-sdpa": MethodEntry("gather-sdpa", "src.attention_modules.GatherSparseAttention", needs_knn=True, needs_coords=True),
-    "gather-fused": MethodEntry("gather-fused", "src.attention_modules.GatherSparseFusedAttention", needs_knn=True, needs_coords=True),
-    "gather-matmul": MethodEntry("gather-matmul", "src.attention_modules.GatherSparseMatmulAttention", needs_knn=True, needs_coords=True),
-    "mask-knn": MethodEntry("mask-knn", "src.attention_modules.KNNMaskSparseAttention", needs_knn=True, needs_coords=True),
-    "knn-relpos": MethodEntry("knn-relpos", "src.attention_modules.KNNRelativePositionalAttention", needs_knn=True, needs_coords=True),
+    "gather_sdpa": MethodEntry("gather_sdpa", "src.attention_modules.GatherSparseAttention", needs_knn=True, needs_coords=True),
+    "gather_fused": MethodEntry("gather_fused", "src.attention_modules.GatherSparseFusedAttention", needs_knn=True, needs_coords=True),
+    "gather_matmul": MethodEntry("gather_matmul", "src.attention_modules.GatherSparseMatmulAttention", needs_knn=True, needs_coords=True),
+    "mask_knn": MethodEntry("mask_knn", "src.attention_modules.KNNMaskSparseAttention", needs_knn=True, needs_coords=True),
+    "knn_relpos": MethodEntry("knn_relpos", "src.attention_modules.KNNRelativePositionalAttention", needs_knn=True, needs_coords=True),
     "nsa": MethodEntry("nsa", "src.attention_modules.NSASparseAttention", needs_knn=False, needs_coords=False),
     "minimax": MethodEntry("minimax", "src.attention_modules.MiniMaxSparseAttention", needs_knn=False, needs_coords=False),
 }

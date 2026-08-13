@@ -39,16 +39,16 @@ All scripts run from the `benchmark_attn/` directory with the project venv:
 
 ```bash
 # Main sparse vs dense sweep (N up to 8192, K 4-64; extend via --Ns/--Ks flags)
-python scripts/benchmarks/benchmark_sweep.py --methods gather-sdpa,dense_flash,dense_masked --Ks 4,16,64
+python scripts/benchmarks/benchmark_sweep.py --methods gather_sdpa,dense_flash,dense_masked --Ks 4,16,64
 
-# Unified benchmark: all methods × all N, forward + peak memory (mask-knn at N>=2048)
-python scripts/benchmarks/benchmark_sweep.py --methods gather-sdpa,gather-fused,gather-matmul,mask-knn,knn-relpos,minimax,nsa,dense_flash,dense_masked
+# Unified benchmark: all methods × all N, forward + peak memory (mask_knn at N>=2048)
+python scripts/benchmarks/benchmark_sweep.py --methods gather_sdpa,gather_fused,gather_matmul,mask_knn,knn_relpos,minimax,nsa,dense_flash,dense_masked
 
 # CachedDistAttention real measurement (classes in local src/attention_modules.py)
 python scripts/benchmarks/benchmark_cached_dist.py
 
-# Gather variants: gather-sdpa (GatherSparseAttention), gather-fused (GatherSparseFusedAttention), gather-matmul (GatherSparseMatmulAttention)
-python scripts/benchmarks/benchmark_sweep.py --methods gather-sdpa,gather-fused,gather-matmul
+# Gather variants: gather_sdpa (GatherSparseAttention), gather_fused (GatherSparseFusedAttention), gather_matmul (GatherSparseMatmulAttention)
+python scripts/benchmarks/benchmark_sweep.py --methods gather_sdpa,gather_fused,gather_matmul
 
 # Profiler (per-operation CUDA time breakdown) → profiler_out/profile_gather_results.json
 # Merged profiler: general mode (dense/sparse sweep) or gather mode (GatherSparseAttention)
@@ -75,7 +75,7 @@ python scripts/benchmarks/benchmark_profiler.py
 python scripts/benchmarks/benchmark_all_spatial_methods.py
 
 # Small-N behavior (N ≤ 512)
-python scripts/benchmarks/benchmark_sweep.py --methods gather-sdpa,gather-fused,gather-matmul --Ns 128,256,512 --Ks 16 --layers 1
+python scripts/benchmarks/benchmark_sweep.py --methods gather_sdpa,gather_fused,gather_matmul --Ns 128,256,512 --Ks 16 --layers 1
 ```
 
 ### Exploratory / one-off

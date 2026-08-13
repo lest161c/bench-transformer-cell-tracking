@@ -40,13 +40,13 @@ CSV paths resolve.
 ### 2.1 `scripts/benchmarks/benchmark_sweep.py` — method × L × N × K sweep
 
 Purpose: forward time + incremental peak GPU memory for every registered method
-(`dense_masked`, `dense_flash`, `nsa`, `gather-sdpa`, `gather-fused`, `gather-matmul`,
-`mask-knn`, `knn-relpos`, `minimax`) over L × N × K. Writes `method,L,N,K,time_ms,memory_mb,error`
+(`dense_masked`, `dense_flash`, `nsa`, `gather_sdpa`, `gather_fused`, `gather_matmul`,
+`mask_knn`, `knn_relpos`, `minimax`) over L × N × K. Writes `method,L,N,K,time_ms,memory_mb,error`
 rows; OOM and other failures land in the `error` column.
 
 ```bash
 cd benchmark_attn && $V scripts/benchmarks/benchmark_sweep.py \
-    --methods gather-sdpa,gather-fused,gather-matmul,mask-knn,dense_flash,dense_masked,nsa,knn-relpos,minimax \
+    --methods gather_sdpa,gather_fused,gather_matmul,mask_knn,dense_flash,dense_masked,nsa,knn_relpos,minimax \
     --Ns 128,256,512,1024,2048,4096,8192 --Ks 4,16,64 --layers 1,4 \
     --mode none --dist-mode v1 --d 320 --nhead 8 --coord-dim 2 --seed 42 \
     --out results/full_bench_a500.csv
@@ -65,7 +65,7 @@ Notes:
 
 ```bash
 cd benchmark_attn && $V scripts/benchmarks/benchmark_sweep.py \
-    --methods gather-sdpa,gather-fused,gather-matmul \
+    --methods gather_sdpa,gather_fused,gather_matmul \
     --out results/sweep_results.csv
 ```
 
@@ -98,11 +98,11 @@ cd benchmark_attn && $V scripts/benchmarks/benchmark_mask_vs_gather.py
 # writes benchmark_mask_vs_gather.csv (method,N,K,time_s,mem_mb,speedup_vs_gather) into the CWD
 ```
 
-Covers N ≤ 512 only; mask-knn at N ≥ 2048 lives in `results/full_bench_a500.csv` (§6.1).
+Covers N ≤ 512 only; mask_knn at N ≥ 2048 lives in `results/full_bench_a500.csv` (§6.1).
 
 ### 2.5 `scripts/benchmarks/benchmark_all_spatial_methods.py` — spatial-cutoff methods
 
-Purpose: FlexAttention vs gather-sdpa vs mask-knn vs cuDNN hard mask, head-to-head
+Purpose: FlexAttention vs gather_sdpa vs mask_knn vs cuDNN hard mask, head-to-head
 (d=320, nhead=8, d_head=40, fp16, d_max=256, lam=5, knn_k=16). Verifies spatial-cutoff
 equivalence via cosine similarity against the hard-mask baseline.
 
@@ -177,7 +177,7 @@ Equivalent manual command (also the one the slurm script should run — see §8.
 
 ```bash
 cd "$REPO/benchmark_attn" && $VENV/bin/python scripts/benchmarks/benchmark_sweep.py \
-    --methods gather-sdpa,gather-fused,gather-matmul,mask-knn,dense_flash,dense_masked,nsa,knn-relpos,minimax \
+    --methods gather_sdpa,gather_fused,gather_matmul,mask_knn,dense_flash,dense_masked,nsa,knn_relpos,minimax \
     --d 320 --nhead 8 --warmup 10 --rep 50 --Ks 4,16 \
     --out results/full_bench_h100.csv
 ```
@@ -219,7 +219,7 @@ CSVs render as interactive tables on GitHub.
 
 Data: [full_bench_a500.csv](results/full_bench_a500.csv).
 
-Legacy schema (`method,N,time_ms,memory_mb,error`; names like `mask-KNN_K=16`). mask-knn fits
+Legacy schema (`method,N,time_ms,memory_mb,error`; names like `mask-KNN_K=16`). mask_knn fits
 the A500 at N=8192 (26.1 ms / 532 MB at K=16).
 
 ### 6.2 `results/benchmark_sparse_results.csv` — dense vs sparse sweep, incl. NSA
@@ -241,8 +241,8 @@ Speedup is ~1.7–1.9× at N ≤ 256, ~1.05× at N=512–2048, 1.22× at N=4096.
 
 Data: [gather_v3_results.csv](results/gather_v3_results.csv).
 
-Legacy V1/V2/V3 naming (V1=SDPA, V2=Fused, V3=Matmul). gather-matmul is up to 5× faster than
-gather-sdpa at N ≥ 1024.
+Legacy V1/V2/V3 naming (V1=SDPA, V2=Fused, V3=Matmul). gather_matmul is up to 5× faster than
+gather_sdpa at N ≥ 1024.
 
 ### 6.5 Backward pass at N=8192
 
