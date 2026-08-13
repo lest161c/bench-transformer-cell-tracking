@@ -13,6 +13,12 @@ Usage:
         --data-root ../data/vanvliet \
         --ckpt-dir checkpoints/h100_conv_race \
         --checkpoint benchmark_ssl/cnn_encoder/probe/cnn_ntxent_large.pt
+
+Anchor / query naming convention
+--------------------------------
+Anchor (frame t) is the reference; Query (frame t+1) is the candidate.
+Each frame pair yields per-cell embeddings from the MiniTrackingTransformer
+encoder, logged to W&B as interactive embedding tables.
 """
 
 import argparse
@@ -66,58 +72,81 @@ logger.info(f"Device: {DEVICE}")
 # ═══════════════════════════════════════════════════════════════════════════
 
 def build_model(mode, device):
-    """Build MiniTrackingTransformer for mode 'C' or 'R'."""
-    enc = MiniEncoder(
+    """Build MiniTrackingTransformer for mode 'C' or 'R'.
+
+    Args:
+        mode: 'C' for CNN features, 'R' for regionprops features.
+        device: torch device to place the model on.
+
+    Returns:
+        MiniTrackingTransformer model instance.
+    """
+    encoder = MiniEncoder(
         d_model=320, nhead=8, num_layers=6, pe_dim=PE_DIM,
         feat_dim=7,
         cnn_feat_dim=CNN_FEAT_DIM if mode == "C" else None,
     ).to(device)
-    dec = MiniDecoder(d_model=320, nhead=8, num_layers=6).to(device)
-    model = MiniTrackingTransformer(encoder=enc, decoder=dec, d_head=32).to(device)
+    decoder = MiniDecoder(d_model=320, nhead=8, num_layers=6).to(device)
+    model = MiniTrackingTransformer(encoder=encoder, decoder=decoder, d_head=32).to(device)
     return model
 
 
-def load_checkpoint(ckpt_path, device):
-    """Load checkpoint and return state dict."""
-    ckpt_path = Path(ckpt_path)
-    if not ckpt_path.exists():
-        logger.error(f"Checkpoint not found: {ckpt_path}")
+def load_checkpoint(checkpoint_path, device):
+    """Load checkpoint and return state dict.
+
+    Args:
+        checkpoint_path: path to the checkpoint file.
+        device: torch device for mapping tensors.
+
+    Returns:
+        Loaded checkpoint dict, or None if the file does not exist.
+    """
+    checkpoint_path = Path(checkpoint_path)
+    if not checkpoint_path.exists():
+        logger.error(f"Checkpoint not found: {checkpoint_path}")
         return None
-    logger.info(f"Loading checkpoint: {ckpt_path}")
-    ckpt = torch.load(ckpt_path, map_location=device, weights_only=True)
-    return ckpt
+    logger.info(f"Loading checkpoint: {checkpoint_path}")
+    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=True)
+    return checkpoint
 
 
-def try_load_model(mode, ckpt_dir, device):
-    """Try to load best checkpoint for given mode. Returns (model, epoch) or (None, None)."""
-    ckpt_dir = Path(ckpt_dir)
-    # Try best checkpoint first, then latest
+def try_load_model(mode, checkpoint_dir, device):
+    """Try to load best checkpoint for given mode. Returns (model, epoch) or (None, None).
+
+    Args:
+        mode: 'C' for CNN features, 'R' for regionprops features.
+        checkpoint_dir: directory containing model_{mode}_{best,latest}.pt.
+        device: torch device to place the model on.
+
+    Returns:
+        (model, epoch) tuple, or (None, None) if no checkpoint found.
+    """
+    checkpoint_dir = Path(checkpoint_dir)
     candidates = [
-        ckpt_dir / f"model_{mode}_best.pt",
-        ckpt_dir / f"model_{mode}_latest.pt",
+        checkpoint_dir / f"model_{mode}_best.pt",
+        checkpoint_dir / f"model_{mode}_latest.pt",
     ]
-    ckpt = None
-    ckpt_path = None
-    for cp in candidates:
-        ckpt = load_checkpoint(cp, device)
-        if ckpt is not None:
-            ckpt_path = cp
+    checkpoint = None
+    checkpoint_path = None
+    for candidate_path in candidates:
+        checkpoint = load_checkpoint(candidate_path, device)
+        if checkpoint is not None:
+            checkpoint_path = candidate_path
             break
 
-    if ckpt is None:
-        logger.warning(f"No checkpoint found for Mode {mode} in {ckpt_dir}")
+    if checkpoint is None:
+        logger.warning(f"No checkpoint found for Mode {mode} in {checkpoint_dir}")
         return None, None
 
     model = build_model(mode, device)
-    sd = ckpt.get("model_state_dict", ckpt)
-    # Strip 'module.' prefix if saved with DataParallel
-    if all(k.startswith("module.") for k in sd.keys()):
-        sd = {k[7:]: v for k, v in sd.items()}
-    model.load_state_dict(sd, strict=False)
+    state_dict = checkpoint.get("model_state_dict", checkpoint)
+    if all(key.startswith("module.") for key in state_dict.keys()):
+        state_dict = {key[7:]: value for key, value in state_dict.items()}
+    model.load_state_dict(state_dict, strict=False)
     model.eval()
 
-    epoch = ckpt.get("epoch", "unknown")
-    logger.info(f"Mode {mode} model loaded from {ckpt_path} (epoch={epoch})")
+    epoch = checkpoint.get("epoch", "unknown")
+    logger.info(f"Mode {mode} model loaded from {checkpoint_path} (epoch={epoch})")
     return model, epoch
 
 
@@ -126,13 +155,23 @@ def try_load_model(mode, ckpt_dir, device):
 # ═══════════════════════════════════════════════════════════════════════════
 
 @torch.no_grad()
-def extract_embeddings_from_pairs(model, pairs, pe_mod, mode_name,
+def extract_embeddings_from_pairs(model, pairs, positional_encoder, mode_name,
                                   cnn_extractor=None, min_cells=4,
                                   max_pairs=None):
     """Extract per-cell embeddings from frame pairs.
 
     Iterates over pairs, loads each frame, computes features,
     and runs through model.encoder() to get (N, 320) embeddings.
+
+    Args:
+        model: MiniTrackingTransformer in eval mode.
+        pairs: list of 4-tuples (mask_path_anchor, mask_path_query,
+            img_path_anchor, img_path_query) from ``scan_consecutive_pairs``.
+        positional_encoder: positional-encoding module (e.g. FourierPE).
+        mode_name: 'C' or 'R', controls whether CNN features are passed to encoder.
+        cnn_extractor: optional CNNPatchExtractor for CNN-based Mode C.
+        min_cells: minimum number of shared cells required to keep a pair.
+        max_pairs: maximum number of pairs to process.
 
     Returns:
         dict with keys: embedding, cell_id, frame_id, model_type, spatial_x, spatial_y
@@ -152,93 +191,92 @@ def extract_embeddings_from_pairs(model, pairs, pe_mod, mode_name,
     skipped = 0
 
     for pair_idx in range(n_pairs):
-        mt, mn, img_t_path, img_n_path = pairs[pair_idx]
+        mask_path_anchor, mask_path_query, img_path_anchor, img_path_query = pairs[pair_idx]
 
-        # Load both frames
-        rt = load_frame(mt, img_t_path)
-        rn = load_frame(mn, img_n_path)
-        if rt is None or rn is None:
+        frame_anchor = load_frame(mask_path_anchor, img_path_anchor)
+        frame_query = load_frame(mask_path_query, img_path_query)
+        if frame_anchor is None or frame_query is None:
             skipped += 1
             continue
 
-        ct, lt, imgt = rt   # centroids (N_t, 2), labels (N_t,), image (H, W)
-        cn, ln, imgn = rn
+        coords_anchor, labels_anchor, img_anchor = frame_anchor   # centroids (N_anchor, 2), labels (N_anchor,), image (H, W)
+        coords_query, labels_query, img_query = frame_query
 
-        shared = set(lt) & set(ln)
+        shared = set(labels_anchor) & set(labels_query)
         if len(shared) < min_cells:
             skipped += 1
             continue
-        if len(lt) < min_cells or len(ln) < min_cells:
+        if len(labels_anchor) < min_cells or len(labels_query) < min_cells:
             skipped += 1
             continue
 
         # Filter to shared cells only
-        idx_t = [i for i, l in enumerate(lt) if l in shared]
-        idx_n = [i for i, l in enumerate(ln) if l in shared]
-        ct_s, lt_s = ct[idx_t], lt[idx_t]
-        cn_s, ln_s = cn[idx_n], ln[idx_n]
+        idx_anchor = [i for i, label in enumerate(labels_anchor) if label in shared]
+        idx_query = [i for i, label in enumerate(labels_query) if label in shared]
+        coords_anchor_shared, labels_anchor_shared = coords_anchor[idx_anchor], labels_anchor[idx_anchor]
+        coords_query_shared, labels_query_shared = coords_query[idx_query], labels_query[idx_query]
 
         # Load masks for regionprops
-        mask_t = imread(mt)
-        mask_n = imread(mn)
+        mask_anchor = imread(mask_path_anchor)
+        mask_query = imread(mask_path_query)
 
         # 7D regionprops features
-        feat_7d_t = extract_regionprops_7d_by_label(mask_t, imgt, lt_s)
-        feat_7d_n = extract_regionprops_7d_by_label(mask_n, imgn, ln_s)
+        feat_7d_anchor = extract_regionprops_7d_by_label(mask_anchor, img_anchor, labels_anchor_shared)
+        feat_7d_query = extract_regionprops_7d_by_label(mask_query, img_query, labels_query_shared)
 
-        if len(feat_7d_t) < 2 or len(feat_7d_n) < 2:
+        if len(feat_7d_anchor) < 2 or len(feat_7d_query) < 2:
             skipped += 1
             continue
 
         # CNN features (needed for Mode C, computed for both to keep data pipeline uniform)
         if cnn_extractor is not None:
-            pt_s = extract_patches(imgt, ct_s)[:, None, :, :]   # (N, 1, 64, 64)
-            pn_s = extract_patches(imgn, cn_s)[:, None, :, :]
-            cnn_t = torch.from_numpy(cnn_extractor.extract(pt_s)).float()
-            cnn_n = torch.from_numpy(cnn_extractor.extract(pn_s)).float()
+            patches_anchor = extract_patches(img_anchor, coords_anchor_shared)[:, None, :, :]   # (N, 1, 64, 64)
+            patches_query = extract_patches(img_query, coords_query_shared)[:, None, :, :]
+            cnn_feat_anchor = torch.from_numpy(cnn_extractor.extract(patches_anchor)).float()
+            cnn_feat_query = torch.from_numpy(cnn_extractor.extract(patches_query)).float()
         else:
-            cnn_t = cnn_n = None
+            cnn_feat_anchor = cnn_feat_query = None
 
         # Convert to tensors
-        feat_t = torch.from_numpy(feat_7d_t).float().to(DEVICE)
-        feat_n = torch.from_numpy(feat_7d_n).float().to(DEVICE)
-        coords_t = torch.from_numpy(ct_s).float().unsqueeze(0).to(DEVICE)
-        coords_n = torch.from_numpy(cn_s).float().unsqueeze(0).to(DEVICE)
+        feats_anchor = torch.from_numpy(feat_7d_anchor).float().to(DEVICE)
+        feats_query = torch.from_numpy(feat_7d_query).float().to(DEVICE)
+        coords_tensor_anchor = torch.from_numpy(coords_anchor_shared).float().unsqueeze(0).to(DEVICE)
+        coords_tensor_query = torch.from_numpy(coords_query_shared).float().unsqueeze(0).to(DEVICE)
 
-        if cnn_t is not None:
-            cnn_t = cnn_t.to(DEVICE)
-            cnn_n = cnn_n.to(DEVICE)
+        if cnn_feat_anchor is not None:
+            cnn_feat_anchor = cnn_feat_anchor.to(DEVICE)
+            cnn_feat_query = cnn_feat_query.to(DEVICE)
 
         # Positional encoding
-        pe_t = pe_mod(coords_t).squeeze(0)
-        pe_n = pe_mod(coords_n).squeeze(0)
+        pe_anchor = positional_encoder(coords_tensor_anchor).squeeze(0)
+        pe_query = positional_encoder(coords_tensor_query).squeeze(0)
 
-        # Encoder → embeddings
-        enc_t = model.encoder(feat_t, pe_t,
-                              cnn_t if mode_name == "C" else None)  # (N_t, 320)
-        enc_n = model.encoder(feat_n, pe_n,
-                              cnn_n if mode_name == "C" else None)  # (N_n, 320)
+        # Encoder -> embeddings
+        embeddings_anchor = model.encoder(feats_anchor, pe_anchor,
+                                          cnn_feat_anchor if mode_name == "C" else None)  # (N_anchor, 320)
+        embeddings_query = model.encoder(feats_query, pe_query,
+                                         cnn_feat_query if mode_name == "C" else None)  # (N_query, 320)
 
-        emb_t_np = enc_t.cpu().numpy()
-        emb_n_np = enc_n.cpu().numpy()
+        embeddings_anchor_np = embeddings_anchor.cpu().numpy()
+        embeddings_query_np = embeddings_query.cpu().numpy()
 
-        # Store frame t
-        for i in range(emb_t_np.shape[0]):
-            all_embs["embedding"].append(emb_t_np[i].tolist())
-            all_embs["cell_id"].append(int(lt_s[i]))
-            all_embs["frame_id"].append(f"pair{pair_idx}_t")
+        # Store anchor embeddings
+        for i in range(embeddings_anchor_np.shape[0]):
+            all_embs["embedding"].append(embeddings_anchor_np[i].tolist())
+            all_embs["cell_id"].append(int(labels_anchor_shared[i]))
+            all_embs["frame_id"].append(f"pair{pair_idx}_anchor")
             all_embs["model_type"].append(f"Mode_{mode_name}")
-            all_embs["spatial_x"].append(float(ct_s[i, 1]))  # centroid-1 = x (col)
-            all_embs["spatial_y"].append(float(ct_s[i, 0]))  # centroid-0 = y (row)
+            all_embs["spatial_x"].append(float(coords_anchor_shared[i, 1]))  # centroid-1 = x (col)
+            all_embs["spatial_y"].append(float(coords_anchor_shared[i, 0]))  # centroid-0 = y (row)
 
-        # Store frame n
-        for i in range(emb_n_np.shape[0]):
-            all_embs["embedding"].append(emb_n_np[i].tolist())
-            all_embs["cell_id"].append(int(ln_s[i]))
-            all_embs["frame_id"].append(f"pair{pair_idx}_n")
+        # Store query embeddings
+        for i in range(embeddings_query_np.shape[0]):
+            all_embs["embedding"].append(embeddings_query_np[i].tolist())
+            all_embs["cell_id"].append(int(labels_query_shared[i]))
+            all_embs["frame_id"].append(f"pair{pair_idx}_query")
             all_embs["model_type"].append(f"Mode_{mode_name}")
-            all_embs["spatial_x"].append(float(cn_s[i, 1]))
-            all_embs["spatial_y"].append(float(cn_s[i, 0]))
+            all_embs["spatial_x"].append(float(coords_query_shared[i, 1]))
+            all_embs["spatial_y"].append(float(coords_query_shared[i, 0]))
 
         if (pair_idx + 1) % 10 == 0:
             logger.info(f"  Processed {pair_idx + 1}/{n_pairs} pairs "
@@ -263,28 +301,29 @@ def compute_cka(X, Y):
     Returns:
         CKA score in [0, 1]
     """
-    n = X.shape[0]
-    if n != Y.shape[0]:
-        logger.warning(f"CKA: sample count mismatch ({n} vs {Y.shape[0]}), truncating")
-        m = min(n, Y.shape[0])
-        X, Y = X[:m], Y[:m]
+    num_samples = X.shape[0]
+    if num_samples != Y.shape[0]:
+        logger.warning(f"CKA: sample count mismatch ({num_samples} vs {Y.shape[0]}), truncating")
+        min_samples = min(num_samples, Y.shape[0])
+        X, Y = X[:min_samples], Y[:min_samples]
+        num_samples = min_samples
 
     # Center
     X = X - X.mean(axis=0, keepdims=True)
     Y = Y - Y.mean(axis=0, keepdims=True)
 
     # HSIC via linear kernel (X X^T and Y Y^T)
-    K = X @ X.T   # (n, n)
-    L = Y @ Y.T
+    gram_matrix_x = X @ X.T   # (n, n)
+    gram_matrix_y = Y @ Y.T
 
     # Centered Gram matrices
-    H = np.eye(n) - np.ones((n, n)) / n
-    K_c = H @ K @ H
-    L_c = H @ L @ H
+    centering_matrix = np.eye(num_samples) - np.ones((num_samples, num_samples)) / num_samples
+    gram_matrix_x_centered = centering_matrix @ gram_matrix_x @ centering_matrix
+    gram_matrix_y_centered = centering_matrix @ gram_matrix_y @ centering_matrix
 
-    hsic_xy = float(np.sum(K_c * L_c))
-    hsic_xx = float(np.sum(K_c * K_c))
-    hsic_yy = float(np.sum(L_c * L_c))
+    hsic_xy = float(np.sum(gram_matrix_x_centered * gram_matrix_y_centered))
+    hsic_xx = float(np.sum(gram_matrix_x_centered * gram_matrix_x_centered))
+    hsic_yy = float(np.sum(gram_matrix_y_centered * gram_matrix_y_centered))
 
     cka = hsic_xy / np.sqrt(hsic_xx * hsic_yy + 1e-12)
     return cka
@@ -340,15 +379,15 @@ def main():
     logger.info(f"  Dry run: {args.dry_run}")
 
     # ── 1. Load frozen CNN feature extractor ────────────────────────────
-    ckpt_path = Path(args.checkpoint)
-    if not ckpt_path.exists():
+    checkpoint_path = Path(args.checkpoint)
+    if not checkpoint_path.exists():
         # Try relative to script dir
-        alt_path = _SCRIPT_DIR / args.checkpoint
-        if alt_path.exists():
-            args.checkpoint = str(alt_path)
+        alt_checkpoint_path = _SCRIPT_DIR / args.checkpoint
+        if alt_checkpoint_path.exists():
+            args.checkpoint = str(alt_checkpoint_path)
         else:
             logger.error(f"CNN checkpoint not found: {args.checkpoint} "
-                         f"(also tried {alt_path})")
+                         f"(also tried {alt_checkpoint_path})")
             sys.exit(1)
 
     logger.info("[1/5] Loading frozen CNN extractor...")
@@ -368,19 +407,19 @@ def main():
     logger.info("[3/5] Loading model checkpoints...")
 
     # Determine absolute checkpoint dir
-    ckpt_dir = Path(args.ckpt_dir)
-    if not ckpt_dir.exists():
+    checkpoint_dir = Path(args.ckpt_dir)
+    if not checkpoint_dir.exists():
         # Try relative to repo root (research-proj)
-        alt_dir = _SCRIPT_DIR.parent.parent.parent.parent / args.ckpt_dir
-        if alt_dir.exists():
-            ckpt_dir = alt_dir
+        alt_checkpoint_dir = _SCRIPT_DIR.parent.parent.parent.parent / args.ckpt_dir
+        if alt_checkpoint_dir.exists():
+            checkpoint_dir = alt_checkpoint_dir
         else:
             logger.warning(f"Checkpoint dir not found: {args.ckpt_dir} "
-                           f"(tried {alt_dir}) — will skip model loading")
+                           f"(tried {alt_checkpoint_dir}) — will skip model loading")
 
     models = {}
     for mode in ["C", "R"]:
-        model, epoch = try_load_model(mode, ckpt_dir, DEVICE)
+        model, epoch = try_load_model(mode, checkpoint_dir, DEVICE)
         if model is not None:
             models[mode] = model
         else:
@@ -393,45 +432,45 @@ def main():
 
     # ── 4. Extract embeddings ──────────────────────────────────────────
     logger.info("[4/5] Extracting embeddings...")
-    pe_mod = FourierPE(pos_per_dim=PE_DIM_PER_COORD).to(DEVICE)
+    fourier_pe = FourierPE(pos_per_dim=PE_DIM_PER_COORD).to(DEVICE)
 
     all_embeddings = {}
     for mode_name, model in models.items():
         logger.info(f"  Extracting Mode {mode_name} embeddings...")
-        embs = extract_embeddings_from_pairs(
-            model, pairs, pe_mod, mode_name,
+        mode_embeddings = extract_embeddings_from_pairs(
+            model, pairs, fourier_pe, mode_name,
             cnn_extractor=cnn_extractor,
             min_cells=args.min_cells,
             max_pairs=args.max_pairs,
         )
-        all_embeddings[mode_name] = embs
+        all_embeddings[mode_name] = mode_embeddings
 
     # ── 5. Compute CKA metric ──────────────────────────────────────────
     logger.info("[5/5] Computing metrics & logging...")
 
     cka_score = None
     if len(models) == 2:
-        e_c = np.array(all_embeddings["C"]["embedding"])
-        e_r = np.array(all_embeddings["R"]["embedding"])
+        embeddings_mode_c = np.array(all_embeddings["C"]["embedding"])
+        embeddings_mode_r = np.array(all_embeddings["R"]["embedding"])
 
         # For CKA we need matching samples. Truncate to minimum count.
-        min_n = min(e_c.shape[0], e_r.shape[0])
-        cka_score = compute_cka(e_c[:min_n], e_r[:min_n])
+        min_samples = min(embeddings_mode_c.shape[0], embeddings_mode_r.shape[0])
+        cka_score = compute_cka(embeddings_mode_c[:min_samples], embeddings_mode_r[:min_samples])
         logger.info(f"  CKA between Mode C and Mode R: {cka_score:.4f}")
 
     # ── Logging ─────────────────────────────────────────────────────────
     if args.dry_run:
         logger.info("  Dry run — skipping W&B logging")
-        for mode_name, embs in all_embeddings.items():
-            n = len(embs["embedding"])
-            logger.info(f"  Mode {mode_name}: {n} embeddings, "
-                        f"dim={len(embs['embedding'][0]) if n else 'N/A'}")
+        for mode_name, mode_embeddings in all_embeddings.items():
+            num_embeddings = len(mode_embeddings["embedding"])
+            logger.info(f"  Mode {mode_name}: {num_embeddings} embeddings, "
+                        f"dim={len(mode_embeddings['embedding'][0]) if num_embeddings else 'N/A'}")
         print("\nEmbedding stats:")
-        for mode_name, embs in all_embeddings.items():
-            arr = np.array(embs["embedding"])
-            print(f"  Mode {mode_name}: shape={arr.shape}, "
-                  f"mean={arr.mean():.4f}, std={arr.std():.4f}, "
-                  f"norm={np.linalg.norm(arr, axis=-1).mean():.4f}")
+        for mode_name, mode_embeddings in all_embeddings.items():
+            embeddings_array = np.array(mode_embeddings["embedding"])
+            print(f"  Mode {mode_name}: shape={embeddings_array.shape}, "
+                  f"mean={embeddings_array.mean():.4f}, std={embeddings_array.std():.4f}, "
+                  f"norm={np.linalg.norm(embeddings_array, axis=-1).mean():.4f}")
         if cka_score is not None:
             print(f"  CKA: {cka_score:.4f}")
         return
@@ -461,9 +500,9 @@ def main():
     )
 
     # Log per-model embedding tables
-    for mode_name, embs in all_embeddings.items():
-        n = len(embs["embedding"])
-        if n == 0:
+    for mode_name, mode_embeddings in all_embeddings.items():
+        num_embeddings = len(mode_embeddings["embedding"])
+        if num_embeddings == 0:
             logger.warning(f"  No embeddings for Mode {mode_name}, skipping table")
             continue
 
@@ -471,35 +510,35 @@ def main():
             columns=["embedding", "cell_id", "frame_id", "model_type",
                      "spatial_x", "spatial_y"]
         )
-        for i in range(n):
+        for i in range(num_embeddings):
             table.add_data(
-                embs["embedding"][i],   # list of floats → auto-embedding in W&B
-                embs["cell_id"][i],
-                embs["frame_id"][i],
-                embs["model_type"][i],
-                embs["spatial_x"][i],
-                embs["spatial_y"][i],
+                mode_embeddings["embedding"][i],   # list of floats → auto-embedding in W&B
+                mode_embeddings["cell_id"][i],
+                mode_embeddings["frame_id"][i],
+                mode_embeddings["model_type"][i],
+                mode_embeddings["spatial_x"][i],
+                mode_embeddings["spatial_y"][i],
             )
 
-        embed_dim = len(embs["embedding"][0])
+        embedding_dim = len(mode_embeddings["embedding"][0])
         wandb_run.log({
             f"embeddings/Mode_{mode_name}": table,
-            f"embeddings/Mode_{mode_name}_count": n,
-            f"embeddings/Mode_{mode_name}_dim": embed_dim,
+            f"embeddings/Mode_{mode_name}_count": num_embeddings,
+            f"embeddings/Mode_{mode_name}_dim": embedding_dim,
         })
-        logger.info(f"  Logged Mode {mode_name} table: {n} rows × {embed_dim}D")
+        logger.info(f"  Logged Mode {mode_name} table: {num_embeddings} rows × {embedding_dim}D")
 
     # Log CKA scalar
     if cka_score is not None:
         wandb_run.log({"metrics/cka_C_vs_R": cka_score})
 
     # Log aggregate embedding stats
-    for mode_name, embs in all_embeddings.items():
-        arr = np.array(embs["embedding"])
+    for mode_name, mode_embeddings in all_embeddings.items():
+        embeddings_array = np.array(mode_embeddings["embedding"])
         wandb_run.log({
-            f"stats/{mode_name}_mean": float(arr.mean()),
-            f"stats/{mode_name}_std": float(arr.std()),
-            f"stats/{mode_name}_norm": float(np.linalg.norm(arr, axis=-1).mean()),
+            f"stats/{mode_name}_mean": float(embeddings_array.mean()),
+            f"stats/{mode_name}_std": float(embeddings_array.std()),
+            f"stats/{mode_name}_norm": float(np.linalg.norm(embeddings_array, axis=-1).mean()),
         })
 
     wandb_run.finish()
@@ -511,10 +550,10 @@ def main():
     print("=" * 60)
     print("EMBEDDING VISUALIZATION — SUMMARY")
     print("=" * 60)
-    for mode_name, embs in all_embeddings.items():
-        arr = np.array(embs["embedding"])
-        print(f"  Mode {mode_name}: {arr.shape[0]} embeddings, "
-              f"dim={arr.shape[1]}, norm={np.linalg.norm(arr, axis=-1).mean():.3f}")
+    for mode_name, mode_embeddings in all_embeddings.items():
+        embeddings_array = np.array(mode_embeddings["embedding"])
+        print(f"  Mode {mode_name}: {embeddings_array.shape[0]} embeddings, "
+              f"dim={embeddings_array.shape[1]}, norm={np.linalg.norm(embeddings_array, axis=-1).mean():.3f}")
     if cka_score is not None:
         print(f"  CKA(Mode_C, Mode_R) = {cka_score:.4f}")
     print("=" * 60)
