@@ -8,22 +8,12 @@ baseline. These are the functions called by the
 
 Anchor / query naming convention
 -----------------------------------
-Every per-frame-pair datum carries features from two consecutive
-microscopy frames. We name them by their role in the link-prediction
-task, borrowing retrieval / metric-learning terminology:
+Anchor (frame t) is the reference; Query (frame t+1) is the candidate.
+Each datum carries features from two consecutive microscopy frames.
+These are used for the link-prediction task.
 
-- **Anchor** (frame t): the reference cell whose lineage we already
-  know. For each anchor cell the probe must decide which cells in
-  the next frame are the same tracklet or a daughter.
-- **Query** (frame t+1): a candidate cell in the next frame that
-  must be matched back to an anchor.
-
-Variables, dict keys, and class attributes therefore use the
-``_anchor`` / ``_query`` suffix instead of the cryptic ``_t`` /
-``_n`` that previously referenced the temporal index only.
 """
 
-import copy
 import logging
 import time
 from pathlib import Path
@@ -34,17 +24,16 @@ from torch.utils.data import DataLoader
 from sklearn.model_selection import KFold
 
 from src.edge_probing.harness.feature_extractors import (
-    compute_dino_embs, load_dino,
+    compute_dino_embs,
     extract_regionprops_7d, extract_regionprops_7d_fourier,
     extract_hoct19, extract_hoct19_fourier, ScaledCNN,
-    _cache_path, _load_cached_features, _save_cached_features,
-    PROJECT_ROOT, device,
+    load_cached_features, save_cached_features,
+    device,
 )
 from src.edge_probing.harness.frame_data import (
     load_frame, load_tracklets, extract_patches,
 )
 from src.edge_probing.harness.edge_datasets import (
-    EdgePairDataset, EdgePairDatasetPatches,
     fit_feature_standardizer, apply_feature_standardizer,
     make_balanced_dataloader, flatten_to_pairs, concatenate_datasets,
     shuffle_edge_data_features,
@@ -54,7 +43,6 @@ from src.edge_probing.harness.training import compute_metrics, train_probe
 from src.edge_probing.harness.registry import FEATURE_REGISTRY
 
 logger = logging.getLogger("edge_probing.evaluation")
-SEED = 42
 TRAIN_CONDITIONS = ["rpsM", "recA", "pheA", "metA"]
 VAL_CONDITIONS = ["cib", "trpL"]
 
@@ -151,7 +139,7 @@ def build_frame_pairs(pairs, max_pairs, feature_type, checkpoint_path=None):
         cnn_frozen_model.eval()
         logger.info(f"  Loaded checkpoint: {checkpoint_path}")
 
-    for idx, (mask_path_anchor, mask_path_query, img_path_anchor, img_path_query, man_track_path, condition, experiment) in enumerate(pairs[:max_pairs]):
+    for mask_path_anchor, mask_path_query, img_path_anchor, img_path_query, man_track_path, condition, experiment in pairs[:max_pairs]:
         frame_anchor = load_frame(mask_path_anchor, img_path_anchor)
         frame_query = load_frame(mask_path_query, img_path_query)
         if frame_anchor is None or frame_query is None:
@@ -256,9 +244,8 @@ def build_frame_pairs(pairs, max_pairs, feature_type, checkpoint_path=None):
             # Check cache first
             frame_anchor_num = int(Path(mask_path_anchor).stem.replace("man_track", ""))
             frame_query_num = int(Path(mask_path_query).stem.replace("man_track", ""))
-            prefix = f"f{frame_anchor_num:06d}"
-            cached_anchor, cached_labels_anchor = _load_cached_features(condition, experiment, frame_anchor_num, feature_type, labels_anchor)
-            cached_query, cached_labels_query = _load_cached_features(condition, experiment, frame_query_num, feature_type, labels_query)
+            cached_anchor, cached_labels_anchor = load_cached_features(condition, experiment, frame_anchor_num, feature_type, labels_anchor)
+            cached_query, cached_labels_query = load_cached_features(condition, experiment, frame_query_num, feature_type, labels_query)
 
             if cached_anchor is not None and cached_query is not None:
                 feats_anchor = torch.from_numpy(cached_anchor).float()
@@ -286,8 +273,8 @@ def build_frame_pairs(pairs, max_pairs, feature_type, checkpoint_path=None):
                 labels_query_aligned = labels_query
 
                 # Cache
-                _save_cached_features(condition, experiment, frame_anchor_num, feature_type, feats_anchor_np, labels_anchor)
-                _save_cached_features(condition, experiment, frame_query_num, feature_type, feats_query_np, labels_query)
+                save_cached_features(condition, experiment, frame_anchor_num, feature_type, feats_anchor_np, labels_anchor)
+                save_cached_features(condition, experiment, frame_query_num, feature_type, feats_query_np, labels_query)
 
         elif feature_type == 'cnn_e2e':
             # Just store patches; model is trained jointly
@@ -403,7 +390,7 @@ def run_cross_validation(frame_pair_datasets, probe_name, feat_dim, args,
         n_folds = len(frame_pair_datasets)
         logger.warning(f"    Reducing folds to {n_folds} (not enough frame pairs)")
 
-    kf = KFold(n_splits=n_folds, shuffle=True, random_state=SEED)
+    kf = KFold(n_splits=n_folds, shuffle=True, random_state=args.seed)
     all_fold_results = []
 
     for fold_idx, (train_indices, val_indices) in enumerate(kf.split(frame_pair_datasets)):
@@ -573,7 +560,7 @@ def evaluate_feature(feature_type, all_pairs, args, checkpoint_path):
         # Shuffle baseline
         if args.shuffle_baseline:
             logger.info(f"  Running shuffled feature baseline ({args.cv_folds}-fold CV)...")
-            shuffled_edge_data = shuffle_edge_data_features(edge_data, seed=SEED)
+            shuffled_edge_data = shuffle_edge_data_features(edge_data, seed=args.seed)
             shuffled_datasets = flatten_to_pairs(shuffled_edge_data)
             if shuffled_datasets:
                 if args.probe in ("linear", "both"):
