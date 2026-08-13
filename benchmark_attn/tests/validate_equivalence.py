@@ -1,145 +1,207 @@
 """Validate that KNNMaskSparseAttention and GatherSparseAttention are equivalent.
 
 Tests forward pass equivalence (fp16, rtol=1e-2, atol=1e-3) and
-backward pass gradient equivalence across multiple seeds, sequence
-lengths, and KNN neighbor counts.
+backward pass gradient equivalence (rtol=1e-1, atol=1e-2) across
+multiple seeds, sequence lengths, and KNN neighbor counts.
 
-If all configurations pass, Mask-KNN inherits Gather-KNN's tracking
+If all configurations pass, mask-knn inherits gather-knn's tracking
 accuracy and the two can be used interchangeably.
 
 Usage::
 
-    python validate_mask_vs_gather.py
+    python tests/validate_equivalence.py
 
 Requires CUDA.  Outputs a summary table to stdout.
 """
 
 import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import torch
+
 from src.attention_modules import KNNMaskSparseAttention, GatherSparseAttention
 
-FW_RTOL = 1e-2
-FW_ATOL = 1e-3
-BW_RTOL = 1e-1
-BW_ATOL = 1e-2
+# Tolerances for forward (output) and backward (gradient) comparison.
+# Forward is tight: the two methods compute the same softmax over the
+# same gathered/masked keys, so differences are purely fp16 rounding.
+# Backward is looser: gradient computation involves different graph
+# structures (gather vs scatter_mask), so more numerical drift accrues.
+FORWARD_RTOL = 1e-2
+FORWARD_ATOL = 1e-3
+BACKWARD_RTOL = 1e-1
+BACKWARD_ATOL = 1e-2
+
+# Parameters with gradient norm below this threshold are skipped during
+# backward comparison.  Some parameters (e.g. k_pro.bias) receive
+# near-zero gradients because softmax cancels the key bias contribution;
+# comparing noise against noise produces spurious failures.
+GRAD_NORM_THRESHOLD = 1.0
 
 SEEDS = [0, 1, 2]
-NS = [128, 256, 512]
-KS = [4, 16]
-B = 2
-NH = 4
-DH = 64
-D = NH * DH  # 256
+SEQUENCE_LENGTHS = [128, 256, 512]
+KNN_NEIGHBOR_COUNTS = [4, 16]
+BATCH_SIZE = 2
+NUM_HEADS = 4
+HEAD_DIM = 64
+EMBED_DIM = NUM_HEADS * HEAD_DIM  # 256
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
-dtype = torch.float16
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+DTYPE = torch.float16
 
-print(f"device={device}, dtype={dtype}")
-print(f"FW tolerances: rtol={FW_RTOL}, atol={FW_ATOL}")
-print(f"BW tolerances: rtol={BW_RTOL}, atol={BW_ATOL}")
+print(f"device={DEVICE}, dtype={DTYPE}")
+print(f"forward tolerances: rtol={FORWARD_RTOL}, atol={FORWARD_ATOL}")
+print(f"backward tolerances: rtol={BACKWARD_RTOL}, atol={BACKWARD_ATOL}")
 
 all_pass = True
 results = []
 
-for N in NS:
-    for K in KS:
+for seq_len in SEQUENCE_LENGTHS:
+    for knn_neighbors in KNN_NEIGHBOR_COUNTS:
         for seed in SEEDS:
             torch.manual_seed(seed)
 
             mask_model = KNNMaskSparseAttention(
-                embed_dim=D, n_head=NH, knn_neighbors=K, mode="none"
-            ).to(device=device, dtype=dtype).eval()
+                embed_dim=EMBED_DIM, n_head=NUM_HEADS,
+                knn_neighbors=knn_neighbors, mode="none",
+            ).to(device=DEVICE, dtype=DTYPE).eval()
 
             gather_model = GatherSparseAttention(
-                embed_dim=D, n_head=NH, knn_neighbors=K, mode="none"
-            ).to(device=device, dtype=dtype).eval()
+                embed_dim=EMBED_DIM, n_head=NUM_HEADS,
+                knn_neighbors=knn_neighbors, mode="none",
+            ).to(device=DEVICE, dtype=DTYPE).eval()
 
+            # Copy weights so both models start from identical parameters.
             gather_model.load_state_dict(mask_model.state_dict())
 
-            x = torch.randn(B, N, D, device=device, dtype=dtype)
-            # Unique KNN indices (no duplicates per query row).
-            # Real KNN via topk produces unique neighbors; randint allows
-            # duplicates which causes mask vs gather divergence.
-            rand_vals = torch.rand(B, N, N, device=device)
-            idx = rand_vals.argsort(dim=-1)[..., :K]  # (B, N, K) unique
+            input_tokens = torch.randn(
+                BATCH_SIZE, seq_len, EMBED_DIM, device=DEVICE, dtype=DTYPE,
+            )
+            # Generate unique KNN indices per query.
+            # randint produces duplicates which cause mask vs gather
+            # divergence; argsort of rand gives guaranteed-unique rows.
+            random_values = torch.rand(BATCH_SIZE, seq_len, seq_len, device=DEVICE)
+            knn_indices = random_values.argsort(dim=-1)[..., :knn_neighbors]
 
             # ---- forward pass ----
             with torch.no_grad():
-                out_mask = mask_model(x, x, x, knn_indices=idx)
-                out_gather = gather_model(x, x, x, knn_indices=idx)
+                output_mask = mask_model(
+                    input_tokens, input_tokens, input_tokens,
+                    knn_indices=knn_indices,
+                )
+                output_gather = gather_model(
+                    input_tokens, input_tokens, input_tokens,
+                    knn_indices=knn_indices,
+                )
 
-            fw_ok = torch.allclose(out_mask, out_gather, rtol=FW_RTOL, atol=FW_ATOL)
-            max_delta = (out_mask - out_gather).abs().max().item()
-            mean_delta = (out_mask - out_gather).abs().mean().item()
+            forward_passes = torch.allclose(
+                output_mask, output_gather,
+                rtol=FORWARD_RTOL, atol=FORWARD_ATOL,
+            )
+            forward_max_delta = (
+                output_mask - output_gather
+            ).abs().max().item()
+            forward_mean_delta = (
+                output_mask - output_gather
+            ).abs().mean().item()
 
-            # cosine similarity
-            cos = torch.nn.functional.cosine_similarity(
-                out_mask.flatten(), out_gather.flatten(), dim=0
+            forward_cosine_similarity = torch.nn.functional.cosine_similarity(
+                output_mask.flatten(), output_gather.flatten(), dim=0,
             ).item()
 
             # ---- backward pass ----
-            x2 = torch.randn(B, N, D, device=device, dtype=dtype, requires_grad=True)
+            # Re-instantiate with requires_grad inputs to compare gradients.
+            # We re-seed and re-init to get the same starting weights as the
+            # forward models above.
+            backward_input = torch.randn(
+                BATCH_SIZE, seq_len, EMBED_DIM,
+                device=DEVICE, dtype=DTYPE, requires_grad=True,
+            )
 
-            mask_model2 = KNNMaskSparseAttention(
-                embed_dim=D, n_head=NH, knn_neighbors=K, mode="none"
-            ).to(device=device, dtype=dtype)
-
-            gather_model2 = GatherSparseAttention(
-                embed_dim=D, n_head=NH, knn_neighbors=K, mode="none"
-            ).to(device=device, dtype=dtype)
-
-            # copy weights from eval model (same seed gives same init)
             torch.manual_seed(seed)
-            _tmp = KNNMaskSparseAttention(
-                embed_dim=D, n_head=NH, knn_neighbors=K, mode="none"
-            ).to(device=device, dtype=dtype)
-            mask_model2.load_state_dict(_tmp.state_dict())
-            gather_model2.load_state_dict(_tmp.state_dict())
-            del _tmp
+            mask_model_backward = KNNMaskSparseAttention(
+                embed_dim=EMBED_DIM, n_head=NUM_HEADS,
+                knn_neighbors=knn_neighbors, mode="none",
+            ).to(device=DEVICE, dtype=DTYPE)
 
-            rand_vals2 = torch.rand(B, N, N, device=device)
-            idx2 = rand_vals2.argsort(dim=-1)[..., :K]  # (B, N, K) unique
-            out_mask2 = mask_model2(x2, x2, x2, knn_indices=idx2)
-            out_gather2 = gather_model2(x2, x2, x2, knn_indices=idx2)
+            gather_model_backward = GatherSparseAttention(
+                embed_dim=EMBED_DIM, n_head=NUM_HEADS,
+                knn_neighbors=knn_neighbors, mode="none",
+            ).to(device=DEVICE, dtype=DTYPE)
 
-            out_mask2.sum().backward()
-            out_gather2.sum().backward()
+            # Copy weights so backward gradients start from same parameters.
+            mask_model_backward.load_state_dict(
+                mask_model.state_dict()
+            )
+            gather_model_backward.load_state_dict(
+                gather_model.state_dict()
+            )
 
-            # compare gradients of QKV weights
-            # Use norm-based: only check params with significant gradient.
-            # Softmax cancels key bias so k_pro.bias has near-zero gradient.
-            grad_pass = True
-            grad_max_rel = 0.0
-            grad_max_delta = 0.0
-            GRAD_MIN_NORM = 1.0  # skip params with negligible gradient
-            for (nm, pm), (ng, pg) in zip(
-                mask_model2.named_parameters(), gather_model2.named_parameters()
+            backward_random_values = torch.rand(
+                BATCH_SIZE, seq_len, seq_len, device=DEVICE,
+            )
+            backward_knn_indices = backward_random_values.argsort(dim=-1)[
+                ..., :knn_neighbors
+            ]
+
+            output_mask_backward = mask_model_backward(
+                backward_input, backward_input, backward_input,
+                knn_indices=backward_knn_indices,
+            )
+            output_gather_backward = gather_model_backward(
+                backward_input, backward_input, backward_input,
+                knn_indices=backward_knn_indices,
+            )
+
+            output_mask_backward.sum().backward()
+            output_gather_backward.sum().backward()
+
+            # Compare gradients parameter-by-parameter.
+            # Only check parameters with significant gradient norm.
+            backward_passes = True
+            backward_max_rel_error = 0.0
+            backward_max_grad_delta = 0.0
+            for (mask_name, mask_param), (gather_name, gather_param) in zip(
+                mask_model_backward.named_parameters(),
+                gather_model_backward.named_parameters(),
             ):
-                if pm.grad is None or pg.grad is None:
+                if mask_param.grad is None or gather_param.grad is None:
                     continue
-                gd = pm.grad.float() - pg.grad.float()
-                gdiff_norm = gd.norm().item()
-                gnorm = pm.grad.float().norm().item()
-                rel_err = gdiff_norm / max(gnorm, 1e-8)
-                if gnorm > GRAD_MIN_NORM and rel_err > grad_max_rel:
-                    grad_max_rel = rel_err
-                    grad_max_delta = gd.abs().max().item()
-                if gnorm > GRAD_MIN_NORM and rel_err > BW_RTOL:
-                    grad_pass = False
+                grad_difference = (
+                    mask_param.grad.float() - gather_param.grad.float()
+                )
+                grad_diff_norm = grad_difference.norm().item()
+                grad_norm = mask_param.grad.float().norm().item()
+                relative_error = grad_diff_norm / max(grad_norm, 1e-8)
+                if grad_norm > GRAD_NORM_THRESHOLD and relative_error > backward_max_rel_error:
+                    backward_max_rel_error = relative_error
+                    backward_max_grad_delta = grad_difference.abs().max().item()
+                if grad_norm > GRAD_NORM_THRESHOLD and relative_error > BACKWARD_RTOL:
+                    backward_passes = False
 
-            bw_label = "PASS" if grad_pass else "FAIL"
-            fw_label = "PASS" if fw_ok else "FAIL"
-            status = "EQUIVALENT" if (fw_ok and grad_pass) else "MISMATCH"
+            forward_label = "PASS" if forward_passes else "FAIL"
+            backward_label = "PASS" if backward_passes else "FAIL"
+            status = "EQUIVALENT" if (forward_passes and backward_passes) else "MISMATCH"
 
-            results.append((N, K, seed, fw_label, bw_label, max_delta, grad_max_delta, grad_max_rel,
-                            mean_delta, cos, status))
+            results.append((
+                seq_len, knn_neighbors, seed,
+                forward_label, backward_label,
+                forward_max_delta, backward_max_grad_delta,
+                backward_max_rel_error,
+                forward_mean_delta, forward_cosine_similarity,
+                status,
+            ))
 
-            # cleanup
-            del mask_model, gather_model, mask_model2, gather_model2, x, x2, idx
-            del out_mask, out_gather, out_mask2, out_gather2
+            # Cleanup
+            del (
+                mask_model, gather_model,
+                mask_model_backward, gather_model_backward,
+                input_tokens, backward_input,
+                knn_indices, backward_knn_indices,
+                output_mask, output_gather,
+                output_mask_backward, output_gather_backward,
+            )
 
 torch.cuda.empty_cache()
 
@@ -150,15 +212,27 @@ def main():
     print("=" * 84)
     print("Mask-KNN vs Gather-KNN Equivalence Test")
     print("=" * 84)
-    print(f"dtype: float16, device: {device}")
+    print(f"dtype: float16, device: {DEVICE}")
     print()
 
-    header = f"{'Configuration':<20} {'FW':<6} {'BW':<6} {'Max |d|':<12} {'GradRel':<10} {'Mean|d|':<12} {'CosSim':<8} {'Verdict'}"
+    header = (
+        f"{'Configuration':<20} {'FW':<6} {'BW':<6} "
+        f"{'Max |d|':<12} {'GradRel':<10} "
+        f"{'Mean|d|':<12} {'CosSim':<8} {'Verdict'}"
+    )
     print(header)
     print("-" * 88)
-    for (N, K, seed, fw, bw, fw_delta, bw_delta, bw_rel, mean_d, cos, status) in results:
-        cfg = f"N={N:<4d} K={K:<2d} seed={seed}"
-        print(f"{cfg:<20} {fw:<6} {bw:<6} {fw_delta:<12.2e} {bw_rel:<10.2e} {mean_d:<12.2e} {cos:<8.4f} {status}")
+    for (seq_len, knn_neighbors, seed,
+         forward_label, backward_label,
+         forward_delta, backward_delta,
+         backward_rel, mean_delta,
+         cosine_sim, status) in results:
+        config = f"N={seq_len:<4d} K={knn_neighbors:<2d} seed={seed}"
+        print(
+            f"{config:<20} {forward_label:<6} {backward_label:<6} "
+            f"{forward_delta:<12.2e} {backward_rel:<10.2e} "
+            f"{mean_delta:<12.2e} {cosine_sim:<8.4f} {status}"
+        )
 
     print("-" * 88)
 
