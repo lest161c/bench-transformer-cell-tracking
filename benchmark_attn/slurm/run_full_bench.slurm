@@ -2,7 +2,7 @@
 #SBATCH --job-name=attn_full_bench
 #SBATCH --account=p_scads_celltracking
 #SBATCH --partition=gpu-h100
-#SBATCH --time=01:00:00
+#SBATCH --time=00:30:00
 #SBATCH --gpus-per-node=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=90G
@@ -40,7 +40,7 @@ python benchmark_attn/scripts/benchmarks/benchmark_sweep.py \
     --d 320 --nhead 8 \
     --methods gather_sdpa,gather_fused,gather_matmul,mask_knn,knn_relpos,minimax,nsa,dense_flash,dense_masked \
     --Ns 128,256,512,1024,2048,4096,8192 \
-    --Ks 4,16 \
+    --Ks 4,16, 32, 64 \
     --warmup 10 --rep 50 \
     --out benchmark_attn/full_bench_h100.csv
 
