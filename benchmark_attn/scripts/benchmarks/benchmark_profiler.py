@@ -1,7 +1,6 @@
-"""Merged PyTorch profiler wrapper for attention benchmarks.
+"""PyTorch profiler wrapper for attention benchmarks.
 
-This script merges two previously separate profiler tools, selected with
-the ``--mode`` CLI flag:
+Two modes are available via the ``--mode`` CLI flag:
 
 General mode (``--mode general``, default):
     Wraps benchmark functions with ``torch.profiler`` and outputs:

@@ -2,9 +2,8 @@
 
 The report claims a "~2x speedup" for CachedDistAttention over the per-layer
 RelativePositionalAttention baseline by computing the 2D pairwise distance
-matrix once and sharing it across all L transformer layers. Until now this was
-only backed by an *analytical* model (benchmark_knn_methods.py, cached_dense).
-This script measures the REAL classes:
+matrix once and sharing it across all L transformer layers. This script
+measures the real classes:
 
   dense_masked  = RelativePositionalAttention — per-layer 2D cdist
   cached_dist   = CachedDistAttention          — uses precomputed dist_2d

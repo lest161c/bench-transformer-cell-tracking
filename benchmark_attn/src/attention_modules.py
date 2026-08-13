@@ -1,10 +1,10 @@
 """Attention mechanisms for KNN-based sparse attention benchmarks.
 
 This module provides the core attention modules used across the
-benchmark_attn project (extracted from the former ``model_parts.py``).
-Each class implements a different attention variant (dense, gather-sparse,
-mask-sparse, NSA, MiniMax) with a common ``forward`` interface so they can
-be swapped in benchmark scripts without changing the surrounding harness.
+benchmark_attn project. Each class implements a different attention
+variant (dense, gather-sparse, mask-sparse, NSA, MiniMax) with a common
+``forward`` interface so they can be swapped in benchmark scripts without
+changing the surrounding harness.
 
 The positional-encoding helpers (:class:`RotaryPositionalEncoding`, the
 bin-initialisation functions, and ``ATTN_IGNORE_VALUE``) live in
@@ -71,10 +71,10 @@ class KNNRelativePositionalBias(nn.Module):
                 Total bins = ``2 * n_temporal + 1``.
         """
         super().__init__()
-        self.spatial_bins = _init_exponential_bins(cutoff_spatial, n_spatial)
-        self.temporal_bins = _init_linear_bins(cutoff_temporal, 2 * n_temporal + 1)
-        self.register_buffer("spatial_bins", self.spatial_bins)
-        self.register_buffer("temporal_bins", self.temporal_bins)
+        self._spatial_bins = _init_exponential_bins(cutoff_spatial, n_spatial)
+        self._temporal_bins = _init_linear_bins(cutoff_temporal, 2 * n_temporal + 1)
+        self.register_buffer("spatial_bins", self._spatial_bins)
+        self.register_buffer("temporal_bins", self._temporal_bins)
         self.n_spatial = n_spatial
         self.n_head = n_head
         self.bias = nn.Parameter(
@@ -143,12 +143,21 @@ class KNNRelativePositionalBias(nn.Module):
 
 
 class KNNRelativePositionalAttention(nn.Module):
-    """KNN-relative positional attention with gather-based sparse selection.
+    """Naive KNN-sparse adaptation of :class:`RelativePositionalAttention`.
 
-    Projects query/key/value, optionally applies RoPE, gathers the
-    ``knn_neighbors`` nearest neighbours for each query token, and
-    runs ``scaled_dot_product_attention`` on the resulting
-    ``(batch_size * seq_len, n_head, 1, knn_neighbors)`` tensors.
+    Takes the full-attention baseline (project Q/K/V, apply positional
+    encoding, compute N×N attention with relative bias and spatial
+    cutoff) and replaces the dense N×N matmul with a KNN-gather step:
+    keys/values are gathered for the ``knn_neighbors`` nearest neighbours
+    per query token, then ``scaled_dot_product_attention`` runs on the
+    resulting ``(batch_size * seq_len, n_head, 1, knn_neighbors)``
+    tensors.
+
+    This mirrors the interface and constructor signature of
+    :class:`RelativePositionalAttention` (``coord_dim`` required,
+    ``embed_dim`` must be divisible by ``2 * n_head``).  For a
+    purpose-built gather-sparse module with a simpler interface, see
+    :class:`GatherSparseAttention`.
     """
 
     def __init__(
@@ -238,10 +247,12 @@ class KNNRelativePositionalAttention(nn.Module):
             key: Key tensor, same shape as ``query``.
             value: Value tensor, same shape as ``query``.
             coords: Spatio-temporal coordinates of shape
-                ``(batch_size, seq_len, coord_dim)``.
+                ``(batch_size, seq_len, coord_dim)``.  Required when
+                ``mode="bias"``.
             padding_mask: Currently unused; kept for interface compatibility.
             knn_indices: KNN index tensor of shape
-                ``(batch_size, seq_len, knn_neighbors)``.
+                ``(batch_size, seq_len, knn_neighbors)``.  Required for
+                both sparse attention and positional bias.
 
         Returns:
             Output tensor of shape ``(batch_size, seq_len, embed_dim)``.
@@ -288,9 +299,15 @@ class KNNRelativePositionalAttention(nn.Module):
             batch_size * seq_len, self.n_head, self.knn_neighbors, head_dim
         )
 
+        attn_mask = None
+        if self._mode == "bias" and coords is not None:
+            attn_mask = self.pos_bias(coords, knn_indices).reshape(
+                batch_size * seq_len, self.n_head, 1, self.knn_neighbors
+            )
+
         attn_output = F.scaled_dot_product_attention(
             flat_query, flat_key, flat_value,
-            attn_mask=None,
+            attn_mask=attn_mask,
             dropout_p=self.dropout if self.training else 0,
         )
 
@@ -445,7 +462,9 @@ class GatherSparseAttention(nn.Module):
 
         attn_mask = None
         if self._mode == "bias" and coords is not None:
-            attn_mask = self.pos_bias(coords, knn_indices)
+            attn_mask = self.pos_bias(coords, knn_indices).reshape(
+                batch_size * seq_len, self.n_head, 1, self.knn_neighbors
+            )
 
         attn_output = F.scaled_dot_product_attention(
             flat_query, flat_key, flat_value,
@@ -591,7 +610,9 @@ class GatherSparseFusedAttention(nn.Module):
 
         attn_mask = None
         if self._mode == "bias" and coords is not None:
-            attn_mask = self.pos_bias(coords, knn_indices)
+            attn_mask = self.pos_bias(coords, knn_indices).reshape(
+                batch_size * seq_len, n_head, 1, knn_neighbors
+            )
 
         attn_output = F.scaled_dot_product_attention(
             flat_query, flat_key, flat_value,

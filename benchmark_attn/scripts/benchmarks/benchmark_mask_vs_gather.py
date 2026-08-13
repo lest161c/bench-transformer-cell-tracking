@@ -129,7 +129,7 @@ def main():
             print(f"\n  N={seq_len}:")
             results = {}
 
-            # Gather sparse (original)
+            # Gather sparse
             m = GatherSparseAttention(embed_dim=embed_dim, n_head=n_head, knn_neighbors=knn_neighbors,
                                       mode="none").to(device, dtype)
             qin = torch.randn(batch_size, seq_len, embed_dim, device=device, dtype=dtype)
@@ -154,7 +154,7 @@ def main():
             print(f"    dense_flash:  {time_s*1e6:8.1f} us  {memory_mb:6.1f} MB  ({speedup:.1f}x)")
             w.writerow(["dense_flash", seq_len, knn_neighbors, f"{time_s:.9f}", f"{memory_mb:.1f}", f"{speedup:.4f}"])
 
-            # Dense masked (original RelativePositionalAttention)
+            # Dense masked (RelativePositionalAttention)
             m = RelativePositionalAttention(
                 coord_dim=coord_dim, embed_dim=embed_dim, n_head=n_head,
                 cutoff_spatial=128.0, mode="none", attn_dist_mode="v0",

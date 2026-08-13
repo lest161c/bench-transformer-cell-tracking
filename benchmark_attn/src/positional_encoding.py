@@ -1,8 +1,6 @@
 """Positional-encoding helpers for the attention modules.
 
-Extracted from the former ``model_parts.py`` so the attention classes in
-``attention_modules.py`` can import them without carrying the bin/encoding
-machinery inline.  This module provides:
+This module provides:
 
   - ``ATTN_IGNORE_VALUE``: sentinel value used to mask out non-neighbour
     tokens in attention masks.

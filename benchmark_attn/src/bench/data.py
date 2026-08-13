@@ -1,13 +1,9 @@
 """Shared input generation and KNN computation helpers for the benchmark harness.
 
-Extracted from the duplicated ``knn_indices()`` helpers and inline input
-creation code in ``benchmarks/benchmark_full.py``,
-``benchmarks/benchmark_gather_v3.py`` and ``benchmarks/benchmark_cached_dist.py``.
-
-The input layout is kept exactly as in those scripts: the coordinate tensor
-has ``coord_dim + 1`` columns whose first (non-spatial) column is scaled by 4,
-and the KNN computation drops that first column before computing pairwise
-distances.
+The input layout is kept exactly as in the benchmark scripts: the coordinate
+tensor has ``coord_dim + 1`` columns whose first (non-spatial) column is
+scaled by 4, and the KNN computation drops that first column before
+computing pairwise distances.
 """
 
 import torch

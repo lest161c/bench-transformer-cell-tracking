@@ -1,10 +1,7 @@
 """CSV writing helpers for the benchmark harness.
 
-Extracted from the duplicated result-writing loops in the benchmark scripts
-(``benchmarks/benchmark_full.py``, ``benchmarks/benchmark_gather_v3.py``,
-``benchmarks/benchmark_cached_dist.py``), which all opened the output file
-with ``newline=""``, wrote a header row, and padded short result rows to a
-uniform column count.
+Opens the output file with ``newline=""``, writes a header row, and pads
+short result rows to a uniform column count.
 """
 
 import csv
