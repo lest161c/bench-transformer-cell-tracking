@@ -2,28 +2,26 @@
 
 Diagnostic tools for self-supervised pretraining on vanvliet cell tracking data.
 
-## Contents
+## Project layout
 
-| File | Purpose |
-|------|---------|
-| `ssl_pipeline.py` | Data loading, SSLDataset, collator for contrastive SSL (shared module at repo root) |
-| `distortions.py` | 6 distortion families (affine, elastic, jitter, dropout, photometric, feature_noise) (shared module at repo root) |
-| `track_encoder.py` | ASCENT-inspired CellEmbedder (shared module at repo root) |
-| `ssl/pretrain.py` | NT-Xent contrastive SSL training with TensorBoard |
-| `ssl/analyze_signal.py` | **Data-level signal analysis** (no model). Tests if features carry sufficient signal for contrastive learning. **Run first.** |
-| `ssl/test_dino.py` | DINOv2 feature separation analysis. Tests DINO patch features as regionprops replacement. |
-| `ssl/ssl_convergence_test.py` | **Convergence predictor.** Micro-SSL training + generalization + hard-pipeline tests. Predicts if full-scale training will converge before HPC submission. |
-| `ssl/downstream_convergence.py` | Simulates fine-tuning: SSL-pretrained vs random init on real adjacent-frame pairs. |
-| `rich_features.py` | Extended feature extraction (shape descriptors, Hu moments, local image patches via PCA) (shared module at repo root). |
-| `config.yaml` | Hyperparameters for distortion pipeline + SSL training. |
-| `slurm/run_ssl_dino_pretrain.slurm` | HPC submission script for full DINO+SSL pretraining (24h, H100). |
-
-Additional runnable scripts live in `ssl/` (`ssl/pretrain_multi.py`, `ssl/train_ssl.py`,
-`ssl/downstream_compare.py`, `ssl/compare_dino_backbones.py`,
-`ssl/diagnose_coord_shortcut.py`, `ssl/diagnose_end_to_end.py`,
-`ssl/probe_features.py`), plotting/report scripts in `analysis/`
-(`analysis/plot_ssl.py`, `analysis/plot_expected_metrics.py`), and one-off tests in
-`exploratory/` (`exploratory/test_local.py`).
+```
+benchmark_ssl/
+├── src/                  # Python source (importable as src.*)
+│   ├── data/             # Feature extraction, frame loading, SSL dataset
+│   ├── distortions/      # Augmentation pipeline (6 distortion families)
+│   ├── models/           # CellEmbedder, attention modules, ScaledCNN
+│   ├── training/         # SSL pretrainer, multi-config trainer
+│   ├── analysis/         # Signal, convergence, downstream, diagnostics
+│   ├── edge_probing/     # Edge probing harness (unified_edge_probe, etc.)
+│   ├── cnn_encoder/      # CNN pretraining, convergence, cross-dataset eval
+│   └── mini_trackastra/  # Mini trackastra experiments
+├── scripts/              # Thin entry-point wrappers (run_*.py)
+├── tests/                # Unit and integration tests
+├── slurm/                # HPC submission scripts
+├── configs/              # YAML configuration
+├── results/              # All experiment outputs (runs, probes, checkpoints, feature_cache)
+└── docs/                 # SPEC.md, REPRODUCTION.md, results_analysis.md
+```
 
 ## Setup
 
@@ -33,34 +31,62 @@ uv sync
 
 ## Usage
 
+All entry-point scripts are in `scripts/` and can be invoked directly or via `python -m`:
+
 ### 1. Data-level signal check (fast, no GPU needed)
 ```bash
-uv run python3 ssl/analyze_signal.py --conditions rpsM,recA,pheA,metA,cib,trpL --max-frames 500
+python scripts/run_signal_analyzer.py --conditions rpsM,recA,pheA,metA,cib,trpL --max-frames 500
+# or:
+python -m src.analysis.signal_analyzer --conditions rpsM,recA,pheA,metA,cib,trpL --max-frames 500
 ```
 Reports separation gap between same-cell and different-cell features. `gap > 0.3` → strong signal for contrastive learning.
 
 ### 2. DINO feature test (GPU)
 ```bash
-uv run python3 ssl/test_dino.py
+python scripts/run_dino_test.py
 ```
 Tests if DINOv2 patch features provide better separation than 7D regionprops (gap improved from 0.047 → 0.29).
 
 ### 3. Convergence predictor (GPU, ~30min)
 ```bash
-uv run python3 ssl/ssl_convergence_test.py --max-frames 200
+python scripts/run_convergence_predictor.py --max-frames 200
 ```
 Runs 4 tests: gap-vs-distortion, micro-SSL training, distortion ranking, PCA. Outputs HTML + CSVs.
 
 ### 4. Downstream convergence test (GPU, ~15min)
 ```bash
-uv run python3 ssl/downstream_convergence.py --max-pairs 60 --epochs 20
+python scripts/run_downstream_convergence.py --max-pairs 60 --epochs 20
 ```
 Compares SSL-pretrained vs random init on real tracking pairs.
 
-### 5. HPC full pretraining
+### 5. Unified edge probe (GPU, ~50min)
+```bash
+python scripts/run_unified_edge_probe.py --features all --probe both --epochs 200 --cv-folds 5
+```
+5-fold CV edge probe over regionprops, HOCT, CNN-NT-Xent, CNN-e2e, and DINOv2 features.
+
+### 6. HPC full pretraining
 ```bash
 sbatch slurm/run_ssl_dino_pretrain.slurm
 ```
+
+### 7. Run tests
+```bash
+pytest tests/
+```
+
+## Subpackage overview
+
+| Subpackage | Key symbols | Purpose |
+|---|---|---|
+| `src.data` | `SSLDataset`, `collate_ssl`, `features_from_frame`, `load_experiment_frames`, `extract_*` | Data loading and feature extraction |
+| `src.distortions` | `DistortionPipeline`, `AffineDistortion`, `JitterDistortion`, etc. | Augmentation pipeline (6 families) |
+| `src.models` | `CellEmbedder`, `ScaledCNN`, `RotaryPositionalEncoding`, `GatherSparseAttention`, etc. | Model architectures |
+| `src.training` | `ssl_pretrainer`, `ssl_trainer_multi`, `ssl_trainer` | SSL training scripts |
+| `src.analysis` | `signal_analyzer`, `convergence_predictor`, `dino_test`, etc. | Analysis and diagnostic scripts |
+| `src.edge_probing` | `unified_edge_probe`, `train_cnn_probe`, `verify_normalization` | Edge probing framework |
+| `src.cnn_encoder` | `cnn_ssl`, `cnn_convergence`, `cross_dataset_eval` | CNN-specific experiments |
+| `src.mini_trackastra` | `end_to_end`, `temporal_ssl`, `test_*` | Mini trackastra experiments |
 
 ## Key findings (vanvliet)
 
@@ -81,7 +107,13 @@ sbatch slurm/run_ssl_dino_pretrain.slurm
 | Photometric | Intensity scale/shift | Only affects intensity features |
 | Feature noise | Gaussian feature noise | Prevents shortcut memorization |
 
-# References
+## Documentation
+
+- `docs/SPEC.md` — refactor specification (design decisions, acceptance criteria)
+- `docs/REPRODUCTION.md` — complete reproduction guide for all experiments
+- `docs/results_analysis.md` — analysis of historical results
+
+## References
 
 - ASCENT (Han & Lu 2025): CVF — contrastive SSL for C. elegans neuron tracking
 - Cell-DINO (Moutakanni et al. 2025): PLOS Comp Bio — DINOv2 SSL on cell microscopy

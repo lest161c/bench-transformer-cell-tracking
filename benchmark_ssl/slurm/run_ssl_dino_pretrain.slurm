@@ -60,4 +60,4 @@ python -m trackastra.model.ssl_dino_trainer \
     --ssl_batch_size 4 \
     --ssl_lr 3e-4 \
     --ssl_temperature 0.05 \
-    --outdir runs/ssl_dino_pretrain
+    --outdir results/runs/ssl_dino_pretrain
