@@ -14,7 +14,6 @@ Output: ``benchmark_attn/results/comprehensive_report.html``
 """
 
 import argparse
-import base64
 import csv
 import datetime
 import io
@@ -26,23 +25,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
 
+from src.bench.html_report import file_to_b64, figure_to_b64
+
 sns.set_theme(style="whitegrid")
-
-
-def fig_to_b64(fig):
-    """Convert a matplotlib Figure to a base64-encoded PNG string."""
-    buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=130, bbox_inches="tight")
-    buf.seek(0)
-    return base64.b64encode(buf.read()).decode()
-
-
-def embed_image(path):
-    """Embed an existing PNG as base64, or return placeholder."""
-    path_obj = Path(path)
-    if path_obj.exists():
-        return base64.b64encode(path_obj.read_bytes()).decode()
-    return None
 
 
 def load_knn_methods_csv(path):
@@ -326,10 +311,10 @@ def build_html(args):
         html_parts.append("</table>")
         html_parts.append("<p class='warn'>All times analytical (calibrated to labbook 2026-06-08). GPU verification pending.</p>")
     if knn_fig:
-        html_parts.append(f'<img src="data:image/png;base64,{fig_to_b64(knn_fig)}">')
+        html_parts.append(f'<img src="data:image/png;base64,{figure_to_b64(knn_fig)}">')
         plt.close(knn_fig)
     for name in ["KNN Crossover", "Performance KNN Detail"]:
-        b64 = embed_image(pngs[name])
+        b64 = file_to_b64(pngs[name])
         if b64:
             html_parts.append(f"<h3>{name}</h3>")
             html_parts.append(f'<img src="data:image/png;base64,{b64}">')
@@ -359,10 +344,10 @@ def build_html(args):
             html_parts.append("<tr>" + "".join(f"<td>{c}</td>" for c in html_row) + "</tr>")
         html_parts.append("</table>")
     if flash_fig:
-        html_parts.append(f'<img src="data:image/png;base64,{fig_to_b64(flash_fig)}">')
+        html_parts.append(f'<img src="data:image/png;base64,{figure_to_b64(flash_fig)}">')
         plt.close(flash_fig)
     for name in ["Flash Cutoff Solutions"]:
-        b64 = embed_image(pngs[name])
+        b64 = file_to_b64(pngs[name])
         if b64:
             html_parts.append(f'<img src="data:image/png;base64,{b64}">')
 
@@ -378,7 +363,7 @@ def build_html(args):
                         f"<td>{sub[0].get('tokens_per_query', '?')} tokens/query</td></tr>")
         html_parts.append("</table>")
     for name in ["Spatial Block Partition"]:
-        b64 = embed_image(pngs[name])
+        b64 = file_to_b64(pngs[name])
         if b64:
             html_parts.append(f'<img src="data:image/png;base64,{b64}">')
 
@@ -408,7 +393,7 @@ def build_html(args):
 
     for name in ["Pipeline — Blockwise Norm", "Pipeline — FFN Checkpoint",
                  "Pipeline — Regionprops", "Pipeline — Spatial Blocks"]:
-        b64 = embed_image(pngs[name])
+        b64 = file_to_b64(pngs[name])
         if b64:
             label = name.replace("Pipeline — ", "")
             html_parts.append(f"<h3>{label}</h3>")
@@ -433,20 +418,20 @@ def build_html(args):
              "Realistic training speedup: ~1.3× (norm+checkpoint → 11h→8.6h).</p>")
 
     if training_fig:
-        html_parts.append(f'<img src="data:image/png;base64,{fig_to_b64(training_fig)}">')
+        html_parts.append(f'<img src="data:image/png;base64,{figure_to_b64(training_fig)}">')
         plt.close(training_fig)
 
     # ── 7. TRA/AOGM ──
     html_parts.append("<h2 id='tra'>TRA/AOGM Accuracy</h2>")
     for name in ["TRA/AOGM Analysis"]:
-        b64 = embed_image(pngs[name])
+        b64 = file_to_b64(pngs[name])
         if b64:
             html_parts.append(f'<img src="data:image/png;base64,{b64}">')
 
     # ── 8. SUPPLEMENTARY ──
     html_parts.append("<h2 id='supplementary'>Supplementary Analyses</h2>")
     for name in ["SDPA Backend Dispatch", "System Impact Breakdown", "Tile Size Analysis"]:
-        b64 = embed_image(pngs[name])
+        b64 = file_to_b64(pngs[name])
         if b64:
             html_parts.append(f"<h3>{name}</h3>")
             html_parts.append(f'<img src="data:image/png;base64,{b64}">')
