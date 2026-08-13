@@ -4,7 +4,7 @@ Tests forward pass equivalence (fp16, rtol=1e-2, atol=1e-3) and
 backward pass gradient equivalence (rtol=1e-1, atol=1e-2) across
 multiple seeds, sequence lengths, and KNN neighbor counts.
 
-If all configurations pass, mask-knn inherits gather-knn's tracking
+If all configurations pass, mask_knn inherits gather_knn's tracking
 accuracy and the two can be used interchangeably.
 
 Usage::
