@@ -26,7 +26,7 @@ from sklearn.model_selection import KFold
 from src.edge_probing.harness.feature_extractors import (
     compute_dino_embs,
     extract_regionprops_7d, extract_regionprops_7d_fourier,
-    extract_hoct19, extract_hoct19_fourier, ScaledCNN,
+    extract_hoct2d, extract_hoct2d_fourier, ScaledCNN,
     load_cached_features, save_cached_features,
     device,
 )
@@ -76,14 +76,14 @@ FEATURE_CONFIGS = {
         'display': 'DINOv2 (frozen)',
         'needs_patches': False,
     },
-    'hoct19': {
+    'hoct2d': {
         'feat_dim': 13,
-        'display': 'HOCT 19D (2D → 13D)',
+        'display': 'HOCT 2D (13D)',
         'needs_patches': False,
     },
-    'hoct19_fourier': {
+    'hoct2d_fourier': {
         'feat_dim': 43,
-        'display': 'HOCT 13D + Fourier PE',
+        'display': 'HOCT 2D + Fourier PE (43D)',
         'needs_patches': False,
     },
 }
@@ -116,7 +116,7 @@ def build_frame_pairs(pairs, max_pairs, feature_type, checkpoint_path=None):
             img_anchor, img_query, man_track_path, condition,
             experiment).
         max_pairs: maximum number of frame pairs to process.
-        feature_type: one of 'rp', 'hoct19', 'cnn_frozen', 'dino',
+        feature_type: one of 'rp', 'hoct2d', 'cnn_frozen', 'dino',
             'cnn_e2e' (see FEATURE_CONFIGS).
         checkpoint_path: path to the NT-Xent checkpoint used to initialize
             the frozen ScaledCNN for 'cnn_frozen'; ignored otherwise.
@@ -195,12 +195,12 @@ def build_frame_pairs(pairs, max_pairs, feature_type, checkpoint_path=None):
             labels_anchor_aligned = labels_anchor[[label in label_map_anchor for label in labels_anchor]]
             labels_query_aligned = labels_query[[label in label_map_query for label in labels_query]]
 
-        elif feature_type == 'hoct19':
+        elif feature_type == 'hoct2d':
             # HOCT 13D (adapted from 19D): keep t, drop z, inertia 3×3→2×2
             frame_anchor_num = int(Path(mask_path_anchor).stem.replace("man_track", ""))
             frame_query_num = int(Path(mask_path_query).stem.replace("man_track", ""))
-            _, labels_h_anchor, feats_anchor = extract_hoct19(mask_anchor, img_anchor, frame_idx=frame_anchor_num)
-            _, labels_h_query, feats_query = extract_hoct19(mask_query, img_query, frame_idx=frame_query_num)
+            _, labels_h_anchor, feats_anchor = extract_hoct2d(mask_anchor, img_anchor, frame_idx=frame_anchor_num)
+            _, labels_h_query, feats_query = extract_hoct2d(mask_query, img_query, frame_idx=frame_query_num)
             if feats_anchor is None or feats_query is None:
                 continue
             # Align by label
@@ -215,15 +215,15 @@ def build_frame_pairs(pairs, max_pairs, feature_type, checkpoint_path=None):
             labels_anchor_aligned = labels_anchor[[label in label_map_anchor for label in labels_anchor]]
             labels_query_aligned = labels_query[[label in label_map_query for label in labels_query]]
 
-        elif feature_type == 'hoct19_fourier':
+        elif feature_type == 'hoct2d_fourier':
             # HOCT 13D + Fourier PE: keep t as scalar, replace raw
             # centroid coords with Fourier PE of (y, x)
             frame_anchor_num = int(Path(mask_path_anchor).stem.replace("man_track", ""))
             frame_query_num = int(Path(mask_path_query).stem.replace("man_track", ""))
-            _, labels_h_anchor, feats_anchor = extract_hoct19_fourier(
+            _, labels_h_anchor, feats_anchor = extract_hoct2d_fourier(
                 mask_anchor, img_anchor, frame_idx=frame_anchor_num,
             )
-            _, labels_h_query, feats_query = extract_hoct19_fourier(
+            _, labels_h_query, feats_query = extract_hoct2d_fourier(
                 mask_query, img_query, frame_idx=frame_query_num,
             )
             if feats_anchor is None or feats_query is None:

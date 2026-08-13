@@ -23,8 +23,8 @@ from src.edge_probing.harness import (
 # -- Registry tests --
 
 def test_feature_registry_has_all_types():
-    """All 5 feature types are registered."""
-    expected = {"rp", "cnn_frozen", "cnn_e2e", "dino", "hoct19"}
+    """All feature types are registered."""
+    expected = {"rp", "rp_fourier", "cnn_frozen", "cnn_e2e", "dino", "hoct2d", "hoct2d_fourier"}
     assert set(FEATURE_REGISTRY.keys()) == expected
 
 

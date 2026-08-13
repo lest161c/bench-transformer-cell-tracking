@@ -27,7 +27,7 @@ class FeatureEntry:
     
     Attributes:
         key: Short identifier used in CLI ``--features`` and in result
-            keys (e.g. ``"rp"``, ``"dino"``, ``"hoct19"``).
+            keys (e.g. ``"rp"``, ``"dino"``, ``"hoct2d"``).
         display_name: Human-readable name for result tables and logs.
         feat_dim: Dimensionality of the per-cell feature vector
             produced by this extractor. Used to size the probe head.
@@ -70,8 +70,8 @@ FEATURE_REGISTRY: dict[str, FeatureEntry] = {
     "cnn_frozen":    FeatureEntry("cnn_frozen",    "CNN NT-Xent (frozen)",     128, False, False),
     "cnn_e2e":      FeatureEntry("cnn_e2e",      "CNN end-to-end",           128, True,  True),
     "dino":          FeatureEntry("dino",          "DINOv2 (frozen)",          384, False, False),
-    "hoct19":        FeatureEntry("hoct19",        "HOCT 19D (2D \u2192 13D)", 13,  False, False),
-    "hoct19_fourier": FeatureEntry("hoct19_fourier", "HOCT 13D + Fourier PE",  43,  False, False),
+    "hoct2d":        FeatureEntry("hoct2d",        "HOCT 2D (13D)",          13,  False, False),
+    "hoct2d_fourier": FeatureEntry("hoct2d_fourier", "HOCT 2D + Fourier PE",  43,  False, False),
 }
 
 

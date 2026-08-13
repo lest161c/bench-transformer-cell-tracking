@@ -143,7 +143,7 @@ Verdict: "Feature quality bottleneck is domain mismatch, not model capacity."
 | Feature (MLP probe) | balanced acc (mean ± std) | F1 |
 |---|---|---|
 | DINOv2 (frozen) | 0.8958 ± 0.0362 | 0.566 ± 0.090 |
-| HOCT 19D (2D → 13D) | 0.8799 ± 0.0201 | 0.423 ± 0.076 |
+| HOCT 2D (13D) | 0.8799 ± 0.0201 | 0.423 ± 0.076 |
 | Regionprops 7D | 0.8595 ± 0.0137 | 0.396 ± 0.056 |
 | CNN NT-Xent (frozen) | 0.7031 ± 0.0554 | 0.289 ± 0.126 |
 | CNN end-to-end | 0.5000 ± 0.0000 | 0.000 ± 0.000 |

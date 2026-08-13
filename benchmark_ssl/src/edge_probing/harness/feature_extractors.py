@@ -163,7 +163,7 @@ def _compute_border_dist(mask):
         for region in sk_regionprops(mask, intensity_image=dist_to_border)
     ], dtype=np.float32)
 
-# ── HOCT 19D → 13D (2D adaptation) ───────────────────────────────
+# ── HOCT 2D adaptation (13D node features) ───────────────────────────
 #
 # HOCT paper ("Higher Order Cell Tracking", appendix "Input features"):
 #   19D = [t, z, y, x, eq_diam, int_min, int_max, int_mean, int_std,
@@ -186,7 +186,7 @@ def _compute_border_dist(mask):
 #   inertia  (4):  inertia_00, inertia_01, inertia_10, inertia_11
 #   border   (1):  border_dist
 
-#: Ordered names of the 13 features returned by extract_hoct19().
+#: Ordered names of the 13 features returned by extract_hoct2d().
 #: Shared with analysis/visualization tools (e.g. visualize_props.py).
 HOCT2D_FEATURE_NAMES = [
     # position (3) — t (frame index), y, x centroid in pixels
@@ -202,7 +202,7 @@ HOCT2D_FEATURE_NAMES = [
 ]
 
 
-def extract_hoct19(mask, img, frame_idx=0):
+def extract_hoct2d(mask, img, frame_idx=0):
     """Extract the 13D HOCT-style node features for one 2D frame.
 
     2D adaptation of the HOCT paper's 19D (3D+t) node features — see the
@@ -286,9 +286,9 @@ def extract_hoct19(mask, img, frame_idx=0):
     return coords, labels, features
 
 
-# ── HOCT 13D + Fourier PE (spatial positions encoded) ──────────
+# ── HOCT 2D + Fourier PE (spatial positions encoded) ──────────
 
-#: Ordered names of the features returned by extract_hoct19_fourier().
+#: Ordered names of the features returned by extract_hoct2d_fourier().
 #: time (1) + fourier_pe (2 * n_freqs * 2) + eq_diam (1) +
 #: intensity (4) + inertia (4) + border (1).
 HOCT2D_FOURIER_FEATURE_NAMES = [
@@ -307,11 +307,11 @@ HOCT2D_FOURIER_FEATURE_NAMES = [
 ]
 
 
-def extract_hoct19_fourier(mask, img, frame_idx=0, n_freqs=8, cutoff=128.0):
+def extract_hoct2d_fourier(mask, img, frame_idx=0, n_freqs=8, cutoff=128.0):
     """Extract HOCT-style 13D node features with Fourier PE for spatial
     positions, replacing raw centroid coordinates.
 
-    Same base features as ``extract_hoct19`` but the spatial positions
+    Same base features as ``extract_hoct2d`` but the spatial positions
     (centroid_y, centroid_x) are replaced with Fourier PE instead of
     raw coordinates.  The time feature ``t`` is kept as a scalar
     (not encoded with Fourier PE) because it provides a temporal

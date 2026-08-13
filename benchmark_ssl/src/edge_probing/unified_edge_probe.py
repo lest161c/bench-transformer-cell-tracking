@@ -11,8 +11,8 @@ Feature types (registered in ``harness.registry``):
   cnn_frozen -- ScaledCNN with NT-Xent checkpoint         [128 dim]
   cnn_e2e   -- ScaledCNN trained jointly with probe       [128 dim]
   dino      -- DINOv2 (dinov2_vits14, frozen)             [384 dim]
-  hoct19    -- HOCT-style 13D (2D-adapted from 19D)       [13 dim]
-  hoct19_fourier -- HOCT 13D + Fourier PE of positions    [43 dim]
+  hoct2d    -- HOCT 2D (13D, adapted from 19D)        [13 dim]
+  hoct2d_fourier -- HOCT 2D + Fourier PE (43D)        [43 dim]
 
 Probe architectures (registered in ``harness.registry``):
   Linear: nn.Linear(2*feat_dim, 1) over concat(feat_anchor, feat_query)

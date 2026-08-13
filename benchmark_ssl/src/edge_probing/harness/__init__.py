@@ -31,7 +31,7 @@ from .frame_data import (
 )
 from .feature_extractors import (
     extract_regionprops_7d, extract_regionprops_7d_fourier,
-    extract_hoct19, extract_hoct19_fourier,
+    extract_hoct2d, extract_hoct2d_fourier,
     compute_dino_embs,
     load_dino, ScaledCNN,
     PROJECT_ROOT, CACHE_DIR,
@@ -77,7 +77,7 @@ __all__ = [
     "extract_patches", "PATCH_SIZE",
     # Feature extractors
     "extract_regionprops_7d", "extract_regionprops_7d_fourier",
-    "extract_hoct19", "extract_hoct19_fourier",
+    "extract_hoct2d", "extract_hoct2d_fourier",
     "compute_dino_embs",
     "load_dino", "ScaledCNN", "PROJECT_ROOT", "CACHE_DIR",
     # Edge datasets
