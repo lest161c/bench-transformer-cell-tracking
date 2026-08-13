@@ -468,7 +468,7 @@ class GatherSparseFusedAttention(nn.Module):
       - Uses ``reshape`` on the SDPA output instead of
         ``transpose + contiguous + view``.
 
-    Profiling shows ~2 fewer clone+copy pairs per layer vs V1.
+    Profiling shows ~2 fewer clone+copy pairs per layer vs the SDPA variant.
     """
 
     def __init__(
@@ -607,11 +607,12 @@ class GatherSparseFusedAttention(nn.Module):
 class GatherSparseMatmulAttention(nn.Module):
     """Gather-sparse attention with manual ``torch.matmul`` instead of SDPA.
 
-    The V1/V2 reshape to ``(batch_size * seq_len, n_head, 1, knn_neighbors)``
-    creates many tiny ``1 x K`` attention problems — no SDPA backend
+    The :class:`GatherSparseAttention` (SDPA) and :class:`GatherSparseFusedAttention`
+    variants reshape to ``(batch_size * seq_len, n_head, 1, knn_neighbors)``
+    which creates many tiny ``1 x K`` attention problems — no SDPA backend
     handles ``q_len=1`` efficiently.
 
-    V3 keeps the native ``(batch_size, n_head, seq_len, head_dim)`` shape
+    The matmul variant keeps the native ``(batch_size, n_head, seq_len, head_dim)`` shape
     and uses ``torch.matmul`` for per-query attention, avoiding SDPA
     kernel-launch overhead.  No mask is needed; all operations use
     optimised cuBLAS/cuDNN matmul kernels.
