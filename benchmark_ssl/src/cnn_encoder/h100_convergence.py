@@ -616,6 +616,9 @@ def main():
     parser.add_argument("--scale", choices=["small", "medium", "large"],
                         default="medium",
                         help="CNN architecture scale matching checkpoint")
+    parser.add_argument("--mode", choices=["R", "C", "both"], default="both",
+                        help="Which mode(s) to run: R (7D baseline), "
+                             "C (7D + CNN NT-Xent), or both")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--no-wandb", action="store_true",
                         help="Disable W&B logging")
@@ -673,7 +676,8 @@ def main():
 
     all_results = {}
 
-    for mode in ["R", "C"]:
+    modes_to_run = ["R", "C"] if args.mode == "both" else [args.mode]
+    for mode in modes_to_run:
         logger.info("")
         logger.info(f"{'─' * 60}")
         logger.info(f"  MODE {mode}: {'7D baseline (concat)' if mode == 'R' else '7D + CNN residual (concat)'}")

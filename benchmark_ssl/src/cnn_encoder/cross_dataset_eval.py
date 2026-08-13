@@ -51,6 +51,11 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--device", choices=["cuda", "cpu"], default="cuda")
     parser.add_argument("--dry-run", action="store_true", help="Print plan and exit")
+    parser.add_argument(
+        "--variant", type=str, default=None,
+        help="Process only this variant label (e.g. 'baseline'). "
+             "Default: process all CHECKPOINTS.",
+    )
     args = parser.parse_args()
 
     # Sequences 00–11 are the deepcell test split (held-out, never used in training)
@@ -72,7 +77,14 @@ def main():
 
     all_results = {}
 
-    for ckpt_dir, variant in CHECKPOINTS:
+    checkpoints_to_run = CHECKPOINTS
+    if args.variant is not None:
+        checkpoints_to_run = [(d, v) for d, v in CHECKPOINTS if v == args.variant]
+        if not checkpoints_to_run:
+            available = [v for _, v in CHECKPOINTS]
+            parser.error(f"Unknown variant '{args.variant}'. Available: {available}")
+
+    for ckpt_dir, variant in checkpoints_to_run:
         model_dir = TRK / "runs" / ckpt_dir
         print(f"\n{'=' * 80}")
         print(f"  [{variant}]  {ckpt_dir}")
@@ -197,7 +209,12 @@ def main():
                   f"cHOTA={summary[variant]['mean_cHOTA']:.4f}  "
                   f"AOGM={summary[variant]['mean_AOGM']:.4f}")
 
-        with open(OUTPUT_ROOT / "summary.json", "w") as file_handle:
+        summary_path = (
+            OUTPUT_ROOT / args.variant / "summary.json"
+            if args.variant is not None
+            else OUTPUT_ROOT / "summary.json"
+        )
+        with open(summary_path, "w") as file_handle:
             json.dump(summary, file_handle, indent=2)
 
         print(f"\n  Results saved to: {OUTPUT_ROOT}/")
