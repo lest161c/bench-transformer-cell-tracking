@@ -22,8 +22,8 @@ Gather mode (``--mode gather``):
     HTML report.
 
 Usage examples:
-    python scripts/benchmarks/benchmark_profiler.py --mode general
-    python scripts/benchmarks/benchmark_profiler.py --mode gather
+    python scripts/benchmarks/benchmark_operator_breakdown.py --mode general
+    python scripts/benchmarks/benchmark_operator_breakdown.py --mode gather
 """
 
 import argparse

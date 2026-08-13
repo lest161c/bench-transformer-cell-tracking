@@ -52,8 +52,8 @@ python scripts/benchmarks/benchmark_sweep.py --methods gather_sdpa,gather_fused,
 
 # Profiler (per-operation CUDA time breakdown) → profiler_out/profile_gather_results.json
 # Merged profiler: general mode (dense/sparse sweep) or gather mode (GatherSparseAttention)
-python scripts/benchmarks/benchmark_profiler.py --mode general
-python scripts/benchmarks/benchmark_profiler.py --mode gather
+python scripts/benchmarks/benchmark_operator_breakdown.py --mode general
+python scripts/benchmarks/benchmark_operator_breakdown.py --mode gather
 
 # Mask vs gather numerical equivalence across 18 configs (console output)
 python tests/validate_equivalence.py
@@ -65,8 +65,8 @@ python analysis/plot_sparse.py
 ### Additional benchmarks
 
 ```bash
-# Generic profiler wrapper
-python scripts/benchmarks/benchmark_profiler.py
+# Per-operator CUDA time/memory breakdown
+python scripts/benchmarks/benchmark_operator_breakdown.py
 
 # Small-N behavior (N ≤ 512)
 python scripts/benchmarks/benchmark_sweep.py --methods gather_sdpa,gather_fused,gather_matmul --Ns 128,256,512 --Ks 16 --layers 1
@@ -125,7 +125,7 @@ benchmark_attn/
 │   └── benchmarks/
 │       ├── benchmark_sweep.py      # consolidated method × L × N × K sweep
 │       ├── benchmark_cached_dist.py # CachedDistAttention measurement
-│       └── benchmark_profiler.py   # merged profiler (general + gather)
+│       └── benchmark_operator_breakdown.py  # per-operator CUDA time/memory breakdown
 │
 ├── tests/                          # validation scripts
 │   └── validate_equivalence.py     # mask vs gather numerical equivalence
