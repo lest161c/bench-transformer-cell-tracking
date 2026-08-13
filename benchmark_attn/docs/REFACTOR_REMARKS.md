@@ -5,10 +5,6 @@ Each item is grouped by the file it concerns, with action notes added during imp
 
 ## `benchmark_attn/README.md`
 
-- [ ] **Script proliferation.** Reduce the number of benchmark scripts; add
-      argparse / `--methods` filtering to select configs at runtime instead of
-      one script per sweep. (Resolves `benchmark_full.py` vs `benchmark_sparse.py`
-      duplication.)
 - [ ] **Cosine histogram analysis.** Verify whether `analysis/cosine_histogram.py`
       is still maintained. If deprecated, remove it from the README structure
       listing.
@@ -96,12 +92,12 @@ Replace the versioned names with mechanism-descriptive names:
 
 | Old class | New class | Registry key |
 |---|---|---|
-| `GatherSparseAttention` (V1, SDPA) | `GatherSparseAttention` (keep) | `gather-sdpa` |
-| `GatherSparseAttentionV2` | `GatherSparseFusedAttention` | `gather-fused` |
-| `GatherSparseAttentionV3` | `GatherSparseMatmulAttention` | `gather-matmul` |
+| `GatherSparseAttention` (V1, SDPA) | `GatherSparseAttention` (keep) | `gather_sdpa` |
+| `GatherSparseAttentionV2` | `GatherSparseFusedAttention` | `gather_fused` |
+| `GatherSparseAttentionV3` | `GatherSparseMatmulAttention` | `gather_matmul` |
 
-Other descriptive names to keep: `dense_masked`, `dense_flash`, `mask-knn`,
-`knn-relpos`, `nsa`, `minimax`.
+Other descriptive names to keep: `dense_masked`, `dense_flash`, `mask_knn`,
+`knn_relpos`, `nsa`, `minimax`.
 
 ## Completed work
 
@@ -126,12 +122,43 @@ Other descriptive names to keep: `dense_masked`, `dense_flash`, `mask-knn`,
 - [x] **Fix `.gitignore`.** Anchored `scripts/` to `/scripts/` so
       `benchmark_attn/scripts/` is trackable.
 - [x] **Update method naming in documentation.** All `.md` files now use the
-      new registry keys (`gather-sdpa`, `gather-fused`, `gather-matmul`,
-      `mask-knn`, `knn-relpos`, `nsa`, `minimax`, `dense_flash`,
+      new registry keys (`gather_sdpa`, `gather_fused`, `gather_matmul`,
+      `mask_knn`, `knn_relpos`, `nsa`, `minimax`, `dense_flash`,
       `dense_masked`) instead of `sparse`, `sparse_v2`, `V1/V2/V3`, etc.
 - [x] **Update script references in documentation.** `README.md` and
       `REPRODUCTION.md` now reference `scripts/benchmarks/benchmark_sweep.py`
       instead of the four old scripts.
+- [x] **Remove `labbook` references.** All `labbook/` mentions removed from
+      `REPRODUCTION.md`.
+- [x] **Remove `STATUS: DONE`/`PENDING` lines.** All status lines removed from
+      `REPRODUCTION.md`.
+- [x] **Remove hardcoded cluster paths.** All `/data/cat/ws/lest161c-...` paths
+      removed from `REPRODUCTION.md`.
+- [x] **Remove non-scientific hedges.** All `**This is NOT a real measurement**`
+      and similar phrases removed from `REPRODUCTION.md`.
+- [x] **Fix Hassani citation.** Corrected from "*Neighborhood Attention*, ECCV
+      2024" to "*Neighborhood Attention Transformer*, CVPR 2023" and
+      "*Faster Neighborhood Attention*, NeurIPS 2024".
+- [x] **Rewrite references as LaTeX-style citations.** All references now use
+      `\citep{key}` format with full bibliographic details.
+- [x] **Move sidecar READMEs to `docs/`.** All four sidecar READMEs relocated
+      to `benchmark_attn/docs/` and referenced from central `README.md`.
+- [x] **Remove deprecated scripts.** Deleted `benchmark_blockwise_norm.py`,
+      `benchmark_ffn_attention_ratio.py`, `benchmark_flash_with_cutoff.py`,
+      `benchmark_knn_methods.py`.
+- [x] **Merge profiler scripts.** `benchmark_profiler.py` + `profile_gather_sparse.py`
+      merged into single `benchmark_profiler.py` with `--mode general|gather`.
+- [x] **Move TRA/AOGM and collapse scripts to `exploratory/`.** These are
+      reporting scripts, not attention benchmarks.
+- [x] **Remove refactor-process notes from docstrings.** Removed all references
+      to "extracted from", "former model_parts.py", "merges two previously
+      separate tools", etc.
+- [x] **Rename cryptic vars in `validate_equivalence.py`.** All single-letter
+      and abbreviated variable names replaced with descriptive names.
+- [x] **Unify registry key separators.** All method keys now use underscores
+      consistently: `gather_sdpa`, `gather_fused`, `gather_matmul`,
+      `mask_knn`, `knn_relpos`, `nsa`, `minimax`, `dense_flash`,
+      `dense_masked`.
 
 ## Remaining work (from user's rework list)
 
