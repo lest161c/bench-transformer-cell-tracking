@@ -6,8 +6,8 @@
 #SBATCH --gpus-per-node=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=90G
-#SBATCH --output=logs/full_bench_%j.out
-#SBATCH --error=logs/full_bench_%j.err
+#SBATCH --output=../logs/full_bench_%j.out
+#SBATCH --error=../logs/full_bench_%j.err
 
 set -e
 
@@ -15,7 +15,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../../slurm/load_cluster_env.sh"
 
 cd "$BENCH/benchmark_attn" || exit 1
 uv sync
-mkdir -p logs
+mkdir -p ../logs
 
 echo "=== H100 Full Attention Benchmark ==="
 echo "d_model=320  nhead=8  mode=none  dist_mode=v1"
