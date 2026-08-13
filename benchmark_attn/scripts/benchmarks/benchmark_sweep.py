@@ -63,18 +63,18 @@ _METHOD_FORWARD_STYLES = {
 }
 
 
-def _make_layer(method_key, cls, seq_len, d_model, n_head, knn_neighbors,
+def _make_layer(method_key, attention_class, seq_len, d_model, n_head, knn_neighbors,
                 coord_dim, mode, dist_mode, device, dtype):
     """Instantiate a single attention layer of ``method_key`` on ``device``.
 
     The constructor signature differs per method family, so the argument
-    layout is dispatched on ``method_key`` here.  The class ``cls`` comes from
-    the harness registry (``resolve_class``) so it always matches the registry
-    key.
+    layout is dispatched on ``method_key`` here.  The class
+    ``attention_class`` comes from the harness registry
+    (``resolve_class``) so it always matches the registry key.
 
     Args:
         method_key: Registry key of the method.
-        cls: Attention module class to instantiate.
+        attention_class: Attention module class to instantiate.
         seq_len: Sequence length (used to bound MiniMax block selection).
         d_model: Embedding dimension.
         n_head: Number of attention heads.
@@ -89,24 +89,24 @@ def _make_layer(method_key, cls, seq_len, d_model, n_head, knn_neighbors,
         An instantiated layer moved to ``(device, dtype)``.
     """
     if method_key == "dense_masked":
-        return cls(coord_dim, d_model, n_head, mode=mode,
-                   attn_dist_mode=dist_mode).to(device, dtype)
+        return attention_class(coord_dim, d_model, n_head, mode=mode,
+                    attn_dist_mode=dist_mode).to(device, dtype)
     if method_key == "knn_relpos":
-        return cls(coord_dim, d_model, n_head, mode=mode,
-                   knn_neighbors=knn_neighbors).to(device, dtype)
+        return attention_class(coord_dim, d_model, n_head, mode=mode,
+                    knn_neighbors=knn_neighbors).to(device, dtype)
     if METHOD_REGISTRY[method_key].needs_knn:
         # gather_sdpa / gather_fused / gather_matmul / mask_knn
-        return cls(d_model, n_head, knn_neighbors=knn_neighbors,
-                   coord_dim=coord_dim, mode=mode).to(device, dtype)
+        return attention_class(d_model, n_head, knn_neighbors=knn_neighbors,
+                    coord_dim=coord_dim, mode=mode).to(device, dtype)
     if method_key == "minimax":
         # Mirror benchmark_full.py: cap the selected block count at the number
         # of blocks actually present, so small N never exceeds topk's k.
         block_size = 128
         num_selected_blocks = max(1, min(4, (seq_len + block_size - 1) // block_size - 1))
-        return cls(d_model, n_head, block_size=block_size,
-                   num_selected_blocks=num_selected_blocks, mode="none").to(device, dtype)
+        return attention_class(d_model, n_head, block_size=block_size,
+                    num_selected_blocks=num_selected_blocks, mode="none").to(device, dtype)
     # dense_flash / nsa: constructed from (embed_dim, n_head) only.
-    return cls(d_model, n_head).to(device, dtype)
+    return attention_class(d_model, n_head).to(device, dtype)
 
 
 def _forward_layer(layer, x, coords, knn_idx, forward_style):
@@ -165,11 +165,11 @@ def build_closure(method_key, layer_count, seq_len, knn_neighbors,
         batch_size, seq_len, d_model, coord_dim + 1, device, dtype, seed
     )
     registry_entry = METHOD_REGISTRY[method_key]
-    cls = resolve_class(registry_entry.class_path)
+    attention_class = resolve_class(registry_entry.class_path)
     knn_idx = compute_knn_indices(coords, knn_neighbors) if registry_entry.needs_knn else None
 
     layers = torch.nn.ModuleList([
-        _make_layer(method_key, cls, seq_len, d_model, n_head, knn_neighbors,
+        _make_layer(method_key, attention_class, seq_len, d_model, n_head, knn_neighbors,
                     coord_dim, mode, dist_mode, device, dtype)
         for _ in range(layer_count)
     ])
