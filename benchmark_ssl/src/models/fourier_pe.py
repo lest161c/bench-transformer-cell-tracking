@@ -1,9 +1,7 @@
 """Fourier positional encoding for probe experiments.
 
 Maps spatial coordinates (t, y, x) to a higher-dimensional
-sin/cos representation using geometrically decaying frequencies,
-following the ``_init_fourier_frequencies`` convention from the
-``positional_encoding.py`` module (ported from benchmark_attn).
+sin/cos representation using geometrically decaying frequencies.
 
 This replaces raw coordinate features with a smooth, bounded
 encoding that captures both absolute position and relative
@@ -15,7 +13,23 @@ import math
 import torch
 from torch import nn
 
-from src.models.positional_encoding import _init_fourier_frequencies
+
+def _init_fourier_frequencies(cutoff: float = 128, n: int = 16) -> torch.Tensor:
+    """Initialise geometrically decaying Fourier frequencies.
+
+    Produces a 1-D tensor of ``n`` frequencies starting at 1 (Nyquist)
+    and decaying to ``1/cutoff``. The frequency vector is reshaped to
+    ``(1, 1, n)`` so it broadcasts cleanly when multiplied with
+    coordinates.
+
+    Args:
+        cutoff: Controls the decay rate; larger values give slower decay.
+        n: Number of frequency components.
+
+    Returns:
+        Tensor of shape ``(1, 1, n)``.
+    """
+    return torch.exp(torch.linspace(0, -math.log(cutoff), n)).unsqueeze(0).unsqueeze(0)
 
 
 class FourierPE(nn.Module):
@@ -66,7 +80,7 @@ class FourierPE(nn.Module):
         if coords.dim() == 2:
             coords = coords.unsqueeze(0)
 
-        batch_size, seq_len, coord_dim = coords.shape
+        _, _, coord_dim = coords.shape # batch_size, seq_len, coord_dim
         assert coord_dim == self.coord_dim
 
         parts = []

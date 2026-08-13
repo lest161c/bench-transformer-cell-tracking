@@ -71,7 +71,7 @@ def extract_regionprops_7d_fourier(mask, img, frame_idx=0, n_freqs=8, cutoff=128
     of the spatial position (t, y, x).  The Fourier PE replaces the
     raw centroid coordinates with a smooth sin/cos encoding at
     geometrically decaying frequencies (see
-    ``_init_fourier_frequencies`` in ``positional_encoding.py``).
+    ``_init_fourier_frequencies`` in ``fourier_pe.py``).
 
     Layout (order matches HOCT2D_FEATURE_NAMES):
       fourier_pe (3 * n_freqs * 2): sin/cos of (t, centroid_y, centroid_x)
@@ -132,46 +132,6 @@ def extract_regionprops_7d_fourier(mask, img, frame_idx=0, n_freqs=8, cutoff=128
     return coords, labels, feats_combined
 
 
-# ── HOCT 19D → 13D (2D adaptation) ───────────────────────────────
-#
-# HOCT paper ("Higher Order Cell Tracking", appendix "Input features"):
-#   19D = [t, z, y, x, eq_diam, int_min, int_max, int_mean, int_std,
-#          inertia_3x3(9), border_dist].
-#
-# 2D adaptation (19 → 13): drop z (planar data), replace 3×3 inertia
-# with 2×2 (4 entries). t is kept as an explicit temporal feature
-# (not a positional encoding); the 3D RoPE handles spatial positions.
-# border_dist is Euclidean distance of the closest region pixel to the
-# FoV edge (unclipped, non-inverted) — differs from the paper's
-# centroid-based clipped inverse distance but is highly correlated.
-#
-# Standardization is handled downstream (per-fold z-score); this
-# extractor returns RAW features.
-#
-# Feature order (HOCT2D_FEATURE_NAMES):
-#   position (3):  time, centroid_y, centroid_x
-#   size     (1):  eq_diam
-#   intensity(4):  intensity_min, intensity_max, intensity_mean, intensity_std
-#   inertia  (4):  inertia_00, inertia_01, inertia_10, inertia_11
-#   border   (1):  border_dist
-
-
-#: Ordered names of the 13 features returned by extract_hoct19().
-#: Shared with analysis/visualization tools (e.g. visualize_props.py).
-HOCT2D_FEATURE_NAMES = [
-    # position (3) — t (frame index), y, x centroid in pixels
-    "time", "centroid_y", "centroid_x",
-    # size (1) — diameter of a circle with the same area, in pixels
-    "eq_diam",
-    # intensity (4) — within-region statistics of the normalized image [0, 1]
-    "intensity_min", "intensity_max", "intensity_mean", "intensity_std",
-    # inertia (4) — 2x2 inertia tensor, row-major (I01 == I10 by symmetry)
-    "inertia_00", "inertia_01", "inertia_10", "inertia_11",
-    # border (1) — min Euclidean distance of any region pixel to the FoV edge
-    "border_dist",
-]
-
-
 def _compute_border_dist(mask):
     """Per-cell minimum distance to the nearest field-of-view edge, in pixels.
 
@@ -202,6 +162,44 @@ def _compute_border_dist(mask):
         region.intensity_min
         for region in sk_regionprops(mask, intensity_image=dist_to_border)
     ], dtype=np.float32)
+
+# ── HOCT 19D → 13D (2D adaptation) ───────────────────────────────
+#
+# HOCT paper ("Higher Order Cell Tracking", appendix "Input features"):
+#   19D = [t, z, y, x, eq_diam, int_min, int_max, int_mean, int_std,
+#          inertia_3x3(9), border_dist].
+#
+# 2D adaptation (19 → 13): drop z (planar data), replace 3×3 inertia
+# with 2×2 (4 entries). t is kept as an explicit temporal feature
+# (not a positional encoding); the 3D RoPE handles spatial positions.
+# border_dist is Euclidean distance of the closest region pixel to the
+# FoV edge (unclipped, non-inverted) — differs from the paper's
+# centroid-based clipped inverse distance but is highly correlated.
+#
+# Standardization is handled downstream (per-fold z-score); this
+# extractor returns RAW features.
+#
+# Feature order (HOCT2D_FEATURE_NAMES):
+#   position (3):  time, centroid_y, centroid_x
+#   size     (1):  eq_diam
+#   intensity(4):  intensity_min, intensity_max, intensity_mean, intensity_std
+#   inertia  (4):  inertia_00, inertia_01, inertia_10, inertia_11
+#   border   (1):  border_dist
+
+#: Ordered names of the 13 features returned by extract_hoct19().
+#: Shared with analysis/visualization tools (e.g. visualize_props.py).
+HOCT2D_FEATURE_NAMES = [
+    # position (3) — t (frame index), y, x centroid in pixels
+    "time", "centroid_y", "centroid_x",
+    # size (1) — diameter of a circle with the same area, in pixels
+    "eq_diam",
+    # intensity (4) — within-region statistics of the normalized image [0, 1]
+    "intensity_min", "intensity_max", "intensity_mean", "intensity_std",
+    # inertia (4) — 2x2 inertia tensor, row-major (I01 == I10 by symmetry)
+    "inertia_00", "inertia_01", "inertia_10", "inertia_11",
+    # border (1) — min Euclidean distance of any region pixel to the FoV edge
+    "border_dist",
+]
 
 
 def extract_hoct19(mask, img, frame_idx=0):
@@ -293,14 +291,20 @@ def extract_hoct19(mask, img, frame_idx=0):
 #: Ordered names of the features returned by extract_hoct19_fourier().
 #: time (1) + fourier_pe (2 * n_freqs * 2) + eq_diam (1) +
 #: intensity (4) + inertia (4) + border (1).
-HOCT2D_FOURIER_FEATURE_NAMES = (
-    ["time"]
-    + [f"fourier_pe_{i}" for i in range(32)]
-    + ["eq_diam"]
-    + ["intensity_min", "intensity_max", "intensity_mean", "intensity_std"]
-    + ["inertia_00", "inertia_01", "inertia_10", "inertia_11"]
-    + ["border_dist"]
-)
+HOCT2D_FOURIER_FEATURE_NAMES = [
+    # time (1): frame index, kept as scalar (not Fourier-encoded)
+    "time",
+    # fourier_pe (32): sin/cos of (centroid_y, centroid_x) at 8 freqs
+    *[f"fourier_pe_{i}" for i in range(32)],
+    # size (1): diameter of a circle with the same area, in pixels
+    "eq_diam",
+    # intensity (4): within-region statistics of the normalized image [0, 1]
+    "intensity_min", "intensity_max", "intensity_mean", "intensity_std",
+    # inertia (4): 2x2 inertia tensor, row-major (I01 == I10 by symmetry)
+    "inertia_00", "inertia_01", "inertia_10", "inertia_11",
+    # border (1): min Euclidean distance of any region pixel to FoV edge
+    "border_dist",
+]
 
 
 def extract_hoct19_fourier(mask, img, frame_idx=0, n_freqs=8, cutoff=128.0):
@@ -492,7 +496,7 @@ def _cache_path(cond, exp, frame, feat_type):
     return CACHE_DIR / safe_name
 
 
-def _load_cached_features(cond, exp, frame, feat_type, labels):
+def load_cached_features(cond, exp, frame, feat_type, labels):
     """Load cached features. Returns (features, labels) or (None, None)."""
     path = _cache_path(cond, exp, frame, feat_type)
     if not path.exists():
@@ -506,7 +510,7 @@ def _load_cached_features(cond, exp, frame, feat_type, labels):
     return None, None
 
 
-def _save_cached_features(cond, exp, frame, feat_type, features, labels):
+def save_cached_features(cond, exp, frame, feat_type, features, labels):
     """Save features to cache."""
     path = _cache_path(cond, exp, frame, feat_type)
     np.save(path, {"features": features, "labels": labels})
