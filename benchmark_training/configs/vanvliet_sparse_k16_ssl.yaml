@@ -65,5 +65,3 @@ input_train:
 input_val:
   - /data/cat/ws/mawe985g-data/data/celltracking/vanvliet/recA/151031-03
   - /data/cat/ws/mawe985g-data/data/celltracking/vanvliet/trpL/151021-11
-
-
