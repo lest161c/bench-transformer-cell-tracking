@@ -32,9 +32,8 @@
 
 source "$(dirname "${BASH_SOURCE[0]}")/../../../slurm/load_cluster_env.sh"
 
-TRK="${TRK:-/data/cat/ws/lest161c-cell_tracking/lest161c-ssl_cell_tracking-1778979601/trackastra}"
 CFG_DIR="$SLURM_SUBMIT_DIR/configs"
-DATA_DIR="${DATA_DIR:-/data/cat/ws/mawe985g-data/data/celltracking}/vanvliet"
+DATA_DIR="${DATA_DIR}/vanvliet"
 
 VARIANT="${VARIANT:-baseline}"
 
