@@ -53,12 +53,12 @@ def train_probe(probe, train_loader, val_loader, epochs=200, lr=1e-3,
     for epoch in range(epochs):
         probe.train()
         train_losses = []
-        for feat_t, feat_n, target in train_loader:
-            feat_t = feat_t.to(device)
-            feat_n = feat_n.to(device)
+        for feats_teacher, feats_student, target in train_loader:
+            feats_teacher = feats_teacher.to(device)
+            feats_student = feats_student.to(device)
             target = target.to(device)
 
-            scores = probe(feat_t, feat_n)
+            scores = probe(feats_teacher, feats_student)
             loss = criterion(scores, target)
 
             optimizer.zero_grad()
@@ -72,24 +72,24 @@ def train_probe(probe, train_loader, val_loader, epochs=200, lr=1e-3,
             val_losses = []
             val_metrics_list = []
             with torch.no_grad():
-                for feat_t, feat_n, target in val_loader:
-                    feat_t = feat_t.to(device)
-                    feat_n = feat_n.to(device)
+                for feats_teacher, feats_student, target in val_loader:
+                    feats_teacher = feats_teacher.to(device)
+                    feats_student = feats_student.to(device)
                     target = target.to(device)
 
-                    scores = probe(feat_t, feat_n)
+                    scores = probe(feats_teacher, feats_student)
                     loss = criterion(scores, target)
                     val_losses.append(loss.item())
-                    ba, f1, prec, rec = compute_metrics(scores, target)
+                    bal_acc, f1, prec, rec = compute_metrics(scores, target)
                     val_metrics_list.append({
-                        "bal_acc": ba, "f1": f1,
+                        "bal_acc": bal_acc, "f1": f1,
                         "precision": prec, "recall": rec,
                     })
 
             avg_train_loss = float(np.mean(train_losses))
             avg_val_loss = float(np.mean(val_losses))
-            avg_val_bal_acc = float(np.mean([metrics["bal_acc"] for metrics in val_metrics_list]))
-            avg_val_f1 = float(np.mean([metrics["f1"] for metrics in val_metrics_list]))
+            avg_val_bal_acc = float(np.mean([m["bal_acc"] for m in val_metrics_list]))
+            avg_val_f1 = float(np.mean([m["f1"] for m in val_metrics_list]))
 
             history.append({
                 "epoch": epoch,
@@ -103,7 +103,7 @@ def train_probe(probe, train_loader, val_loader, epochs=200, lr=1e-3,
             if avg_val_bal_acc > best_val_bal_acc:
                 best_val_bal_acc = avg_val_bal_acc
                 patience_counter = 0
-                best_state = {key: value.cpu().clone() for key, value in probe.state_dict().items()}
+                best_state = {k: v.cpu().clone() for k, v in probe.state_dict().items()}
             else:
                 patience_counter += eval_every
                 if patience_counter >= patience:
@@ -118,22 +118,23 @@ def train_probe(probe, train_loader, val_loader, epochs=200, lr=1e-3,
     probe.eval()
     final_metrics_list = []
     with torch.no_grad():
-        for feat_t, feat_n, target in val_loader:
-            feat_t = feat_t.to(device)
-            feat_n = feat_n.to(device)
+        for feats_teacher, feats_student, target in val_loader:
+            feats_teacher = feats_teacher.to(device)
+            feats_student = feats_student.to(device)
             target = target.to(device)
-            scores = probe(feat_t, feat_n)
-            ba, f1, prec, rec = compute_metrics(scores, target)
+
+            scores = probe(feats_teacher, feats_student)
+            bal_acc, f1, prec, rec = compute_metrics(scores, target)
             final_metrics_list.append({
-                "bal_acc": ba, "f1": f1,
+                "bal_acc": bal_acc, "f1": f1,
                 "precision": prec, "recall": rec,
             })
 
     result = {
-        "final_bal_acc": float(np.mean([metrics["bal_acc"] for metrics in final_metrics_list])),
-        "final_f1": float(np.mean([metrics["f1"] for metrics in final_metrics_list])),
-        "final_precision": float(np.mean([metrics["precision"] for metrics in final_metrics_list])),
-        "final_recall": float(np.mean([metrics["recall"] for metrics in final_metrics_list])),
+        "final_bal_acc": float(np.mean([m["bal_acc"] for m in final_metrics_list])),
+        "final_f1": float(np.mean([m["f1"] for m in final_metrics_list])),
+        "final_precision": float(np.mean([m["precision"] for m in final_metrics_list])),
+        "final_recall": float(np.mean([m["recall"] for m in final_metrics_list])),
         "history": history,
     }
     return result

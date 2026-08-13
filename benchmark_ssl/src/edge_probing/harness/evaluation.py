@@ -5,6 +5,24 @@ frame-pair data building, the K-fold CV protocol (or the legacy
 condition-split fallback), the training loop, and the shuffle
 baseline. These are the functions called by the
 ``unified_edge_probe`` orchestrator script.
+
+Teacher / student naming convention
+-----------------------------------
+Every per-frame-pair datum carries features from two consecutive
+microscopy frames. We name them by their role in the edge-probing
+paradigm:
+
+- **Teacher frame**: the reference frame (frame at time t). It
+  provides the anchor cells and (via tracklets) the ground-truth
+  lineage annotations that define which cells in the next frame are
+  daughters of which cells here.
+- **Student frame**: the next frame (frame at time t+1) whose cells
+  must be matched back to the teacher frame. The probe being trained
+  acts as a "student" learning to predict that match.
+
+Variables, dict keys, and class attributes therefore use the
+``_teacher`` / ``_student`` suffix instead of the cryptic ``_t`` /
+``_n`` that previously referenced the temporal index only.
 """
 
 import copy
@@ -89,17 +107,28 @@ def build_frame_pairs(pairs, max_pairs, feature_type, checkpoint_path=None):
     """
     Build per-frame-pair data for a given feature type.
 
+    For every consecutive frame pair found by ``scan_consecutive_pairs``,
+    load the teacher (frame t) and student (frame t+1) images and
+    segmentation masks, extract per-cell features of the requested
+    ``feature_type``, align the two frames by label, and assemble the
+    (teacher features, student features, edge target) tuples used by
+    the probe training loop. See the module docstring for the full
+    teacher / student naming convention.
+
     Returns list of dicts, each containing:
-      - feat_t: (n_cells_t, D) or patches_t: (n_cells_t, 1, 64, 64)
-      - feat_n: (n_cells_n, D) or patches_n: (n_cells_n, 1, 64, 64)
-      - target: (n_cells_t, n_cells_n) binary matrix
+      - feat_teacher: (n_cells_teacher, D) or
+        patches_teacher: (n_cells_teacher, 1, 64, 64)
+      - feat_student: (n_cells_student, D) or
+        patches_student: (n_cells_student, 1, 64, 64)
+      - target: (n_cells_teacher, n_cells_student) binary matrix
       - n_pos, n_neg: counts
       - condition: string
 
     Args:
         pairs: list of consecutive frame-pair tuples from
-            ``scan_consecutive_pairs`` (mask_t, mask_n, img_t, img_n,
-            man_track_path, condition, experiment).
+            ``scan_consecutive_pairs`` (mask_teacher, mask_student,
+            img_teacher, img_student, man_track_path, condition,
+            experiment).
         max_pairs: maximum number of frame pairs to process.
         feature_type: one of 'rp', 'hoct19', 'cnn_frozen', 'dino',
             'cnn_e2e' (see FEATURE_CONFIGS).
@@ -119,176 +148,176 @@ def build_frame_pairs(pairs, max_pairs, feature_type, checkpoint_path=None):
     if feature_type == 'cnn_frozen':
         logger.info("  Loading ScaledCNN (large) with NT-Xent checkpoint...")
         cnn_frozen_model = ScaledCNN(scale='large', out_dim=128).to(device)
-        ckpt = torch.load(checkpoint_path, map_location=device)
-        cnn_frozen_model.load_state_dict(ckpt["model_state_dict"])
+        checkpoint_state = torch.load(checkpoint_path, map_location=device)
+        cnn_frozen_model.load_state_dict(checkpoint_state["model_state_dict"])
         cnn_frozen_model.eval()
         logger.info(f"  Loaded checkpoint: {checkpoint_path}")
 
-    for idx, (mt, mn, it_, in_, man_txt, cond, exp) in enumerate(pairs[:max_pairs]):
-        rt = load_frame(mt, it_)
-        rn = load_frame(mn, in_)
-        if rt is None or rn is None:
+    for idx, (mask_path_teacher, mask_path_student, img_path_teacher, img_path_student, man_track_path, condition, experiment) in enumerate(pairs[:max_pairs]):
+        frame_teacher = load_frame(mask_path_teacher, img_path_teacher)
+        frame_student = load_frame(mask_path_student, img_path_student)
+        if frame_teacher is None or frame_student is None:
             continue
-        coords_t, labels_t, imgt, mask_t = rt
-        coords_n, labels_n, imgn, mask_n = rn
+        coords_teacher, labels_teacher, img_teacher, mask_teacher = frame_teacher
+        coords_student, labels_student, img_student, mask_student = frame_student
 
-        if len(labels_t) < 3 or len(labels_n) < 3:
+        if len(labels_teacher) < 3 or len(labels_student) < 3:
             continue
 
-        tracklets = load_tracklets(man_txt)
+        tracklets = load_tracklets(man_track_path)
 
         # Extract features based on type
         if feature_type == 'rp':
             # Regionprops 7D
-            _, labels_rp_t, feats_t = extract_regionprops_7d(mask_t, imgt)
-            _, labels_rp_n, feats_n = extract_regionprops_7d(mask_n, imgn)
-            if feats_t is None or feats_n is None:
+            _, labels_rp_teacher, feats_teacher = extract_regionprops_7d(mask_teacher, img_teacher)
+            _, labels_rp_student, feats_student = extract_regionprops_7d(mask_student, img_student)
+            if feats_teacher is None or feats_student is None:
                 continue
             # Align by label
-            lt_map = {label: i for i, label in enumerate(labels_rp_t)}
-            ln_map = {label: i for i, label in enumerate(labels_rp_n)}
-            idx_t = [lt_map[label] for label in labels_t if label in lt_map]
-            idx_n = [ln_map[label] for label in labels_n if label in ln_map]
-            if len(idx_t) < 2 or len(idx_n) < 2:
+            label_map_teacher = {label: i for i, label in enumerate(labels_rp_teacher)}
+            label_map_student = {label: i for i, label in enumerate(labels_rp_student)}
+            idx_teacher = [label_map_teacher[label] for label in labels_teacher if label in label_map_teacher]
+            idx_student = [label_map_student[label] for label in labels_student if label in label_map_student]
+            if len(idx_teacher) < 2 or len(idx_student) < 2:
                 continue
-            feats_t = torch.from_numpy(feats_t[idx_t]).float()
-            feats_n = torch.from_numpy(feats_n[idx_n]).float()
-            labels_t_use = labels_t[[label in lt_map for label in labels_t]]
-            labels_n_use = labels_n[[label in ln_map for label in labels_n]]
+            feats_teacher = torch.from_numpy(feats_teacher[idx_teacher]).float()
+            feats_student = torch.from_numpy(feats_student[idx_student]).float()
+            labels_teacher_aligned = labels_teacher[[label in label_map_teacher for label in labels_teacher]]
+            labels_student_aligned = labels_student[[label in label_map_student for label in labels_student]]
 
         elif feature_type == 'rp_fourier':
             # Regionprops 7D + Fourier PE of positions (t, y, x)
-            frame_t_num = int(Path(mt).stem.replace("man_track", ""))
-            frame_n_num = int(Path(mn).stem.replace("man_track", ""))
-            _, labels_rp_t, feats_t = extract_regionprops_7d_fourier(
-                mask_t, imgt, frame_idx=frame_t_num,
+            frame_teacher_num = int(Path(mask_path_teacher).stem.replace("man_track", ""))
+            frame_student_num = int(Path(mask_path_student).stem.replace("man_track", ""))
+            _, labels_rp_teacher, feats_teacher = extract_regionprops_7d_fourier(
+                mask_teacher, img_teacher, frame_idx=frame_teacher_num,
             )
-            _, labels_rp_n, feats_n = extract_regionprops_7d_fourier(
-                mask_n, imgn, frame_idx=frame_n_num,
+            _, labels_rp_student, feats_student = extract_regionprops_7d_fourier(
+                mask_student, img_student, frame_idx=frame_student_num,
             )
-            if feats_t is None or feats_n is None:
+            if feats_teacher is None or feats_student is None:
                 continue
             # Align by label
-            lt_map = {label: i for i, label in enumerate(labels_rp_t)}
-            ln_map = {label: i for i, label in enumerate(labels_rp_n)}
-            idx_t = [lt_map[label] for label in labels_t if label in lt_map]
-            idx_n = [ln_map[label] for label in labels_n if label in ln_map]
-            if len(idx_t) < 2 or len(idx_n) < 2:
+            label_map_teacher = {label: i for i, label in enumerate(labels_rp_teacher)}
+            label_map_student = {label: i for i, label in enumerate(labels_rp_student)}
+            idx_teacher = [label_map_teacher[label] for label in labels_teacher if label in label_map_teacher]
+            idx_student = [label_map_student[label] for label in labels_student if label in label_map_student]
+            if len(idx_teacher) < 2 or len(idx_student) < 2:
                 continue
-            feats_t = torch.from_numpy(feats_t[idx_t]).float()
-            feats_n = torch.from_numpy(feats_n[idx_n]).float()
-            labels_t_use = labels_t[[label in lt_map for label in labels_t]]
-            labels_n_use = labels_n[[label in ln_map for label in labels_n]]
+            feats_teacher = torch.from_numpy(feats_teacher[idx_teacher]).float()
+            feats_student = torch.from_numpy(feats_student[idx_student]).float()
+            labels_teacher_aligned = labels_teacher[[label in label_map_teacher for label in labels_teacher]]
+            labels_student_aligned = labels_student[[label in label_map_student for label in labels_student]]
 
         elif feature_type == 'hoct19':
             # HOCT 13D (adapted from 19D): keep t, drop z, inertia 3×3→2×2
-            frame_t_num = int(Path(mt).stem.replace("man_track", ""))
-            frame_n_num = int(Path(mn).stem.replace("man_track", ""))
-            _, labels_h_t, feats_t = extract_hoct19(mask_t, imgt, frame_idx=frame_t_num)
-            _, labels_h_n, feats_n = extract_hoct19(mask_n, imgn, frame_idx=frame_n_num)
-            if feats_t is None or feats_n is None:
+            frame_teacher_num = int(Path(mask_path_teacher).stem.replace("man_track", ""))
+            frame_student_num = int(Path(mask_path_student).stem.replace("man_track", ""))
+            _, labels_h_teacher, feats_teacher = extract_hoct19(mask_teacher, img_teacher, frame_idx=frame_teacher_num)
+            _, labels_h_student, feats_student = extract_hoct19(mask_student, img_student, frame_idx=frame_student_num)
+            if feats_teacher is None or feats_student is None:
                 continue
             # Align by label
-            lt_map = {label: i for i, label in enumerate(labels_h_t)}
-            ln_map = {label: i for i, label in enumerate(labels_h_n)}
-            idx_t = [lt_map[label] for label in labels_t if label in lt_map]
-            idx_n = [ln_map[label] for label in labels_n if label in ln_map]
-            if len(idx_t) < 2 or len(idx_n) < 2:
+            label_map_teacher = {label: i for i, label in enumerate(labels_h_teacher)}
+            label_map_student = {label: i for i, label in enumerate(labels_h_student)}
+            idx_teacher = [label_map_teacher[label] for label in labels_teacher if label in label_map_teacher]
+            idx_student = [label_map_student[label] for label in labels_student if label in label_map_student]
+            if len(idx_teacher) < 2 or len(idx_student) < 2:
                 continue
-            feats_t = torch.from_numpy(feats_t[idx_t]).float()
-            feats_n = torch.from_numpy(feats_n[idx_n]).float()
-            labels_t_use = labels_t[[label in lt_map for label in labels_t]]
-            labels_n_use = labels_n[[label in ln_map for label in labels_n]]
+            feats_teacher = torch.from_numpy(feats_teacher[idx_teacher]).float()
+            feats_student = torch.from_numpy(feats_student[idx_student]).float()
+            labels_teacher_aligned = labels_teacher[[label in label_map_teacher for label in labels_teacher]]
+            labels_student_aligned = labels_student[[label in label_map_student for label in labels_student]]
 
         elif feature_type == 'hoct19_fourier':
             # HOCT 13D + Fourier PE: keep t as scalar, replace raw
             # centroid coords with Fourier PE of (y, x)
-            frame_t_num = int(Path(mt).stem.replace("man_track", ""))
-            frame_n_num = int(Path(mn).stem.replace("man_track", ""))
-            _, labels_h_t, feats_t = extract_hoct19_fourier(
-                mask_t, imgt, frame_idx=frame_t_num,
+            frame_teacher_num = int(Path(mask_path_teacher).stem.replace("man_track", ""))
+            frame_student_num = int(Path(mask_path_student).stem.replace("man_track", ""))
+            _, labels_h_teacher, feats_teacher = extract_hoct19_fourier(
+                mask_teacher, img_teacher, frame_idx=frame_teacher_num,
             )
-            _, labels_h_n, feats_n = extract_hoct19_fourier(
-                mask_n, imgn, frame_idx=frame_n_num,
+            _, labels_h_student, feats_student = extract_hoct19_fourier(
+                mask_student, img_student, frame_idx=frame_student_num,
             )
-            if feats_t is None or feats_n is None:
+            if feats_teacher is None or feats_student is None:
                 continue
             # Align by label
-            lt_map = {label: i for i, label in enumerate(labels_h_t)}
-            ln_map = {label: i for i, label in enumerate(labels_h_n)}
-            idx_t = [lt_map[label] for label in labels_t if label in lt_map]
-            idx_n = [ln_map[label] for label in labels_n if label in ln_map]
-            if len(idx_t) < 2 or len(idx_n) < 2:
+            label_map_teacher = {label: i for i, label in enumerate(labels_h_teacher)}
+            label_map_student = {label: i for i, label in enumerate(labels_h_student)}
+            idx_teacher = [label_map_teacher[label] for label in labels_teacher if label in label_map_teacher]
+            idx_student = [label_map_student[label] for label in labels_student if label in label_map_student]
+            if len(idx_teacher) < 2 or len(idx_student) < 2:
                 continue
-            feats_t = torch.from_numpy(feats_t[idx_t]).float()
-            feats_n = torch.from_numpy(feats_n[idx_n]).float()
-            labels_t_use = labels_t[[label in lt_map for label in labels_t]]
-            labels_n_use = labels_n[[label in ln_map for label in labels_n]]
+            feats_teacher = torch.from_numpy(feats_teacher[idx_teacher]).float()
+            feats_student = torch.from_numpy(feats_student[idx_student]).float()
+            labels_teacher_aligned = labels_teacher[[label in label_map_teacher for label in labels_teacher]]
+            labels_student_aligned = labels_student[[label in label_map_student for label in labels_student]]
 
         elif feature_type in ('cnn_frozen', 'dino'):
             # Check cache first
-            frame_t_num = int(Path(mt).stem.replace("man_track", ""))
-            frame_n_num = int(Path(mn).stem.replace("man_track", ""))
-            prefix = f"f{frame_t_num:06d}"
-            cached_t, cached_labels_t = _load_cached_features(cond, exp, frame_t_num, feature_type, labels_t)
-            cached_n, cached_labels_n = _load_cached_features(cond, exp, frame_n_num, feature_type, labels_n)
+            frame_teacher_num = int(Path(mask_path_teacher).stem.replace("man_track", ""))
+            frame_student_num = int(Path(mask_path_student).stem.replace("man_track", ""))
+            prefix = f"f{frame_teacher_num:06d}"
+            cached_teacher, cached_labels_teacher = _load_cached_features(condition, experiment, frame_teacher_num, feature_type, labels_teacher)
+            cached_student, cached_labels_student = _load_cached_features(condition, experiment, frame_student_num, feature_type, labels_student)
 
-            if cached_t is not None and cached_n is not None:
-                feats_t = torch.from_numpy(cached_t).float()
-                feats_n = torch.from_numpy(cached_n).float()
-                labels_t_use = cached_labels_t
-                labels_n_use = cached_labels_n
+            if cached_teacher is not None and cached_student is not None:
+                feats_teacher = torch.from_numpy(cached_teacher).float()
+                feats_student = torch.from_numpy(cached_student).float()
+                labels_teacher_aligned = cached_labels_teacher
+                labels_student_aligned = cached_labels_student
             else:
                 # Extract patches and compute features
-                patches_t = extract_patches(imgt, coords_t)
-                patches_n = extract_patches(imgn, coords_n)
+                patches_teacher = extract_patches(img_teacher, coords_teacher)
+                patches_student = extract_patches(img_student, coords_student)
 
                 if feature_type == 'cnn_frozen':
-                    pt_t = torch.from_numpy(patches_t).float().unsqueeze(1).to(device)
-                    pn_t = torch.from_numpy(patches_n).float().unsqueeze(1).to(device)
+                    patches_tensor_teacher = torch.from_numpy(patches_teacher).float().unsqueeze(1).to(device)
+                    patches_tensor_student = torch.from_numpy(patches_student).float().unsqueeze(1).to(device)
                     with torch.no_grad():
-                        feats_t_np = cnn_frozen_model(pt_t).cpu().numpy()
-                        feats_n_np = cnn_frozen_model(pn_t).cpu().numpy()
+                        feats_teacher_np = cnn_frozen_model(patches_tensor_teacher).cpu().numpy()
+                        feats_student_np = cnn_frozen_model(patches_tensor_student).cpu().numpy()
                 else:  # dino
-                    feats_t_np = compute_dino_embs(patches_t)
-                    feats_n_np = compute_dino_embs(patches_n)
+                    feats_teacher_np = compute_dino_embs(patches_teacher)
+                    feats_student_np = compute_dino_embs(patches_student)
 
-                feats_t = torch.from_numpy(feats_t_np).float()
-                feats_n = torch.from_numpy(feats_n_np).float()
-                labels_t_use = labels_t
-                labels_n_use = labels_n
+                feats_teacher = torch.from_numpy(feats_teacher_np).float()
+                feats_student = torch.from_numpy(feats_student_np).float()
+                labels_teacher_aligned = labels_teacher
+                labels_student_aligned = labels_student
 
                 # Cache
-                _save_cached_features(cond, exp, frame_t_num, feature_type, feats_t_np, labels_t)
-                _save_cached_features(cond, exp, frame_n_num, feature_type, feats_n_np, labels_n)
+                _save_cached_features(condition, experiment, frame_teacher_num, feature_type, feats_teacher_np, labels_teacher)
+                _save_cached_features(condition, experiment, frame_student_num, feature_type, feats_student_np, labels_student)
 
         elif feature_type == 'cnn_e2e':
             # Just store patches; model is trained jointly
-            patches_t = extract_patches(imgt, coords_t)
-            patches_n = extract_patches(imgn, coords_n)
-            n_cells_t, n_cells_n = len(labels_t), len(labels_n)
-            target = torch.zeros(n_cells_t, n_cells_n, dtype=torch.float32)
+            patches_teacher = extract_patches(img_teacher, coords_teacher)
+            patches_student = extract_patches(img_student, coords_student)
+            n_cells_teacher, n_cells_student = len(labels_teacher), len(labels_student)
+            target = torch.zeros(n_cells_teacher, n_cells_student, dtype=torch.float32)
             n_pos = 0
-            for i, lt in enumerate(labels_t):
-                lt_int = int(lt)
-                for j, ln in enumerate(labels_n):
-                    ln_int = int(ln)
-                    if lt_int == ln_int:
+            for i, label_teacher in enumerate(labels_teacher):
+                label_teacher_int = int(label_teacher)
+                for j, label_student in enumerate(labels_student):
+                    label_student_int = int(label_student)
+                    if label_teacher_int == label_student_int:
                         target[i, j] = 1.0
                         n_pos += 1
-                    elif ln_int in tracklets and tracklets[ln_int]['parent'] == lt_int:
+                    elif label_student_int in tracklets and tracklets[label_student_int]['parent'] == label_teacher_int:
                         target[i, j] = 1.0
                         n_pos += 1
             if target.sum() < 1:
                 continue
             edge_data.append({
-                "patches_t": torch.from_numpy(patches_t).float().unsqueeze(1),  # (N, 1, H, W)
-                "patches_n": torch.from_numpy(patches_n).float().unsqueeze(1),
+                "patches_teacher": torch.from_numpy(patches_teacher).float().unsqueeze(1),  # (N, 1, H, W)
+                "patches_student": torch.from_numpy(patches_student).float().unsqueeze(1),
                 "target": target,
                 "n_pos": n_pos,
-                "n_neg": n_cells_t * n_cells_n - n_pos,
-                "condition": cond,
-                "experiment": exp,
+                "n_neg": n_cells_teacher * n_cells_student - n_pos,
+                "condition": condition,
+                "experiment": experiment,
             })
             total += 1
             continue
@@ -297,17 +326,17 @@ def build_frame_pairs(pairs, max_pairs, feature_type, checkpoint_path=None):
 
         # Build target matrix
         if feature_type != 'cnn_e2e':
-            n_cells_t, n_cells_n = len(labels_t_use), len(labels_n_use)
-            target = torch.zeros(n_cells_t, n_cells_n, dtype=torch.float32)
+            n_cells_teacher, n_cells_student = len(labels_teacher_aligned), len(labels_student_aligned)
+            target = torch.zeros(n_cells_teacher, n_cells_student, dtype=torch.float32)
             n_pos = 0
-            for i, lt in enumerate(labels_t_use):
-                lt_int = int(lt)
-                for j, ln in enumerate(labels_n_use):
-                    ln_int = int(ln)
-                    if lt_int == ln_int:
+            for i, label_teacher in enumerate(labels_teacher_aligned):
+                label_teacher_int = int(label_teacher)
+                for j, label_student in enumerate(labels_student_aligned):
+                    label_student_int = int(label_student)
+                    if label_teacher_int == label_student_int:
                         target[i, j] = 1.0
                         n_pos += 1
-                    elif ln_int in tracklets and tracklets[ln_int]['parent'] == lt_int:
+                    elif label_student_int in tracklets and tracklets[label_student_int]['parent'] == label_teacher_int:
                         target[i, j] = 1.0
                         n_pos += 1
 
@@ -315,13 +344,13 @@ def build_frame_pairs(pairs, max_pairs, feature_type, checkpoint_path=None):
                 continue
 
             edge_data.append({
-                "feat_t": feats_t,
-                "feat_n": feats_n,
+                "feat_teacher": feats_teacher,
+                "feat_student": feats_student,
                 "target": target,
                 "n_pos": n_pos,
-                "n_neg": n_cells_t * n_cells_n - n_pos,
-                "condition": cond,
-                "experiment": exp,
+                "n_neg": n_cells_teacher * n_cells_student - n_pos,
+                "condition": condition,
+                "experiment": experiment,
             })
             total += 1
 
@@ -483,17 +512,17 @@ def evaluate_feature(feature_type, all_pairs, args, checkpoint_path):
     """
     if feature_type not in FEATURE_REGISTRY:
         raise ValueError(f"Unknown feature_type: {feature_type}")
-    cfg = FEATURE_CONFIGS[feature_type]
+    feature_config = FEATURE_CONFIGS[feature_type]
     logger.info(f"\n{'=' * 60}")
-    logger.info(f"Feature: {cfg['display']} ({cfg['feat_dim']}D)")
+    logger.info(f"Feature: {feature_config['display']} ({feature_config['feat_dim']}D)")
     logger.info(f"{'=' * 60}")
 
     # ── Build frame-pair data ────────────────────────────────────────────
-    t0 = time.time()
+    start_time = time.time()
     edge_data, cnn_model = build_frame_pairs(
         all_pairs, args.max_pairs, feature_type, checkpoint_path
     )
-    logger.info(f"  Built {len(edge_data)} frame pairs in {time.time() - t0:.1f}s")
+    logger.info(f"  Built {len(edge_data)} frame pairs in {time.time() - start_time:.1f}s")
 
     if len(edge_data) < 2:
         logger.warning(f"  Not enough data ({len(edge_data)}), skipping")
@@ -523,10 +552,10 @@ def evaluate_feature(feature_type, all_pairs, args, checkpoint_path):
 
         # Linear probe
         if args.probe in ("linear", "both"):
-            t1 = time.time()
-            cv_result = _run_cv("Linear", cfg['feat_dim'],
+            probe_start_time = time.time()
+            cv_result = _run_cv("Linear", feature_config['feat_dim'],
                                 is_e2e=(feature_type == 'cnn_e2e'))
-            elapsed = time.time() - t1
+            elapsed = time.time() - probe_start_time
             if cv_result:
                 logger.info(f"    Linear CV: bal_acc={cv_result['bal_acc_mean']:.4f}\u00b1{cv_result['bal_acc_std']:.4f}, "
                             f"f1={cv_result['f1_mean']:.4f}\u00b1{cv_result['f1_std']:.4f} ({elapsed:.1f}s)")
@@ -534,10 +563,10 @@ def evaluate_feature(feature_type, all_pairs, args, checkpoint_path):
 
         # MLP probe
         if args.probe in ("mlp", "both"):
-            t1 = time.time()
-            cv_result = _run_cv("MLP", cfg['feat_dim'],
+            probe_start_time = time.time()
+            cv_result = _run_cv("MLP", feature_config['feat_dim'],
                                 is_e2e=(feature_type == 'cnn_e2e'))
-            elapsed = time.time() - t1
+            elapsed = time.time() - probe_start_time
             if cv_result:
                 logger.info(f"    MLP CV: bal_acc={cv_result['bal_acc_mean']:.4f}\u00b1{cv_result['bal_acc_std']:.4f}, "
                             f"f1={cv_result['f1_mean']:.4f}\u00b1{cv_result['f1_std']:.4f} ({elapsed:.1f}s)")
@@ -550,28 +579,28 @@ def evaluate_feature(feature_type, all_pairs, args, checkpoint_path):
             shuffled_datasets = flatten_to_pairs(shuffled_edge_data)
             if shuffled_datasets:
                 if args.probe in ("linear", "both"):
-                    t1 = time.time()
-                    shuf_result = run_cross_validation(
-                        shuffled_datasets, "Linear", cfg['feat_dim'], args,
+                    probe_start_time = time.time()
+                    shuffle_result = run_cross_validation(
+                        shuffled_datasets, "Linear", feature_config['feat_dim'], args,
                         n_folds=args.cv_folds, is_e2e=(feature_type == 'cnn_e2e'),
                     )
-                    elapsed = time.time() - t1
-                    if shuf_result:
-                        logger.info(f"    Shuffled Linear CV: bal_acc={shuf_result['bal_acc_mean']:.4f}\u00b1{shuf_result['bal_acc_std']:.4f} "
+                    elapsed = time.time() - probe_start_time
+                    if shuffle_result:
+                        logger.info(f"    Shuffled Linear CV: bal_acc={shuffle_result['bal_acc_mean']:.4f}\u00b1{shuffle_result['bal_acc_std']:.4f} "
                                     f"({elapsed:.1f}s)")
-                        results["linear_shuffled"] = shuf_result
+                        results["linear_shuffled"] = shuffle_result
 
                 if args.probe in ("mlp", "both"):
-                    t1 = time.time()
-                    shuf_result = run_cross_validation(
-                        shuffled_datasets, "MLP", cfg['feat_dim'], args,
+                    probe_start_time = time.time()
+                    shuffle_result = run_cross_validation(
+                        shuffled_datasets, "MLP", feature_config['feat_dim'], args,
                         n_folds=args.cv_folds, is_e2e=(feature_type == 'cnn_e2e'),
                     )
-                    elapsed = time.time() - t1
-                    if shuf_result:
-                        logger.info(f"    Shuffled MLP CV: bal_acc={shuf_result['bal_acc_mean']:.4f}\u00b1{shuf_result['bal_acc_std']:.4f} "
+                    elapsed = time.time() - probe_start_time
+                    if shuffle_result:
+                        logger.info(f"    Shuffled MLP CV: bal_acc={shuffle_result['bal_acc_mean']:.4f}\u00b1{shuffle_result['bal_acc_std']:.4f} "
                                     f"({elapsed:.1f}s)")
-                        results["mlp_shuffled"] = shuf_result
+                        results["mlp_shuffled"] = shuffle_result
             else:
                 logger.warning("  No shuffled datasets, skipping shuffle baseline")
 
@@ -675,11 +704,11 @@ def evaluate_feature(feature_type, all_pairs, args, checkpoint_path):
                 val_dataset, batch_size=batch_size, shuffle=False,
             )
 
-            feat_dim = cfg['feat_dim']
+            probe_feat_dim = feature_config['feat_dim']
             if probe_name == "Linear":
-                probe = LinearProbe(feat_dim)
+                probe = LinearProbe(probe_feat_dim)
             else:
-                probe = MLPProbe(feat_dim)
+                probe = MLPProbe(probe_feat_dim)
 
             result = train_probe(
                 probe, train_loader, val_loader,
@@ -692,9 +721,9 @@ def evaluate_feature(feature_type, all_pairs, args, checkpoint_path):
 
     # ── Linear probe ─────────────────────────────────────────────────────
     if args.probe in ("linear", "both"):
-        t1 = time.time()
+        probe_start_time = time.time()
         result = _run_probe("Linear", args.lr, args.batch_size_linear)
-        elapsed = time.time() - t1
+        elapsed = time.time() - probe_start_time
         if result:
             logger.info(f"    Linear: bal_acc={result['final_bal_acc']:.4f}, "
                         f"f1={result['final_f1']:.4f} ({elapsed:.1f}s)")
@@ -702,9 +731,9 @@ def evaluate_feature(feature_type, all_pairs, args, checkpoint_path):
 
     # ── MLP probe ────────────────────────────────────────────────────────
     if args.probe in ("mlp", "both"):
-        t1 = time.time()
+        probe_start_time = time.time()
         result = _run_probe("MLP", args.lr / 10, args.batch_size_mlp)
-        elapsed = time.time() - t1
+        elapsed = time.time() - probe_start_time
         if result:
             logger.info(f"    MLP: bal_acc={result['final_bal_acc']:.4f}, "
                         f"f1={result['final_f1']:.4f} ({elapsed:.1f}s)")

@@ -15,7 +15,7 @@ Feature types (registered in ``harness.registry``):
   hoct19_fourier -- HOCT 13D + Fourier PE of positions    [43 dim]
 
 Probe architectures (registered in ``harness.registry``):
-  Linear: nn.Linear(2*feat_dim, 1) over concat(feat_t, feat_n)
+  Linear: nn.Linear(2*feat_dim, 1) over concat(feat_teacher, feat_student)
   MLP:    nn.Sequential(Linear(2*feat_dim, 128), ReLU, Linear(128, 1))
 
 Usage:
@@ -43,8 +43,6 @@ import torch
 
 from src.edge_probing.harness.evaluation import (
     FEATURE_CONFIGS,
-    TRAIN_CONDITIONS,
-    VAL_CONDITIONS,
     evaluate_feature,
 )
 from src.edge_probing.harness.feature_extractors import PROJECT_ROOT, device

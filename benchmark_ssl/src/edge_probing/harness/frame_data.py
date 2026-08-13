@@ -57,8 +57,8 @@ def load_tracklets(man_track_path):
 
 
 def scan_consecutive_pairs(data_root, conditions, max_pairs):
-    """Find consecutive frame pairs. Returns list of (mask_t, mask_n, img_t,
-    img_n, man_track_path, condition, experiment)."""
+    """Find consecutive frame pairs. Returns list of (mask_teacher, mask_student,
+    img_teacher, img_student, man_track_path, condition, experiment)."""
     dr = Path(data_root)
     pairs = []
     for cond in conditions:
