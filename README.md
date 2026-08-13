@@ -52,6 +52,8 @@ pip install wandb pyyaml einops lightning
 
 This repository was created with substantial assistance from the opencode agent
 (https://opencode.ai) running DeepSeek-V4 (model `deepseek/deepseek-v4-flash`).
+Code refactoring and repository restructuring were additionally assisted by
+GLM-5.2 (model `scads/zai-org/GLM-5.2-FP8`), hosted on the SCADS.AI server.
 All AI-generated output was reviewed and verified by the author, who takes full
 responsibility for the code, results, and text.
 
@@ -86,7 +88,8 @@ Key references for this project:
 ```
 
 The code and analysis in this repository were produced with the assistance of
-the DeepSeek-V4 model (via the opencode agent). Cite DeepSeek as follows:
+the DeepSeek-V4 model (via the opencode agent) and the GLM-5.2 model (hosted on
+the SCADS.AI server). Cite DeepSeek as follows:
 
 ```bibtex
 @misc{deepseekai2024deepseekv3technicalreport,
