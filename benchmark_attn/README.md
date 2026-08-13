@@ -65,18 +65,14 @@ python analysis/plot_sparse.py
 ### Additional benchmarks
 
 ```bash
-# Mask vs gather at small N (N ≤ 512)
-python scripts/benchmarks/benchmark_mask_vs_gather.py
-
 # Generic profiler wrapper
 python scripts/benchmarks/benchmark_profiler.py
-
-# All spatial methods (NOTE: gather_knn_ms column is not populated; do not cite gather)
-python scripts/benchmarks/benchmark_all_spatial_methods.py
 
 # Small-N behavior (N ≤ 512)
 python scripts/benchmarks/benchmark_sweep.py --methods gather_sdpa,gather_fused,gather_matmul --Ns 128,256,512 --Ks 16 --layers 1
 ```
+
+**Not included:** FlexAttention (PyTorch's `torch.nn.attention.flex_attention`) is not benchmarked here because the sweep's claim (which sparse attention variant is fastest at cell-tracking scale) does not depend on it. FlexAttention with spatial cutoff has been compared informally against the gathered/masked variants; the gathered/masked KNN approaches dominate at the N ranges used in cell tracking.
 
 ### Exploratory / one-off
 
@@ -107,12 +103,6 @@ python analysis/tile_size_analysis.py
 # Verify CUDA attention backends
 python analysis/verify_cudnn.py
 
-# Tra-AOGM visualization
-python analysis/tra_aogm_visualization.py
-
-# Collapse visualization
-python analysis/vis_collapse.py
-
 # Generate the HTML dashboard (aggregates results/ artifacts)
 python analysis/make_report.py
 ```
@@ -135,8 +125,6 @@ benchmark_attn/
 │   └── benchmarks/
 │       ├── benchmark_sweep.py      # consolidated method × L × N × K sweep
 │       ├── benchmark_cached_dist.py # CachedDistAttention measurement
-│       ├── benchmark_mask_vs_gather.py # mask vs gather + SDPA dispatch
-│       ├── benchmark_all_spatial_methods.py # FlexAttention comparison
 │       └── benchmark_profiler.py   # merged profiler (general + gather)
 │
 ├── tests/                          # validation scripts

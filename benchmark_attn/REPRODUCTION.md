@@ -16,7 +16,7 @@ which targets an H100 (80 GB) on the TU Dresden Capella cluster.
 
 | Environment | Hardware | GPU VRAM | Venv | Used for |
 |---|---|---|---|---|
-| Local (this repo) | NVIDIA RTX A500 Laptop | 4 GiB | `.venv/bin/python` | `scripts/benchmarks/benchmark_sweep.py`, `scripts/benchmarks/benchmark_cached_dist.py`, `scripts/benchmarks/benchmark_mask_vs_gather.py`, `scripts/benchmarks/benchmark_all_spatial_methods.py`, `tests/validate_equivalence.py`, `analysis/plot_sparse.py` |
+| Local (this repo) | NVIDIA RTX A500 Laptop | 4 GiB | `.venv/bin/python` | `scripts/benchmarks/benchmark_sweep.py`, `scripts/benchmarks/benchmark_cached_dist.py`, `tests/validate_equivalence.py`, `analysis/plot_sparse.py` |
 | Cluster (Capella) | NVIDIA H100 | 80 GiB | `$VENV` (see §3) | `slurm/run_full_bench.slurm` → `scripts/benchmarks/benchmark_sweep.py` → `full_bench_h100.csv` |
 
 All local benchmarks use fp16 on CUDA (`dtype = torch.float16`). Scripts assert
@@ -87,34 +87,7 @@ cd benchmark_attn && $V scripts/benchmarks/benchmark_cached_dist.py
 Note: `dist_2d` must be cast to the model dtype before the v1 decay add (the real model
 computes it in fp32, which breaks the fp16 SDPA mask dtype on torch 2.12+cu130).
 
-### 2.4 `scripts/benchmarks/benchmark_mask_vs_gather.py` — mask vs gather (N ≤ 512)
-
-Purpose: `KNNMaskSparseAttention` vs `GatherSparseAttention` vs `DenseFlashAttention` at
-N=128/256/512, K=16, L=1, plus an SDPA backend profile. No CLI args; B=2, d=256, h=4,
-coord_dim=3 hardcoded.
-
-```bash
-cd benchmark_attn && $V scripts/benchmarks/benchmark_mask_vs_gather.py
-# writes benchmark_mask_vs_gather.csv (method,N,K,time_s,mem_mb,speedup_vs_gather) into the CWD
-```
-
-Covers N ≤ 512 only; mask_knn at N ≥ 2048 lives in `results/full_bench_a500.csv` (§6.1).
-
-### 2.5 `scripts/benchmarks/benchmark_all_spatial_methods.py` — spatial-cutoff methods
-
-Purpose: FlexAttention vs gather_sdpa vs mask_knn vs cuDNN hard mask, head-to-head
-(d=320, nhead=8, d_head=40, fp16, d_max=256, lam=5, knn_k=16). Verifies spatial-cutoff
-equivalence via cosine similarity against the hard-mask baseline.
-
-```bash
-cd benchmark_attn && $V scripts/benchmarks/benchmark_all_spatial_methods.py --outdir results
-# writes results/all_spatial_methods.csv
-# (N,hard_cudnn_ms,mask_knn_ms,gather_knn_ms,gather_knn_error,flex_ms,cos_mask_vs_hard,cos_flex_vs_hard)
-```
-
-`gather_knn_ms` is -1 for every N (shape error at N≤512, OOM at N≥1024); do not cite it.
-
-### 2.6 `tests/validate_equivalence.py` — numerical equivalence
+### 2.4 `tests/validate_equivalence.py` — numerical equivalence
 
 Purpose: verifies `GatherSparseAttention` vs `KNNMaskSparseAttention` produce numerically
 identical outputs (forward cosine similarity, forward max abs diff, gradient relative error)

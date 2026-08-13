@@ -1,11 +1,5 @@
 """Shared timing helpers for the benchmark harness.
 
-Extracted from the near-identical ``measure()`` and ``try_bench()``
-implementations that previously lived in each benchmark script under
-``benchmarks/`` (e.g. ``benchmark_sparse.py``, ``benchmark_full.py``,
-``benchmark_small_n.py``, ``benchmark_gather_v3.py``,
-``benchmark_cached_dist.py``).
-
 The ``measure()`` variant guarded by ``torch.cuda.is_available()`` (from the
 sparse/small-n scripts) is kept as canonical so that both helpers degrade
 gracefully on CPU-only machines, returning 0.0 for peak memory instead of

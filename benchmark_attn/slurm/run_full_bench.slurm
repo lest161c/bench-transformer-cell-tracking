@@ -36,8 +36,11 @@ echo "N = 128 256 512 1024 2048 4096 8192"
 echo "K = 4 16"
 echo ""
 
-python benchmark_attn/benchmark_full.py \
+python benchmark_attn/scripts/benchmarks/benchmark_sweep.py \
     --d 320 --nhead 8 \
+    --methods gather_sdpa,gather_fused,gather_matmul,mask_knn,knn_relpos,minimax,nsa,dense_flash,dense_masked \
+    --Ns 128,256,512,1024,2048,4096,8192 \
+    --Ks 4,16 \
     --warmup 10 --rep 50 \
     --out benchmark_attn/full_bench_h100.csv
 
