@@ -4,7 +4,7 @@ Reproduction guide for every experiment in this directory: exact CLI invocations
 environments, output files, and the measured-results index.
 
 Authoritative sources: the benchmark scripts, `slurm/run_full_bench.slurm`, the CSVs under
-`results/`, and the local venv `benchmark_attn/.venv` (Python 3.14.4, torch 2.12.0+cu130).
+`results/`, and the local environment managed by `uv sync` (Python 3.14.4, torch 2.12.0+cu130).
 
 ---
 
@@ -14,20 +14,20 @@ Two hardware environments are involved. All benchmarks in this directory run **l
 RTX A500 Laptop** (4096 MiB, compute cap 8.6, Ampere) except `slurm/run_full_bench.slurm`,
 which targets an H100 (80 GB) on the TU Dresden Capella cluster.
 
-| Environment | Hardware | GPU VRAM | Venv | Used for |
+| Environment | Hardware | GPU VRAM | Invocation | Used for |
 |---|---|---|---|---|
-| Local (this repo) | NVIDIA RTX A500 Laptop | 4 GiB | `.venv/bin/python` | `scripts/benchmarks/benchmark_sweep.py`, `scripts/benchmarks/benchmark_cached_dist.py`, `tests/validate_equivalence.py`, `analysis/plot_sparse.py` |
-| Cluster (Capella) | NVIDIA H100 | 80 GiB | `$VENV` (see §3) | `slurm/run_full_bench.slurm` → `scripts/benchmarks/benchmark_sweep.py` → `full_bench_h100.csv` |
+| Local (this repo) | NVIDIA RTX A500 Laptop | 4 GiB | `uv run python <script>` | `scripts/benchmarks/benchmark_sweep.py`, `scripts/benchmarks/benchmark_cached_dist.py`, `tests/validate_equivalence.py`, `analysis/plot_sparse.py` |
+| Cluster (Capella) | NVIDIA H100 | 80 GiB | `uv run python <script>` | `slurm/run_full_bench.slurm` → `scripts/benchmarks/benchmark_sweep.py` → `full_bench_h100.csv` |
 
 All local benchmarks use fp16 on CUDA (`dtype = torch.float16`). Scripts assert
 `torch.cuda.is_available()` and are not intended to run on CPU.
 
-Verified local packages (`.venv`): `torch 2.12.0+cu130`, `native_sparse_attention_pytorch`,
-`seaborn 0.13.2`, `pandas 3.0.3`, `matplotlib 3.11.0`, `wandb 0.28.1`.
+Verified local packages: `torch 2.12.0+cu130`, `native_sparse_attention_pytorch`,
+`seaborn 0.13.2`, `pandas 3.0.3`, `matplotlib 3.11.0`.
 
 ```bash
-V=.venv/bin/python   # from inside benchmark_attn/
 cd benchmark_attn
+uv sync   # one-time setup; creates .venv/ and installs all deps from pyproject.toml
 ```
 
 Run every local benchmark from inside `benchmark_attn/` so `src/attention_modules.py` and the
@@ -45,7 +45,7 @@ Purpose: forward time + incremental peak GPU memory for every registered method
 rows; OOM and other failures land in the `error` column.
 
 ```bash
-cd benchmark_attn && $V scripts/benchmarks/benchmark_sweep.py \
+cd benchmark_attn && uv run python scripts/benchmarks/benchmark_sweep.py \
     --methods gather_sdpa,gather_fused,gather_matmul,mask_knn,dense_flash,dense_masked,nsa,knn_relpos,minimax \
     --Ns 128,256,512,1024,2048,4096,8192 --Ks 4,16,64 --layers 1,4 \
     --mode none --dist-mode v1 --d 320 --nhead 8 --coord-dim 2 --seed 42 \
@@ -64,7 +64,7 @@ Notes:
 ### 2.2 Gather variants (same script)
 
 ```bash
-cd benchmark_attn && $V scripts/benchmarks/benchmark_sweep.py \
+cd benchmark_attn && uv run python scripts/benchmarks/benchmark_sweep.py \
     --methods gather_sdpa,gather_fused,gather_matmul \
     --out results/sweep_results.csv
 ```
@@ -80,7 +80,7 @@ Purpose: per-layer forward of `dense_masked` (RelativePositionalAttention) vs
 trackastra dependency.
 
 ```bash
-cd benchmark_attn && $V scripts/benchmarks/benchmark_cached_dist.py
+cd benchmark_attn && uv run python scripts/benchmarks/benchmark_cached_dist.py
 # writes results/cached_dist_results.csv  (method,N,time_ms,memory_mb,error)
 ```
 
@@ -94,7 +94,7 @@ identical outputs (forward cosine similarity, forward max abs diff, gradient rel
 across 18 configs (N∈{128,256,512}, K∈{4,16}, 3 seeds each) in fp16. Console output only.
 
 ```bash
-cd benchmark_attn && $V tests/validate_equivalence.py
+cd benchmark_attn && uv run python tests/validate_equivalence.py
 ```
 
 Result: cosine similarity 0.9995–1.0010, forward |Δ| < 5e-4, gradient relative error < 8e-4.
@@ -105,7 +105,7 @@ Purpose: seaborn/matplotlib figures from `results/benchmark_sparse_results.csv` 
 self-contained HTML (figures embedded as base64 PNGs). No CLI args, no GPU.
 
 ```bash
-cd benchmark_attn && $V analysis/plot_sparse.py
+cd benchmark_attn && uv run python analysis/plot_sparse.py
 # reads  results/benchmark_sparse_results.csv
 # writes results/benchmark_sparse.html
 ```
@@ -118,10 +118,11 @@ Set the cluster paths once (values depend on your account and workspace):
 
 ```bash
 export WS=/your/workspace      # workspace root on the cluster
-export TRK=$WS/trackastra      # trackastra checkout (holds .venv and runs/)
-export VENV=$TRK/.venv         # cluster venv (activated inside the slurm script)
 export REPO=$WS/bench-transformer-cell-tracking   # this bench repo checkout
 ```
+
+The slurm script `cd`s into `benchmark_attn/` and runs `uv sync` to install all dependencies
+from `pyproject.toml` into the project-local `.venv/`. No external venv is needed.
 
 Access: SSH host `capella` (VPN required). Partition `gpu-h100`, account
 `p_scads_celltracking`, 1 GPU per node.
@@ -134,22 +135,22 @@ SBATCH resources (as declared in the script): job `attn_full_bench`, account
 `p_scads_celltracking`, partition `gpu-h100`, time `01:00:00`, 1 GPU, 8 CPUs, 90 GB mem,
 logs `logs/full_bench_%j.{out,err}`.
 
-In-script env: `PIP_REQUIRE_VIRTUALENV=false`, `OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK`,
+In-script env: `OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK`,
 `MKL_NUM_THREADS=$SLURM_CPUS_PER_TASK`, `NCCL_DEBUG=WARN`,
 `CUBLAS_WORKSPACE_CONFIG=:4096:8`, `PYTHONNOUSERSITE=1`, `unset PYTHONPATH PYTHONHOME`.
-The script activates `$VENV`, installs torch from the cu124 wheel index if needed, then
-`cd "$REPO"`.
+The script `cd`s into `benchmark_attn/`, runs `uv sync` to install all deps from
+`pyproject.toml`, then invokes the benchmark via `uv run python`.
 
 Submit:
 
 ```bash
-cd "$REPO" && sbatch benchmark_attn/slurm/run_full_bench.slurm
+cd "$REPO/benchmark_attn" && sbatch slurm/run_full_bench.slurm
 ```
 
-Equivalent manual command (also the one the slurm script should run — see §8.2):
+Equivalent manual command (also the one the slurm script should run):
 
 ```bash
-cd "$REPO/benchmark_attn" && $VENV/bin/python scripts/benchmarks/benchmark_sweep.py \
+cd "$REPO/benchmark_attn" && uv run python scripts/benchmarks/benchmark_sweep.py \
     --methods gather_sdpa,gather_fused,gather_matmul,mask_knn,dense_flash,dense_masked,nsa,knn_relpos,minimax \
     --d 320 --nhead 8 --warmup 10 --rep 50 --Ks 4,16 \
     --out results/full_bench_h100.csv
@@ -248,10 +249,3 @@ patience 83 already stops near-optimal; `--epochs 500` is only an upper bound.
    (`--Ns 128,256,512,1024,2048,4096,8192 --Ks 4,16,64 --layers 1,4`; NSA `sel_blocks` is not a
    CLI knob — the class default `num_selected_blocks=4` applies); a smaller sweep overwrites the
    superset data.
-2. **Stale slurm script.** `slurm/run_full_bench.slurm` still invokes the pre-consolidation
-   `benchmark_attn/benchmark_full.py` (which no longer exists) and hardcodes a personal `WS`.
-   Before submitting, set `WS`/`REPO`/`VENV` (§3) and update the command to the §4
-   `benchmark_sweep.py` invocation, passing `--Ks 4,16` to match the script's "K = 4 16" echo
-   (the sweep default is `4,16,64`).
-3. **cu124 vs cu130.** The slurm script installs torch from the cu124 wheel index while the local
-   venv is torch 2.12.0+cu130; be aware when comparing A500 (cu130) vs H100 (cu124) timings.

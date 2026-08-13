@@ -32,44 +32,48 @@ Requires Python ≥3.14, PyTorch ≥2.11 with CUDA.
 
 ## Usage
 
-All scripts run from the `benchmark_attn/` directory with the project venv:
-`cd benchmark_attn && .venv/bin/python <script>`.
+All scripts run from the `benchmark_attn/` directory. After `uv sync`,
+invoke any script via `uv run python <script>`:
+
+```bash
+uv run python scripts/benchmarks/benchmark_sweep.py --methods gather_sdpa,dense_flash --Ks 4,16
+```
 
 ### Core benchmarks
 
 ```bash
 # Main sparse vs dense sweep (N up to 8192, K 4-64; extend via --Ns/--Ks flags)
-python scripts/benchmarks/benchmark_sweep.py --methods gather_sdpa,dense_flash,dense_masked --Ks 4,16,64
+uv run python scripts/benchmarks/benchmark_sweep.py --methods gather_sdpa,dense_flash,dense_masked --Ks 4,16,64
 
 # Unified benchmark: all methods × all N, forward + peak memory (mask_knn at N>=2048)
-python scripts/benchmarks/benchmark_sweep.py --methods gather_sdpa,gather_fused,gather_matmul,mask_knn,knn_relpos,minimax,nsa,dense_flash,dense_masked
+uv run python scripts/benchmarks/benchmark_sweep.py --methods gather_sdpa,gather_fused,gather_matmul,mask_knn,knn_relpos,minimax,nsa,dense_flash,dense_masked
 
 # CachedDistAttention real measurement (classes in local src/attention_modules.py)
-python scripts/benchmarks/benchmark_cached_dist.py
+uv run python scripts/benchmarks/benchmark_cached_dist.py
 
 # Gather variants: gather_sdpa (GatherSparseAttention), gather_fused (GatherSparseFusedAttention), gather_matmul (GatherSparseMatmulAttention)
-python scripts/benchmarks/benchmark_sweep.py --methods gather_sdpa,gather_fused,gather_matmul
+uv run python scripts/benchmarks/benchmark_sweep.py --methods gather_sdpa,gather_fused,gather_matmul
 
 # Profiler (per-operation CUDA time breakdown) → profiler_out/profile_gather_results.json
 # Merged profiler: general mode (dense/sparse sweep) or gather mode (GatherSparseAttention)
-python scripts/benchmarks/benchmark_operator_breakdown.py --mode general
-python scripts/benchmarks/benchmark_operator_breakdown.py --mode gather
+uv run python scripts/benchmarks/benchmark_operator_breakdown.py --mode general
+uv run python scripts/benchmarks/benchmark_operator_breakdown.py --mode gather
 
 # Mask vs gather numerical equivalence across 18 configs (console output)
-python tests/validate_equivalence.py
+uv run python tests/validate_equivalence.py
 
 # Plot main results → benchmark_sparse.html
-python analysis/plot_sparse.py
+uv run python analysis/plot_sparse.py
 ```
 
 ### Additional benchmarks
 
 ```bash
 # Per-operator CUDA time/memory breakdown
-python scripts/benchmarks/benchmark_operator_breakdown.py
+uv run python scripts/benchmarks/benchmark_operator_breakdown.py
 
 # Small-N behavior (N ≤ 512)
-python scripts/benchmarks/benchmark_sweep.py --methods gather_sdpa,gather_fused,gather_matmul --Ns 128,256,512 --Ks 16 --layers 1
+uv run python scripts/benchmarks/benchmark_sweep.py --methods gather_sdpa,gather_fused,gather_matmul --Ns 128,256,512 --Ks 16 --layers 1
 ```
 
 **Not included:** FlexAttention (PyTorch's `torch.nn.attention.flex_attention`) is not benchmarked here because the sweep's claim (which sparse attention variant is fastest at cell-tracking scale) does not depend on it. FlexAttention with spatial cutoff has been compared informally against the gathered/masked variants; the gathered/masked KNN approaches dominate at the N ranges used in cell tracking.
@@ -77,34 +81,34 @@ python scripts/benchmarks/benchmark_sweep.py --methods gather_sdpa,gather_fused,
 ### Exploratory / one-off
 
 ```bash
-python exploratory/benchmark_pure_attn.py
-python exploratory/benchmark_soft_decay_measure.py
-python exploratory/benchmark_no_bias_flashattn.py
-python exploratory/benchmark_no_mask_soft_decay.py
-python exploratory/benchmark_flex_spatial.py
-python exploratory/benchmark_spatial_block_partition.py
-python exploratory/benchmark_spatial_flash.py
-python exploratory/benchmark_spatial_cutoff_verification.py
-python exploratory/benchmark_data_pipeline.py
-python exploratory/benchmark_sdpa_backends.py
-python exploratory/benchmark_system_impact.py
-python exploratory/benchmark_trackastra_inference.py
-python exploratory/benchmark_dinov3_comparison_v2.py
-python exploratory/benchmark_reorder_real_vs_random.py
-python exploratory/profiler_recipe.py
+uv run python exploratory/benchmark_pure_attn.py
+uv run python exploratory/benchmark_soft_decay_measure.py
+uv run python exploratory/benchmark_no_bias_flashattn.py
+uv run python exploratory/benchmark_no_mask_soft_decay.py
+uv run python exploratory/benchmark_flex_spatial.py
+uv run python exploratory/benchmark_spatial_block_partition.py
+uv run python exploratory/benchmark_spatial_flash.py
+uv run python exploratory/benchmark_spatial_cutoff_verification.py
+uv run python exploratory/benchmark_data_pipeline.py
+uv run python exploratory/benchmark_sdpa_backends.py
+uv run python exploratory/benchmark_system_impact.py
+uv run python exploratory/benchmark_trackastra_inference.py
+uv run python exploratory/benchmark_dinov3_comparison_v2.py
+uv run python exploratory/benchmark_reorder_real_vs_random.py
+uv run python exploratory/profiler_recipe.py
 ```
 
 ### Analysis / visualization
 
 ```bash
 # Tile size analysis
-python analysis/tile_size_analysis.py
+uv run python analysis/tile_size_analysis.py
 
 # Verify CUDA attention backends
-python analysis/verify_cudnn.py
+uv run python analysis/verify_cudnn.py
 
 # Generate the HTML dashboard (aggregates results/ artifacts)
-python analysis/make_report.py
+uv run python analysis/make_report.py
 ```
 
 ## Structure

@@ -23,40 +23,40 @@
 # Hardware: NVIDIA H100 80 GB (gpu-h100 partition on Capella).
 # -----------------------------------------------------------------------
 
-export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
-export MKL_NUM_THREADS=$SLURM_CPUS_PER_TASK
-export NCCL_DEBUG=WARN
-export CUBLAS_WORKSPACE_CONFIG=:4096:8
-export PYTHONNOUSERSITE=1
-unset PYTHONPATH
-unset PYTHONHOME
+source "$(dirname "${BASH_SOURCE[0]}")/../../../slurm/load_cluster_env.sh"
 
-TRK=/data/cat/ws/lest161c-cell_tracking/lest161c-ssl_cell_tracking-1778979601/trackastra
-ENV_DIR="$TRK/.venv"
+TRK="${TRK:-/data/cat/ws/lest161c-cell_tracking/lest161c-ssl_cell_tracking-1778979601/trackastra}"
 CFG_DIR="$SLURM_SUBMIT_DIR/configs"
 
 MODE="${MODE:-smoke}"
 
-. "$ENV_DIR/bin/activate"
+# -----------------------------------------------------------------------
+# Sync project dependencies via uv
+# -----------------------------------------------------------------------
+# $SLURM_SUBMIT_DIR is the benchmark_training/ checkout. `uv sync` creates
+# .venv/ and installs all deps from pyproject.toml (torch+torchvision from
+# the cu130 index, lightning, configargparse, wandb, etc.).
+cd "$SLURM_SUBMIT_DIR"
+uv sync
 
-python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
-python -m pip install lightning pandas scikit-image tifffile edt tqdm configargparse wandb tensorboard dask joblib
-
+# -----------------------------------------------------------------------
+# Pull trackastra branch and install in editable mode
+# -----------------------------------------------------------------------
 cd "$TRK"
 git pull origin feature/sparse-attention-gather
-python -m pip install -e .
+uv pip install --project "$SLURM_SUBMIT_DIR" -e "$TRK"
 mkdir -p logs
 
 case "$MODE" in
     smoke)
         echo "=== SMOKE TEST: import check ==="
-        python -c "import trackastra; from trackastra.model import TrackingTransformer; print('trackastra OK:', TrackingTransformer); import torch; print('CUDA:', torch.cuda.is_available())"
+        uv run --no-sync --project "$SLURM_SUBMIT_DIR" python -c "import trackastra; from trackastra.model import TrackingTransformer; print('trackastra OK:', TrackingTransformer); import torch; print('CUDA:', torch.cuda.is_available())"
         echo "=== SMOKE TEST PASSED ==="
         ;;
     quick_bench)
         echo "=== QUICK BENCH: 10-epoch baseline ==="
         date
-        python scripts/train.py \
+        uv run --no-sync --project "$SLURM_SUBMIT_DIR" python scripts/train.py \
             --config "$CFG_DIR/vanvliet_baseline.yaml" \
             --epochs 10 \
             --name quick_bench_baseline

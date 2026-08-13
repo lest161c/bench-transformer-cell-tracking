@@ -5,6 +5,13 @@ requires-python = ">=3.14.0"
 dependencies = [
   "torch>=2.11.0",
   "torchvision>=0.26.0",
+  "numpy",
+  "matplotlib",
+  "seaborn",
+  "pandas",
+  "tifffile",
+  "pyyaml",
+  "native-sparse-attention-pytorch",
 ]
 
 [tool.uv.sources]

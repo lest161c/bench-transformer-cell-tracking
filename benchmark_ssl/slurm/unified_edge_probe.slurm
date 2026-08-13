@@ -17,9 +17,13 @@
 # Unified edge probing: 5-fold CV over regionprops, HOCT, CNN-NT-Xent,
 # CNN-e2e, and DINOv2 features. Tests linear and MLP probes.
 
-source "$(dirname "$0")/cluster_env.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../../slurm/load_cluster_env.sh"
 
-python -m src.edge_probing.unified_edge_probe \
+cd "$BENCH/benchmark_ssl" || exit 1
+uv sync
+mkdir -p logs
+
+uv run python -m src.edge_probing.unified_edge_probe \
     --features all \
     --probe both \
     --epochs 200 \
@@ -33,7 +37,7 @@ echo "  Probe exited with code $PROBE_EXIT at $(date)"
 
 if [ -f results/unified_probe_results_cv.json ]; then
     echo "=== RESULTS ==="
-    python -c "
+    uv run python -c "
 import json
 with open('results/unified_probe_results_cv.json') as f:
     data = json.load(f)

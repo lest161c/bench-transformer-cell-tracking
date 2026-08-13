@@ -38,9 +38,8 @@ need `lightly` and `edt`.
 
 ### 2.3 Cluster paths (for H100 runs)
 
-All cluster paths are defined in `slurm/cluster_env.sh` and sourced by every
-slurm script. Override `TRK`, `BENCH`, `ENV_DIR`, or `DATA_DIR` by setting
-them before sourcing.
+All cluster paths are read from `<repo_root>/.env` by
+`slurm/load_cluster_env.sh`, which every slurm script sources.
 
 | Constant | Value |
 |---|---|

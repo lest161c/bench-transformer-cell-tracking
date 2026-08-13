@@ -15,7 +15,7 @@ benchmark_ssl/
 │   ├── edge_probing/     # Edge probing harness (unified_edge_probe, etc.)
 │   ├── cnn_encoder/      # CNN pretraining, convergence, cross-dataset eval
 │   └── mini_trackastra/  # Mini trackastra experiments
-├── slurm/                # HPC submission scripts + cluster_env.sh
+├── slurm/                # HPC submission scripts
 ├── configs/              # YAML configuration
 ├── tests/                # Unit and integration tests
 └── docs/                 # SPEC.md, REPRODUCTION.md, results_analysis.md

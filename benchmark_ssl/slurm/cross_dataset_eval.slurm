@@ -18,9 +18,13 @@
 # Evaluates all 6 trained checkpoints (trained on vanvliet) on the held-out
 # deepcell dataset. Computes TRA, cHOTA, AOGM per sequence.
 
-source "$(dirname "$0")/cluster_env.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../../slurm/load_cluster_env.sh"
 
-python -m src.cnn_encoder.cross_dataset_eval --device cuda
+cd "$BENCH/benchmark_ssl" || exit 1
+uv sync
+mkdir -p logs
+
+uv run python -m src.cnn_encoder.cross_dataset_eval --device cuda
 EVAL_EXIT=$?
 echo "=== Evaluation finished with exit code $EVAL_EXIT ==="
 echo "  Results: $TRK/results/cross_dataset/deepcell/summary.json"
