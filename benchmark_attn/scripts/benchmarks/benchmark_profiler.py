@@ -567,262 +567,6 @@ def build_general_html_report(all_results, output_dir):
 
 
 # ------------------------------------------------------------------
-# Gather mode: workload setup and profiling
-# ------------------------------------------------------------------
-
-def make_profile_input(seq_len, knn_neighbors, batch_size=2, embed_dim=256, n_head=4, coord_dim=3, mode="none",
-                       device="cuda", dtype=torch.float16):
-    """Create model, input tensors, and KNN indices for profiling.
-
-    Args:
-        seq_len: Sequence length.
-        knn_neighbors: Number of KNN neighbors.
-        batch_size: Batch size.
-        embed_dim: Embedding dimension.
-        n_head: Number of attention heads.
-        coord_dim: Number of coordinate dimensions.
-        mode: Positional encoding mode.
-        device: torch device.
-        dtype: torch dtype.
-
-    Returns:
-        Tuple (model, query, coords, knn_idx).
-    """
-    m = GatherSparseAttention(embed_dim=embed_dim, n_head=n_head, knn_neighbors=knn_neighbors, mode=mode).to(device, dtype)
-    query = torch.randn(batch_size, seq_len, embed_dim, device=device, dtype=dtype)
-    coords = torch.randn(batch_size, seq_len, coord_dim, device=device, dtype=dtype)
-    yx = coords[..., 1:]
-    dist = torch.cdist(yx, yx)
-    _, knn_idx = torch.topk(dist, k=knn_neighbors, dim=-1, largest=False)
-    return m, query, coords, knn_idx
-
-
-def profile_forward(seq_len, knn_neighbors, device, dtype, mode="none", warmup=3, output_dir="profiler_out"):
-    """Profile a forward-only pass of GatherSparseAttention.
-
-    Args:
-        seq_len: Sequence length.
-        knn_neighbors: Number of KNN neighbors.
-        device: torch device.
-        dtype: torch dtype.
-        mode: Positional encoding mode.
-        warmup: Number of warmup iterations.
-        output_dir: Directory for trace and chart output.
-
-    Returns:
-        Dict with tag, records, total_cuda_ms, table, trace_path, chart_path.
-    """
-    m, query, coords, knn_idx = make_profile_input(seq_len, knn_neighbors, device=device, dtype=dtype, mode=mode)
-    os.makedirs(output_dir, exist_ok=True)
-    tag = f"sparse_N{seq_len}_K{knn_neighbors}_{mode}"
-
-    # warmup
-    for _ in range(warmup):
-        _ = m(query, query, query, knn_idx, coords)
-    torch.cuda.synchronize()
-
-    with profile(
-        activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
-        record_shapes=True,
-        profile_memory=True,
-    ) as prof:
-        with record_function(tag):
-            y = m(query, query, query, knn_idx, coords)
-            torch.cuda.synchronize()
-
-    key = prof.key_averages()
-    table = key.table(sort_by="cuda_time_total", row_limit=20)
-    print(f"\n{'='*70}")
-    print(f"  PROFILE: {tag} (forward only)")
-    print(f"{'='*70}")
-    print(table)
-
-    trace_path = os.path.join(output_dir, f"{tag}_fwd_trace.json")
-    prof.export_chrome_trace(trace_path)
-
-    records = []
-    total_cuda = 0.0
-    for evt in key:
-        cu = max(getattr(evt, "cuda_time_total", 0), 0)
-        total_cuda += cu
-        records.append({
-            "name": evt.key,
-            "count": evt.count,
-            "cuda_time_us": cu,
-            "cpu_time_us": evt.cpu_time_total,
-            "self_cuda_mem_mb": getattr(evt, "self_cuda_memory_usage", 0) / (1024**2),
-        })
-
-    records.sort(key=lambda row: row["cuda_time_us"], reverse=True)
-
-    # Relative percentages
-    for row in records:
-        row["cuda_pct"] = (row["cuda_time_us"] / total_cuda * 100) if total_cuda > 0 else 0
-
-    # ----- chart -----
-    top12 = records[:12]
-    fig, ax = plt.subplots(figsize=(13, 5.5))
-    labels = [row["name"] for row in top12][::-1]
-    values = [row["cuda_time_us"] / 1000 for row in top12][::-1]
-    pcts = [row["cuda_pct"] for row in top12][::-1]
-    colors = plt.cm.viridis(np.linspace(0.15, 0.9, len(labels)))
-    bars = ax.barh(labels, values, color=colors, edgecolor="white")
-    ax.set_xlabel("CUDA Time (ms)")
-    ax.set_title(f"{tag} — CUDA Time by Operator (forward only)")
-    for bar, val, pct in zip(bars, values, pcts):
-        ax.text(bar.get_width() + max(values) * 0.01,
-                bar.get_y() + bar.get_height() / 2,
-                f"{val:.4f} ms ({pct:.1f}%)", va="center", fontsize=8)
-    fig.tight_layout()
-    chart_path = os.path.join(output_dir, f"{tag}_fwd_time.png")
-    fig.savefig(chart_path, dpi=130, bbox_inches="tight")
-    plt.close(fig)
-
-    return {
-        "tag": tag,
-        "records": records,
-        "total_cuda_ms": total_cuda / 1000,
-        "table": table,
-        "trace_path": trace_path,
-        "chart_path": chart_path,
-    }
-
-
-def profile_forward_backward(seq_len, knn_neighbors, device, dtype, mode="none", warmup=3, output_dir="profiler_out"):
-    """Profile a forward+backward pass of GatherSparseAttention.
-
-    Args:
-        seq_len: Sequence length.
-        knn_neighbors: Number of KNN neighbors.
-        device: torch device.
-        dtype: torch dtype.
-        mode: Positional encoding mode.
-        warmup: Number of warmup iterations.
-        output_dir: Directory for trace and chart output.
-
-    Returns:
-        Dict with tag, records, total_cuda_ms, table, trace_path, chart_path.
-    """
-    m, query, coords, knn_idx = make_profile_input(seq_len, knn_neighbors, device=device, dtype=dtype, mode=mode)
-    os.makedirs(output_dir, exist_ok=True)
-    tag = f"sparse_N{seq_len}_K{knn_neighbors}_{mode}"
-
-    # warmup
-    for _ in range(warmup):
-        m.zero_grad(set_to_none=True)
-        y = m(query, query, query, knn_idx, coords)
-        loss = y.sum()
-        loss.backward()
-    torch.cuda.synchronize()
-
-    m.zero_grad(set_to_none=True)
-    with profile(
-        activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
-        record_shapes=True,
-        profile_memory=True,
-    ) as prof:
-        with record_function(f"{tag}_fwbw"):
-            y = m(query, query, query, knn_idx, coords)
-            loss = y.sum()
-            loss.backward()
-            torch.cuda.synchronize()
-
-    key = prof.key_averages()
-    table = key.table(sort_by="cuda_time_total", row_limit=25)
-    print(f"\n{'='*70}")
-    print(f"  PROFILE: {tag} (forward + backward)")
-    print(f"{'='*70}")
-    print(table)
-
-    trace_path = os.path.join(output_dir, f"{tag}_fwbw_trace.json")
-    prof.export_chrome_trace(trace_path)
-
-    records = []
-    total_cuda = 0.0
-    for evt in key:
-        cu = max(getattr(evt, "cuda_time_total", 0), 0)
-        total_cuda += cu
-        records.append({
-            "name": evt.key,
-            "count": evt.count,
-            "cuda_time_us": cu,
-            "cpu_time_us": evt.cpu_time_total,
-            "self_cuda_mem_mb": getattr(evt, "self_cuda_memory_usage", 0) / (1024**2),
-        })
-
-    records.sort(key=lambda row: row["cuda_time_us"], reverse=True)
-    for row in records:
-        row["cuda_pct"] = (row["cuda_time_us"] / total_cuda * 100) if total_cuda > 0 else 0
-
-    # ----- chart -----
-    top12 = records[:12]
-    fig, ax = plt.subplots(figsize=(13, 5.5))
-    labels = [row["name"] for row in top12][::-1]
-    values = [row["cuda_time_us"] / 1000 for row in top12][::-1]
-    pcts = [row["cuda_pct"] for row in top12][::-1]
-    colors = plt.cm.viridis(np.linspace(0.15, 0.9, len(labels)))
-    bars = ax.barh(labels, values, color=colors, edgecolor="white")
-    ax.set_xlabel("CUDA Time (ms)")
-    ax.set_title(f"{tag} — CUDA Time by Operator (forward + backward)")
-    for bar, val, pct in zip(bars, values, pcts):
-        ax.text(bar.get_width() + max(values) * 0.01,
-                bar.get_y() + bar.get_height() / 2,
-                f"{val:.4f} ms ({pct:.1f}%)", va="center", fontsize=8)
-    fig.tight_layout()
-    chart_path = os.path.join(output_dir, f"{tag}_fwbw_time.png")
-    fig.savefig(chart_path, dpi=130, bbox_inches="tight")
-    plt.close(fig)
-
-    return {
-        "tag": tag,
-        "records": records,
-        "total_cuda_ms": total_cuda / 1000,
-        "table": table,
-        "trace_path": trace_path,
-        "chart_path": chart_path,
-    }
-
-
-def categorize_records(records):
-    """Group ops into categories: qkv_proj, gather, transpose_reshape, sdpa, proj, other.
-
-    Buckets per-operator CUDA time by pattern-matching the operator name
-    and returns the percentage of total CUDA time in each category.  Used
-    by the gather-mode report and console summary to show where time goes
-    (gather/contiguous vs SDPA vs projection).
-    """
-    cats = {
-        "qkv_proj": ["aten::linear", "aten::addmm", "aten::mm"],
-        "gather_index": ["aten::index", "aten::index_put_"],
-        "transpose_reshape": ["aten::transpose", "aten::view", "aten::reshape", "aten::contiguous", "aten::as_strided"],
-        "sdpa": ["aten::scaled_dot_product_attention"],
-        "proj_out": ["aten::linear", "aten::addmm", "aten::mm"],  # overlaps, check context by name
-        "expand": ["aten::expand"],
-        "other": [],
-    }
-    buckets = {k: 0.0 for k in cats}
-    for row in records:
-        name = row["name"]
-        placed = False
-        for cat, patterns in cats.items():
-            if cat == "other":
-                continue
-            for pattern in patterns:
-                if pattern in name:
-                    buckets[cat] += row["cuda_time_us"]
-                    placed = True
-                    break
-            if placed:
-                break
-        if not placed:
-            buckets["other"] += row["cuda_time_us"]
-    total = sum(buckets.values())
-    for k in buckets:
-        buckets[k] = (buckets[k] / total * 100) if total > 0 else 0
-    return buckets
-
-
-# ------------------------------------------------------------------
 # Gather mode: HTML report
 # ------------------------------------------------------------------
 
@@ -830,7 +574,7 @@ def build_gather_html_report(all_results, output_dir):
     """Build the gather-mode HTML report with profiler results for all N values.
 
     Args:
-        all_results: List of result dicts from profile_forward/profile_forward_backward.
+        all_results: List of result dicts from profile_gather_pass.
         output_dir: Directory to save the HTML report.
 
     Returns:
@@ -874,6 +618,189 @@ def build_gather_html_report(all_results, output_dir):
     html_path = _write_html_report(parts, output_dir, "profile_gather_report.html")
     print(f"\nReport: {html_path}")
     return html_path
+
+
+def categorize_records(records):
+    """Group ops into categories: qkv_proj, gather, transpose_reshape, sdpa, proj, other.
+
+    Buckets per-operator CUDA time by pattern-matching the operator name
+    and returns the percentage of total CUDA time in each category.  Used
+    by the gather-mode report and console summary to show where time goes
+    (gather/contiguous vs SDPA vs projection).
+    """
+    cats = {
+        "qkv_proj": ["aten::linear", "aten::addmm", "aten::mm"],
+        "gather_index": ["aten::index", "aten::index_put_"],
+        "transpose_reshape": ["aten::transpose", "aten::view", "aten::reshape", "aten::contiguous", "aten::as_strided"],
+        "sdpa": ["aten::scaled_dot_product_attention"],
+        "proj_out": ["aten::linear", "aten::addmm", "aten::mm"],  # overlaps, check context by name
+        "expand": ["aten::expand"],
+        "other": [],
+    }
+    buckets = {k: 0.0 for k in cats}
+    for row in records:
+        name = row["name"]
+        placed = False
+        for cat, patterns in cats.items():
+            if cat == "other":
+                continue
+            for pattern in patterns:
+                if pattern in name:
+                    buckets[cat] += row["cuda_time_us"]
+                    placed = True
+                    break
+            if placed:
+                break
+        if not placed:
+            buckets["other"] += row["cuda_time_us"]
+    total = sum(buckets.values())
+    for k in buckets:
+        buckets[k] = (buckets[k] / total * 100) if total > 0 else 0
+    return buckets
+
+
+# ------------------------------------------------------------------
+# Gather mode: profiling
+# ------------------------------------------------------------------
+
+def _collect_records(key_averages):
+    """Extract per-operator records from profiler key_averages.
+
+    Returns a list of dicts with name, count, CUDA time (us), CPU time
+    (us), and self CUDA memory (MiB), sorted by CUDA time descending.
+    Also returns the total CUDA time across all operators.
+    """
+    records = []
+    total_cuda = 0.0
+    for evt in key_averages:
+        cu = max(getattr(evt, "cuda_time_total", 0), 0)
+        total_cuda += cu
+        records.append({
+            "name": evt.key,
+            "count": evt.count,
+            "cuda_time_us": cu,
+            "cpu_time_us": evt.cpu_time_total,
+            "self_cuda_mem_mb": getattr(evt, "self_cuda_memory_usage", 0) / (1024**2),
+        })
+    records.sort(key=lambda row: row["cuda_time_us"], reverse=True)
+    for row in records:
+        row["cuda_pct"] = (row["cuda_time_us"] / total_cuda * 100) if total_cuda > 0 else 0
+    return records, total_cuda
+
+
+def _make_time_bar_chart(tag, records, output_dir, subtitle=""):
+    """Generate a horizontal bar chart of top-12 operators by CUDA time.
+
+    Args:
+        tag: Label prefix for title and filename.
+        records: List of per-operator record dicts.
+        output_dir: Directory to save the PNG.
+        subtitle: Extra text appended to the chart title.
+
+    Returns:
+        Path to the saved PNG file.
+    """
+    top12 = records[:12]
+    fig, ax = plt.subplots(figsize=(13, 5.5))
+    labels = [row["name"] for row in top12][::-1]
+    values = [row["cuda_time_us"] / 1000 for row in top12][::-1]
+    pcts = [row["cuda_pct"] for row in top12][::-1]
+    colors = plt.cm.viridis(np.linspace(0.15, 0.9, len(labels)))
+    bars = ax.barh(labels, values, color=colors, edgecolor="white")
+    title = f"{tag} — CUDA Time by Operator"
+    if subtitle:
+        title += f" ({subtitle})"
+    ax.set_title(title)
+    ax.set_xlabel("CUDA Time (ms)")
+    for bar, val, pct in zip(bars, values, pcts):
+        ax.text(bar.get_width() + max(values) * 0.01,
+                bar.get_y() + bar.get_height() / 2,
+                f"{val:.4f} ms ({pct:.1f}%)", va="center", fontsize=8)
+    fig.tight_layout()
+    chart_path = os.path.join(output_dir, f"{tag}_time.png")
+    fig.savefig(chart_path, dpi=130, bbox_inches="tight")
+    plt.close(fig)
+    return chart_path
+
+
+def profile_gather_pass(seq_len, knn_neighbors, device, dtype,
+                        backward=False, mode="none", warmup=3,
+                        output_dir="profiler_out"):
+    """Profile a forward (or forward+backward) pass of GatherSparseAttention.
+
+    Args:
+        seq_len: Sequence length.
+        knn_neighbors: Number of KNN neighbors.
+        device: torch device.
+        dtype: torch dtype.
+        backward: If True, profile forward+backward; else forward-only.
+        mode: Positional encoding mode.
+        warmup: Number of warmup iterations.
+        output_dir: Directory for trace and chart output.
+
+    Returns:
+        Dict with tag, records, total_cuda_ms, table, trace_path,
+        chart_path.
+    """
+    model = GatherSparseAttention(
+        embed_dim=256, n_head=4, knn_neighbors=knn_neighbors, mode=mode
+    ).to(device, dtype)
+    query = torch.randn(2, seq_len, 256, device=device, dtype=dtype)
+    coords = torch.randn(2, seq_len, 3, device=device, dtype=dtype)
+    yx = coords[..., 1:]
+    dist = torch.cdist(yx, yx)
+    _, knn_idx = torch.topk(dist, k=knn_neighbors, dim=-1, largest=False)
+
+    pass_label = "forward+backward" if backward else "forward-only"
+    tag = f"sparse_N{seq_len}_K{knn_neighbors}_{mode}"
+    suffix = "_fwbw" if backward else "_fwd"
+    print(f"\n>>> N={seq_len}: {pass_label}")
+
+    # Warmup
+    for _ in range(warmup):
+        if backward:
+            model.zero_grad(set_to_none=True)
+        y = model(query, query, query, knn_idx, coords)
+        if backward:
+            y.sum().backward()
+    torch.cuda.synchronize()
+
+    # Profiled pass
+    if backward:
+        model.zero_grad(set_to_none=True)
+    with profile(
+        activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+        record_shapes=True,
+        profile_memory=True,
+    ) as prof:
+        with record_function(f"{tag}{suffix}"):
+            y = model(query, query, query, knn_idx, coords)
+            if backward:
+                loss = y.sum()
+                loss.backward()
+            torch.cuda.synchronize()
+
+    key = prof.key_averages()
+    table = key.table(sort_by="cuda_time_total", row_limit=25)
+    print(f"{'='*70}")
+    print(f"  PROFILE: {tag} ({pass_label})")
+    print(f"{'='*70}")
+    print(table)
+
+    trace_path = os.path.join(output_dir, f"{tag}{suffix}_trace.json")
+    prof.export_chrome_trace(trace_path)
+
+    records, total_cuda = _collect_records(key)
+    chart_path = _make_time_bar_chart(tag, records, output_dir, subtitle=pass_label)
+
+    return {
+        "tag": tag,
+        "records": records,
+        "total_cuda_ms": total_cuda / 1000,
+        "table": table,
+        "trace_path": trace_path,
+        "chart_path": chart_path,
+    }
 
 
 # ------------------------------------------------------------------
@@ -958,8 +885,7 @@ def run_gather_profiler():
 
     # 1. Forward-only at N=128, 256, 512
     for N in [128, 256, 512]:
-        print(f"\n>>> N={N}: forward-only")
-        res = profile_forward(N, K, device, dtype, mode="none", output_dir=output_dir)
+        res = profile_gather_pass(N, K, device, dtype, backward=False, output_dir=output_dir)
         all_results.append(res)
 
         # Explicit category summary
@@ -972,8 +898,7 @@ def run_gather_profiler():
 
     # 2. Forward+backward at N=128, 256, 512
     for N in [128, 256, 512]:
-        print(f"\n>>> N={N}: forward+backward")
-        res = profile_forward_backward(N, K, device, dtype, mode="none", output_dir=output_dir)
+        res = profile_gather_pass(N, K, device, dtype, backward=True, output_dir=output_dir)
         all_results.append(res)
 
         cats = categorize_records(res["records"])
@@ -1002,7 +927,7 @@ def main():
     parser = argparse.ArgumentParser(
         description="PyTorch profiler for attention benchmarks: general operator "
                     "breakdown (dense+sparse sweep) or targeted GatherSparseAttention "
-                    "profiler (forward / forward+backward)."
+                    "per-operator profiling (forward / forward+backward)."
     )
     parser.add_argument(
         "--mode",
