@@ -9,6 +9,11 @@
 #SBATCH --output=logs/h100_conv_race-%j.out
 #SBATCH --error=logs/h100_conv_race-%j.err
 
+# Config rationale: controlled A/B — same arch, data, schedule; only
+# CNN residual injection varies. R=7D control, C=7D+CNN treatment.
+# Trainable CNN tested in cross_dataset_eval; K/depth swept in
+# run_training.
+
 # H100 convergence race: Mode R (7D baseline) vs Mode C (7D + frozen CNN NT-Xent).
 # Mini Trackastra at full scale: d_model=320, nhead=8, 6 enc + 6 dec layers.
 # Training: BCE(pos_weight=100), AdamW, cosine schedule, early stopping.

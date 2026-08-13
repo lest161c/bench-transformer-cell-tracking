@@ -11,21 +11,14 @@
 #
 # Diagnostic and quick-bench script.
 #
-# Usage:
+# Config rationale: smoke validates shared env (venv, imports, CUDA);
+# quick_bench estimates wall time. No per-variant diagnostics needed —
+# all variants share the same venv and branch setup.
+#
+# ─── Usage ──────────────────────────────────────────────────────────
 #
 #   sbatch --export=MODE=smoke scripts/slurm/run_diagnostic.slurm
 #   sbatch --export=MODE=quick_bench scripts/slurm/run_diagnostic.slurm
-#
-# Modes:
-#
-#   smoke       Activate the venv, install deps, run a Python import
-#               check.  Does not train.  Useful for verifying that the
-#               environment is correctly set up before submitting a long
-#               run.
-#
-#   quick_bench Run a 10-epoch training job on the baseline config to
-#               measure per-epoch wall time / convergence parity.
-#               Reports sacct resource summary at the end.
 #
 # Hardware: NVIDIA H100 80 GB (gpu-h100 partition on Capella).
 # -----------------------------------------------------------------------

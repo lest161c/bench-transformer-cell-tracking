@@ -9,6 +9,11 @@
 #SBATCH --output=logs/edge_probe-%j.out
 #SBATCH --error=logs/edge_probe-%j.err
 
+# Config rationale: 7 features span handcrafted-vs-learned,
+# frozen-vs-trainable, and PE-augmentation axes. Each tested with both
+# linear and MLP probes (7×2=14, full factorial). PE dim and CNN scale
+# fixed to match checkpoint.
+
 # Unified edge probing: 5-fold CV over regionprops, HOCT, CNN-NT-Xent,
 # CNN-e2e, and DINOv2 features. Tests linear and MLP probes.
 

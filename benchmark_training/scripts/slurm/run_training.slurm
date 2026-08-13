@@ -11,16 +11,12 @@
 #
 # Unified Trackastra training script.
 #
-# Variant selection (via --export=VARIANT=<name>):
+# Config rationale: K=4,16,32 sweep sparsity (ablation shows K=4 ≈ K=16
+# final loss). cached_dist isolates branch effects from sparsity.
+# sparse_k16_ssl tests SSL×sparse at scale. K=8,64,128 omitted: no
+# ablation evidence (K=8) or approach dense (K≥64).
 #
-#   baseline        Dense (K=-1) Trackastra training on vanvliet.
-#   cached_dist     CachedDistAttention training (branch cached-dist-attn).
-#   sparse_k4       Gather-sparse KNN, K=4, CLI config, window 10.
-#   sparse_k16      Gather-sparse KNN, K=16, CLI config, window 10.
-#   sparse_k32      Gather-sparse KNN, K=32, CLI config, window 10.
-#   sparse_k16_ssl  K=16 + SSL pretraining stage (YAML config, window 4).
-#
-# Usage:
+# ─── Usage ──────────────────────────────────────────────────────────
 #
 #   sbatch --export=VARIANT=baseline scripts/slurm/run_training.slurm
 #   sbatch --export=VARIANT=sparse_k16 scripts/slurm/run_training.slurm

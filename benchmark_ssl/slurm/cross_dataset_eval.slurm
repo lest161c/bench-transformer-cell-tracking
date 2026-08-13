@@ -9,6 +9,11 @@
 #SBATCH --output=logs/cross_dataset_eval-%j.out
 #SBATCH --error=logs/cross_dataset_eval-%j.err
 
+# Config rationale: 6 of 2^5=32 factorial — baseline (control) +
+# {concat, additive, both}×dropout + {vanilla, trainable} to isolate
+# integration, pretraining, and freezing effects. Full factorial adds
+# no independent signal.
+
 # Cross-dataset evaluation of Trackastra checkpoints on deepcell.
 # Evaluates all 6 trained checkpoints (trained on vanvliet) on the held-out
 # deepcell dataset. Computes TRA, cHOTA, AOGM per sequence.
