@@ -505,8 +505,17 @@ def _make_table_html(rows, header):
     return "\n".join(lines)
 
 
-def generate_report(all_results, per_dist_results, interpret_output, save_path="feature_signal_report.html"):
-    """Generate an HTML report with all figures and tables."""
+def generate_report(all_results, per_dist_results, interpret_output, save_path="feature_signal_report.html", feature_set="basic"):
+    """Generate an HTML report with all figures and tables.
+
+    Args:
+        all_results: aggregated results dict (run_all_tests output).
+        per_dist_results: per-distortion breakdown dict, or {}.
+        interpret_output: textual verdict string from ``interpret``.
+        save_path: destination HTML path.
+        feature_set: value of --feature-set used to produce the results;
+            embedded in the report header so the artifact is self-documenting.
+    """
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -667,6 +676,7 @@ def generate_report(all_results, per_dist_results, interpret_output, save_path="
         "</style></head><body>",
         "<h1>Feature Signal Analysis for Contrastive SSL</h1>",
         f"<p>Generated: {time.strftime('%Y-%m-%d %H:%M')} &mdash; "
+        f"feature-set=<code>{feature_set}</code> &mdash; "
         f"surgical data-level tests before model training.</p>",
 
         f"<div class='verdict-box {short_v.lower() if short_v != 'N/A' else ''}' style='border-left:5px solid {verdict_color}'>",
@@ -730,15 +740,23 @@ def generate_report(all_results, per_dist_results, interpret_output, save_path="
     return html
 
 
-def save_csv(all_results, per_dist_results, csv_path):
-    """Save numerical results to CSV."""
+def save_csv(all_results, per_dist_results, csv_path, feature_set="basic"):
+    """Save numerical results to CSV.
+
+    Args:
+        all_results: aggregated results dict (run_all_tests output).
+        per_dist_results: per-distortion breakdown dict, or {}.
+        csv_path: destination CSV path.
+        feature_set: value of --feature-set used to produce the results;
+            persisted as a column so the artifact is self-documenting.
+    """
     rows = []
     q1 = all_results["q1"]
     q2 = all_results["q2"]
     q3 = all_results.get("q3", {})
     q4 = all_results["q4"]
 
-    row = {"scope": "all"}
+    row = {"scope": "all", "feature_set": feature_set}
     row.update({f"q1_{k}": v for k, v in q1.items() if isinstance(v, (int, float))})
     row.update({f"q2_{k}": v for k, v in q2.items() if isinstance(v, (int, float))})
     row.update({f"q3_{k}": v for k, v in q3.items()})
@@ -747,7 +765,7 @@ def save_csv(all_results, per_dist_results, csv_path):
 
     if per_dist_results:
         for dname, dr in per_dist_results.items():
-            row = {"scope": dname}
+            row = {"scope": dname, "feature_set": feature_set}
             row.update({f"q1_{k}": v for k, v in dr["q1"].items() if isinstance(v, (int, float))})
             row.update({f"q4_{k}": v for k, v in dr["q4"].items()})
             rows.append(row)
@@ -847,9 +865,11 @@ def main():
     interpret_output = interpret(full_results)
     print(interpret_output)
 
-    save_csv(all_results, per_dist_results, str(outdir / "feature_signal_results.csv"))
+    save_csv(all_results, per_dist_results, str(outdir / "feature_signal_results.csv"),
+             feature_set=feature_set)
     generate_report(all_results, per_dist_results, interpret_output,
-                    save_path=str(outdir / "feature_signal_report.html"))
+                    save_path=str(outdir / "feature_signal_report.html"),
+                    feature_set=feature_set)
 
     return full_results
 

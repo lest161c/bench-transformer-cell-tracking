@@ -19,7 +19,8 @@ from sklearn.model_selection import KFold
 
 from src.edge_probing.harness.feature_extractors import (
     compute_dino_embs, load_dino,
-    extract_regionprops_7d, extract_hoct19, ScaledCNN,
+    extract_regionprops_7d, extract_regionprops_7d_fourier,
+    extract_hoct19, extract_hoct19_fourier, ScaledCNN,
     _cache_path, _load_cached_features, _save_cached_features,
     PROJECT_ROOT, device,
 )
@@ -51,6 +52,11 @@ FEATURE_CONFIGS = {
         'display': 'Regionprops 7D',
         'needs_patches': False,
     },
+    'rp_fourier': {
+        'feat_dim': 55,
+        'display': 'Regionprops 7D + Fourier PE',
+        'needs_patches': False,
+    },
     'cnn_frozen': {
         'feat_dim': 128,
         'display': 'CNN NT-Xent (frozen)',
@@ -66,9 +72,14 @@ FEATURE_CONFIGS = {
         'display': 'DINOv2 (frozen)',
         'needs_patches': False,
     },
-'hoct19': {
+    'hoct19': {
         'feat_dim': 13,
         'display': 'HOCT 19D (2D → 13D)',
+        'needs_patches': False,
+    },
+    'hoct19_fourier': {
+        'feat_dim': 43,
+        'display': 'HOCT 13D + Fourier PE',
         'needs_patches': False,
     },
 }
@@ -145,12 +156,61 @@ def build_frame_pairs(pairs, max_pairs, feature_type, checkpoint_path=None):
             labels_t_use = labels_t[[label in lt_map for label in labels_t]]
             labels_n_use = labels_n[[label in ln_map for label in labels_n]]
 
+        elif feature_type == 'rp_fourier':
+            # Regionprops 7D + Fourier PE of positions (t, y, x)
+            frame_t_num = int(Path(mt).stem.replace("man_track", ""))
+            frame_n_num = int(Path(mn).stem.replace("man_track", ""))
+            _, labels_rp_t, feats_t = extract_regionprops_7d_fourier(
+                mask_t, imgt, frame_idx=frame_t_num,
+            )
+            _, labels_rp_n, feats_n = extract_regionprops_7d_fourier(
+                mask_n, imgn, frame_idx=frame_n_num,
+            )
+            if feats_t is None or feats_n is None:
+                continue
+            # Align by label
+            lt_map = {label: i for i, label in enumerate(labels_rp_t)}
+            ln_map = {label: i for i, label in enumerate(labels_rp_n)}
+            idx_t = [lt_map[label] for label in labels_t if label in lt_map]
+            idx_n = [ln_map[label] for label in labels_n if label in ln_map]
+            if len(idx_t) < 2 or len(idx_n) < 2:
+                continue
+            feats_t = torch.from_numpy(feats_t[idx_t]).float()
+            feats_n = torch.from_numpy(feats_n[idx_n]).float()
+            labels_t_use = labels_t[[label in lt_map for label in labels_t]]
+            labels_n_use = labels_n[[label in ln_map for label in labels_n]]
+
         elif feature_type == 'hoct19':
             # HOCT 13D (adapted from 19D): keep t, drop z, inertia 3×3→2×2
             frame_t_num = int(Path(mt).stem.replace("man_track", ""))
             frame_n_num = int(Path(mn).stem.replace("man_track", ""))
             _, labels_h_t, feats_t = extract_hoct19(mask_t, imgt, frame_idx=frame_t_num)
             _, labels_h_n, feats_n = extract_hoct19(mask_n, imgn, frame_idx=frame_n_num)
+            if feats_t is None or feats_n is None:
+                continue
+            # Align by label
+            lt_map = {label: i for i, label in enumerate(labels_h_t)}
+            ln_map = {label: i for i, label in enumerate(labels_h_n)}
+            idx_t = [lt_map[label] for label in labels_t if label in lt_map]
+            idx_n = [ln_map[label] for label in labels_n if label in ln_map]
+            if len(idx_t) < 2 or len(idx_n) < 2:
+                continue
+            feats_t = torch.from_numpy(feats_t[idx_t]).float()
+            feats_n = torch.from_numpy(feats_n[idx_n]).float()
+            labels_t_use = labels_t[[label in lt_map for label in labels_t]]
+            labels_n_use = labels_n[[label in ln_map for label in labels_n]]
+
+        elif feature_type == 'hoct19_fourier':
+            # HOCT 13D + Fourier PE: keep t as scalar, replace raw
+            # centroid coords with Fourier PE of (y, x)
+            frame_t_num = int(Path(mt).stem.replace("man_track", ""))
+            frame_n_num = int(Path(mn).stem.replace("man_track", ""))
+            _, labels_h_t, feats_t = extract_hoct19_fourier(
+                mask_t, imgt, frame_idx=frame_t_num,
+            )
+            _, labels_h_n, feats_n = extract_hoct19_fourier(
+                mask_n, imgn, frame_idx=frame_n_num,
+            )
             if feats_t is None or feats_n is None:
                 continue
             # Align by label

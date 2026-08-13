@@ -5,12 +5,25 @@ Tracks cells by computing cosine similarity between consecutive-frame
 embeddings and solving bipartite matching via Hungarian algorithm.
 
 Replaces old approach: training a BCE association head on pairwise logits.
+The on-disk artifact ``runs/downstream_compare/comparison_legacy.csv`` was
+produced by that earlier fine-tuning variant. The current rewrite writes a
+different schema (see below).
 
 Two modes:
   --mode embedding (default): cosine-similarity + Hungarian matching on
       CellEmbedder embeddings (current behavior).
   --mode finetune: trains a BCE association head on pairwise logits (the
       older approach). Not yet implemented — falls back to embedding.
+
+CSV output schema (``runs/downstream_compare/comparison.csv``)::
+
+    model, val_accuracy, val_correct, val_total,
+    test_accuracy, test_correct, test_total,
+    test_mismatches, test_misses
+
+The legacy artifact (``comparison_legacy.csv``) has a different schema::
+
+    epoch, model, train_loss, train_acc, val_loss, val_acc
 
 Usage:
     uv run python -m src.analysis.downstream_comparison [checkpoint] [--mode {finetune,embedding}]

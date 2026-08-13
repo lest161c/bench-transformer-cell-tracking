@@ -7,10 +7,12 @@ linear and MLP probes.
 
 Feature types (registered in ``harness.registry``):
   rp        -- Regionprops 7D (wrfeat-style)              [7 dim]
+  rp_fourier -- Regionprops 7D + Fourier PE of positions  [55 dim]
   cnn_frozen -- ScaledCNN with NT-Xent checkpoint         [128 dim]
   cnn_e2e   -- ScaledCNN trained jointly with probe       [128 dim]
   dino      -- DINOv2 (dinov2_vits14, frozen)             [384 dim]
   hoct19    -- HOCT-style 13D (2D-adapted from 19D)       [13 dim]
+  hoct19_fourier -- HOCT 13D + Fourier PE of positions    [43 dim]
 
 Probe architectures (registered in ``harness.registry``):
   Linear: nn.Linear(2*feat_dim, 1) over concat(feat_t, feat_n)

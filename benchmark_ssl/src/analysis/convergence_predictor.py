@@ -9,8 +9,25 @@ Tests:
   3. Feature space structure (PCA) — is the space learnable?
   4. Distortion difficulty ranking — which augs to emphasize?
 
+``--test`` / ``--outdir`` mapping (each invocation writes one sub-run):
+
+  --test all            → runs/convergence_prediction/
+  --test gap_strength   → runs/convergence_prediction/
+  --test micro_ssl      → runs/convergence_prediction/
+  --test generalization → runs/generalization_test/
+  --test hard           → runs/hard_test/
+  --test ranking        → runs/convergence_prediction/
+  --test pca            → runs/convergence_prediction/
+
+The ``generalization`` and ``hard`` sub-runs were written by separate
+invocations of this script (not by ``--test all``).
+
 Usage:
     uv run python -m src.analysis.convergence_predictor --outdir runs/convergence_prediction
+    uv run python -m src.analysis.convergence_predictor --test generalization \\
+        --outdir runs/generalization_test
+    uv run python -m src.analysis.convergence_predictor --test hard \\
+        --outdir runs/hard_test
 """
 
 import argparse

@@ -1,13 +1,19 @@
 """SSL contrastive pretraining with TensorBoard logging.
 
-Trains CellEmbedder using SimCLR-style contrastive learning (NT-Xent loss).
-Two augmented views per frame → embeddings z1, z2.
-Positive pairs: same cell across views. Negatives: all other cells.
+Implements the **current NT-Xent** loss variant. Trains CellEmbedder using
+SimCLR-style contrastive learning. Two augmented views per frame →
+embeddings z1, z2. Positive pairs: same cell across views. Negatives: all
+other cells.
 
-Note on loss variants: the on-disk results (runs/ssl_v1) were produced by an
-older identity-BCE pretraining variant. This module implements the current
-NT-Xent rewrite. ``--loss identity_bce`` selects the older variant, which is
-not yet implemented and falls back to NT-Xent (with a warning).
+The on-disk results in ``runs/ssl_v1/`` (``training_log.csv``,
+``best_model.pt``, TensorBoard event) were produced by an **older
+identity-BCE** pretraining variant, not by this NT-Xent rewrite. The
+archived ``runs/ssl_v1/config.yaml`` is the authoritative config for that
+run (``d_model=128, nhead=4``), superseding ``docs/results_analysis.md``
+which incorrectly states ``d_model=64, nhead=2``.
+
+``--loss identity_bce`` selects the older variant, which is not yet
+implemented and falls back to NT-Xent (with a warning).
 
 Usage:
     uv run python -m src.training.ssl_pretrainer [config] [--loss {identity_bce,ntxent}]

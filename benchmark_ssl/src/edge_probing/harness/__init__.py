@@ -30,13 +30,11 @@ from .frame_data import (
     PATCH_SIZE,
 )
 from .feature_extractors import (
-    extract_regionprops_7d,
-    extract_hoct19,
+    extract_regionprops_7d, extract_regionprops_7d_fourier,
+    extract_hoct19, extract_hoct19_fourier,
     compute_dino_embs,
-    load_dino,
-    ScaledCNN,
-    PROJECT_ROOT,
-    CACHE_DIR,
+    load_dino, ScaledCNN,
+    PROJECT_ROOT, CACHE_DIR,
 )
 from .edge_datasets import (
     EdgePairDataset,
@@ -78,7 +76,9 @@ __all__ = [
     "load_frame", "load_tracklets", "scan_consecutive_pairs",
     "extract_patches", "PATCH_SIZE",
     # Feature extractors
-    "extract_regionprops_7d", "extract_hoct19", "compute_dino_embs",
+    "extract_regionprops_7d", "extract_regionprops_7d_fourier",
+    "extract_hoct19", "extract_hoct19_fourier",
+    "compute_dino_embs",
     "load_dino", "ScaledCNN", "PROJECT_ROOT", "CACHE_DIR",
     # Edge datasets
     "EdgePairDataset", "EdgePairDatasetPatches",

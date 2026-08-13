@@ -65,11 +65,13 @@ class ProbeEntry:
 
 
 FEATURE_REGISTRY: dict[str, FeatureEntry] = {
-    "rp":        FeatureEntry("rp",        "Regionprops 7D",          7,   False, False),
-    "cnn_frozen": FeatureEntry("cnn_frozen", "CNN NT-Xent (frozen)", 128, False, False),
-    "cnn_e2e":   FeatureEntry("cnn_e2e",   "CNN end-to-end",       128, True,  True),
-    "dino":      FeatureEntry("dino",      "DINOv2 (frozen)",      384, False, False),
-    "hoct19":    FeatureEntry("hoct19",    "HOCT 19D (2D \u2192 13D)", 13, False, False),
+    "rp":            FeatureEntry("rp",            "Regionprops 7D",            7,   False, False),
+    "rp_fourier":    FeatureEntry("rp_fourier",    "Regionprops 7D + Fourier",  55,  False, False),
+    "cnn_frozen":    FeatureEntry("cnn_frozen",    "CNN NT-Xent (frozen)",     128, False, False),
+    "cnn_e2e":      FeatureEntry("cnn_e2e",      "CNN end-to-end",           128, True,  True),
+    "dino":          FeatureEntry("dino",          "DINOv2 (frozen)",          384, False, False),
+    "hoct19":        FeatureEntry("hoct19",        "HOCT 19D (2D \u2192 13D)", 13,  False, False),
+    "hoct19_fourier": FeatureEntry("hoct19_fourier", "HOCT 13D + Fourier PE",  43,  False, False),
 }
 
 

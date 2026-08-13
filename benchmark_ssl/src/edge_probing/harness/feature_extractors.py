@@ -20,6 +20,7 @@ from skimage.measure import regionprops_table, regionprops as sk_regionprops
 from tifffile import imread
 
 from src.data.feature_extraction import _border_dist_fast
+from src.models.fourier_pe import FourierPE
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 logger = logging.getLogger("edge_probing.features")
@@ -63,63 +64,97 @@ def extract_regionprops_7d(mask, img):
     return coords, labels, feats_combined
 
 
-# ── HOCT 19D (adapted to 2D → 13D) ───────────────────────────────────────────
+def extract_regionprops_7d_fourier(mask, img, frame_idx=0, n_freqs=8, cutoff=128.0):
+    """Extract 7D regionprops features with Fourier positional encoding.
+
+    Same base features as ``extract_regionprops_7d`` plus Fourier PE
+    of the spatial position (t, y, x).  The Fourier PE replaces the
+    raw centroid coordinates with a smooth sin/cos encoding at
+    geometrically decaying frequencies (see
+    ``_init_fourier_frequencies`` in ``positional_encoding.py``).
+
+    Layout (order matches HOCT2D_FEATURE_NAMES):
+      fourier_pe (3 * n_freqs * 2): sin/cos of (t, centroid_y, centroid_x)
+      eq_diam           (1): equivalent diameter area
+      intensity_mean    (1): mean intensity within region
+      inertia           (4): 2x2 inertia tensor, flattened row-major
+      border_dist       (1): min distance of any region pixel to FoV edge
+
+    Args:
+        mask: (H, W) integer label image.
+        img:  (H, W) float intensity image (already normalized to [0, 1]).
+        frame_idx: absolute frame index within the experiment.
+        n_freqs: number of frequency components per coordinate dimension.
+        cutoff: controls the decay rate of the geometric frequency schedule.
+
+    Returns:
+        (coords, labels, features) with coords (N, 2), labels (N,),
+        features (N, 3 * n_freqs * 2 + 7) float32 — or (None, None, None)
+        if mask is empty.
+    """
+    ndim = mask.ndim
+    props = ("equivalent_diameter_area", "intensity_mean", "inertia_tensor")
+    df = pd.DataFrame(
+        regionprops_table(mask, intensity_image=img,
+                          properties=("label", "centroid", *props))
+    )
+    if len(df) == 0:
+        return None, None, None
+    coords = df[[f"centroid-{i}" for i in range(ndim)]].values.astype(np.float32)
+    labels = df["label"].values.astype(np.int32)
+
+    # Fourier PE of positions (t, y, x)
+    pe = FourierPE(coord_dim=ndim + 1, n_freqs=n_freqs, cutoff=cutoff)
+    time_col = np.full((len(df), 1), frame_idx, dtype=np.float32)
+    position = np.column_stack([
+        time_col,
+        df["centroid-0"].values.astype(np.float32),
+        df["centroid-1"].values.astype(np.float32),
+    ])
+    with torch.no_grad():
+        fourier_pe = pe(torch.from_numpy(position)).numpy().astype(np.float32)
+
+    # Inertia (4 for 2D): 2x2 tensor flattened
+    inertias = np.stack(
+        [np.column_stack([df[f"inertia_tensor-{i}-{j}"] for j in range(ndim)])
+         for i in range(ndim)], axis=-1
+    ).reshape(len(df), -1).astype(np.float32)
+
+    features = OrderedDict()
+    features["fourier_pe"] = fourier_pe
+    features["eq_diam"] = df["equivalent_diameter_area"].values.astype(np.float32)[:, None]
+    features["intensity"] = df["intensity_mean"].values.astype(np.float32)[:, None]
+    features["inertia"] = inertias
+    features["border"] = np.array(list(_border_dist_fast(mask)), dtype=np.float32)[:, None]
+
+    feats_combined = np.concatenate(list(features.values()), axis=-1).astype(np.float32)
+    assert feats_combined.shape[1] == fourier_pe.shape[1] + 7
+    return coords, labels, feats_combined
+
+
+# ── HOCT 19D → 13D (2D adaptation) ───────────────────────────────
 #
-# Reference — "Higher Order Cell Tracking" (HOCT) paper, appendix "Input
-# features" (papers/higher_order_cell_tracking.pdf):
+# HOCT paper ("Higher Order Cell Tracking", appendix "Input features"):
+#   19D = [t, z, y, x, eq_diam, int_min, int_max, int_mean, int_std,
+#          inertia_3x3(9), border_dist].
 #
-#   "Each node i carries a d=19-dimensional feature vector xi derived from the
-#    segmentation mask: spatiotemporal position (t, z, y, x), equivalent
-#    diameter, intensity statistics (min, max, mean, standard deviation), the
-#    3x3 inertia tensor (9 values), and the distance to the nearest
-#    field-of-view border. All features are standardized per dataset."
+# 2D adaptation (19 → 13): drop z (planar data), replace 3×3 inertia
+# with 2×2 (4 entries). t is kept as an explicit temporal feature
+# (not a positional encoding); the 3D RoPE handles spatial positions.
+# border_dist is Euclidean distance of the closest region pixel to the
+# FoV edge (unclipped, non-inverted) — differs from the paper's
+# centroid-based clipped inverse distance but is highly correlated.
 #
-# Cross-checked against the official implementation (hoct/hoct/src/hoct):
-# node_feats = [t, z, y, x, eq_diam, int_min, int_max, int_mean, int_std,
-#               inertia_tensor(9), border_dist]  →  19 dims, matching the
-# 19-element per-dataset standardization vectors (_MEAN/_STD in _api.py).
+# Standardization is handled downstream (per-fold z-score); this
+# extractor returns RAW features.
 #
-# 2D adaptation used here — 19D → 13D:
-#
-#   group       HOCT 3D (19D)     this code (13D)   delta   reason
-#   ────────────────────────────────────────────────────────────────────────
-#   position    t, z, y, x  (4)   t, y, x     (3)    −1     see note 1
-#   size        eq_diam     (1)   eq_diam     (1)     0
-#   intensity   min/max/    (4)   min/max/    (4)     0
-#               mean/std          mean/std
-#   inertia     3x3 tensor  (9)   2x2 tensor  (4)    −5     see note 2
-#   border      border_dist (1)   border_dist (1)     0     see note 3
-#   ────────────────────────────────────────────────────────────────────────
-#   total                   19                  13   −6
-#
-# Notes:
-#   1. t is KEPT (not dropped). The HOCT paper includes the absolute time
-#      point as an explicit node feature. The model uses it alongside the
-#      3D Rotary Position Embedding (RoPE) applied to spatial coordinates
-#      (z, y, x) — t is a separate scalar feature, not a positional encoding.
-#      In our 2D adaptation we drop z (data is planar) but retain t because
-#      it provides a temporal ordering signal that helps the probe
-#      distinguish cells in different frames, which is essential for
-#      edge prediction between consecutive time points.
-#   2. The 2D inertia tensor is 2x2 (4 values, of which 3 are unique due to
-#      symmetry) instead of 3x3 (9 values, 6 unique). We keep all 4 entries,
-#      mirroring the paper's choice to keep redundant symmetric entries.
-#   3. border_dist semantics differ from the official implementation, which
-#      computes a clipped inverse distance at the CENTROID:
-#      `1 - min(1, dist/5)` (0 if >= 5 px from border, 1 at the border).
-#      Here we compute the Euclidean distance of the closest REGION PIXEL to
-#      the FoV border, in pixels, non-inverted and unclipped (larger = farther
-#      from border). The two statistics are highly correlated; since probes
-#      standardize features and learn signed weights, the directionality
-#      difference is absorbed. Kept for consistency with earlier experiments.
-#   4. Standardization: the paper standardizes all features per dataset. This
-#      is handled downstream (leakage-safe per-fold z-score), NOT inside this
-#      extractor — extract_hoct19 returns RAW features. See
-#      fit_feature_standardizer() / apply_feature_standardizer().
-#   5. The HOCT paper uses a multi-frame window for inference; our probe
-#      evaluates single frame pairs (t, t+1). The t feature is the absolute
-#      frame index within the experiment, which is meaningful for temporal
-#      ordering even in pairwise evaluation.
+# Feature order (HOCT2D_FEATURE_NAMES):
+#   position (3):  time, centroid_y, centroid_x
+#   size     (1):  eq_diam
+#   intensity(4):  intensity_min, intensity_max, intensity_mean, intensity_std
+#   inertia  (4):  inertia_00, inertia_01, inertia_10, inertia_11
+#   border   (1):  border_dist
+
 
 #: Ordered names of the 13 features returned by extract_hoct19().
 #: Shared with analysis/visualization tools (e.g. visualize_props.py).
@@ -248,6 +283,113 @@ def extract_hoct19(mask, img, frame_idx=0):
     assert features.shape[1] == len(HOCT2D_FEATURE_NAMES), (
         f"HOCT 2D feature count drifted: got {features.shape[1]}, "
         f"expected {len(HOCT2D_FEATURE_NAMES)} (see HOCT2D_FEATURE_NAMES)"
+    )
+
+    return coords, labels, features
+
+
+# ── HOCT 13D + Fourier PE (spatial positions encoded) ──────────
+
+#: Ordered names of the features returned by extract_hoct19_fourier().
+#: time (1) + fourier_pe (2 * n_freqs * 2) + eq_diam (1) +
+#: intensity (4) + inertia (4) + border (1).
+HOCT2D_FOURIER_FEATURE_NAMES = (
+    ["time"]
+    + [f"fourier_pe_{i}" for i in range(32)]
+    + ["eq_diam"]
+    + ["intensity_min", "intensity_max", "intensity_mean", "intensity_std"]
+    + ["inertia_00", "inertia_01", "inertia_10", "inertia_11"]
+    + ["border_dist"]
+)
+
+
+def extract_hoct19_fourier(mask, img, frame_idx=0, n_freqs=8, cutoff=128.0):
+    """Extract HOCT-style 13D node features with Fourier PE for spatial
+    positions, replacing raw centroid coordinates.
+
+    Same base features as ``extract_hoct19`` but the spatial positions
+    (centroid_y, centroid_x) are replaced with Fourier PE instead of
+    raw coordinates.  The time feature ``t`` is kept as a scalar
+    (not encoded with Fourier PE) because it provides a temporal
+    ordering signal independent of spatial proximity.
+
+    Layout:
+      time       (1):  frame index
+      fourier_pe (32): sin/cos of (centroid_y, centroid_x) at
+                       8 geometrically decaying frequencies each
+      eq_diam    (1):  equivalent diameter area
+      intensity  (4):  intensity min, max, mean, std
+      inertia    (4):  2x2 inertia tensor, row-major
+      border     (1):  min distance to FoV edge
+
+    Features are returned RAW (not standardized). Standardization is
+    applied downstream, fit on the training split only.
+
+    Args:
+        mask: (H, W) integer label image.
+        img:  (H, W) float intensity image (already normalized to [0, 1]).
+        frame_idx: absolute frame index within the experiment.
+        n_freqs: number of frequency components per spatial dimension.
+        cutoff: controls the decay rate of the geometric frequency
+            schedule.
+
+    Returns:
+        (coords, labels, features) with coords (N, 2), labels (N,),
+        features (N, 43) float32 — or (None, None, None) if mask is empty.
+    """
+    ndim = mask.ndim
+    props = ("equivalent_diameter_area", "intensity_min", "intensity_max",
+             "intensity_mean", "intensity_std", "inertia_tensor")
+    df = pd.DataFrame(
+        regionprops_table(mask, intensity_image=img,
+                          properties=("label", "centroid", *props))
+    )
+    if len(df) == 0:
+        return None, None, None
+
+    coords = df[[f"centroid-{i}" for i in range(ndim)]].values.astype(np.float32)
+    labels = df["label"].values.astype(np.int32)
+
+    # 1. Time feature (1): scalar frame index, kept as-is
+    time_col = np.full((len(df), 1), frame_idx, dtype=np.float32)
+
+    # 2. Fourier PE of spatial positions (32): sin/cos of (y, x)
+    spatial_pos = np.column_stack([
+        df["centroid-0"].values.astype(np.float32),
+        df["centroid-1"].values.astype(np.float32),
+    ])
+    pe = FourierPE(coord_dim=ndim, n_freqs=n_freqs, cutoff=cutoff)
+    with torch.no_grad():
+        fourier_pe = pe(torch.from_numpy(spatial_pos)).numpy().astype(np.float32)
+
+    # 3. Size (1): equivalent_diameter_area
+    eq_diam = df["equivalent_diameter_area"].values.astype(np.float32)[:, None]
+
+    # 4. Intensity (4): min, max, mean, std
+    intensity = np.column_stack([
+        df["intensity_min"].values,
+        df["intensity_max"].values,
+        df["intensity_mean"].values,
+        df["intensity_std"].values,
+    ]).astype(np.float32)
+
+    # 5. Inertia (4 for 2D): 2x2 tensor flattened
+    inertias = np.stack(
+        [np.column_stack([df[f"inertia_tensor-{i}-{j}"] for j in range(ndim)])
+         for i in range(ndim)], axis=-1
+    ).reshape(len(df), -1).astype(np.float32)
+
+    # 6. Border (1): min distance to nearest FoV edge
+    border_dists = _compute_border_dist(mask)[:, None]
+
+    features = np.concatenate(
+        [time_col, fourier_pe, eq_diam, intensity, inertias, border_dists],
+        axis=-1,
+    ).astype(np.float32)
+
+    assert features.shape[1] == len(HOCT2D_FOURIER_FEATURE_NAMES), (
+        f"HOCT Fourier feature count drifted: got {features.shape[1]}, "
+        f"expected {len(HOCT2D_FOURIER_FEATURE_NAMES)}"
     )
 
     return coords, labels, features
