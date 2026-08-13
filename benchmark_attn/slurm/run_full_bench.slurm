@@ -6,8 +6,8 @@
 #SBATCH --gpus-per-node=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=90G
-#SBATCH --output=benchmark_attn/logs/full_bench_%j.out
-#SBATCH --error=benchmark_attn/logs/full_bench_%j.err
+#SBATCH --output=logs/full_bench_%j.out
+#SBATCH --error=logs/full_bench_%j.err
 
 set -e
 
@@ -28,7 +28,14 @@ VENV="$WS/trackastra/.venv"
 # install torch if needed
 python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124 -q 2>&1 | tail -1
 
+# install NSA implementation (lucidrains) — required by NSASparseAttention
+# imported in scripts/benchmarks/benchmark_sweep.py
+python -m pip install native-sparse-attention-pytorch -q 2>&1 | tail -1
+
 cd "$REPO" || exit 1
+
+# ensure central logs directory exists at git repo root
+mkdir -p logs
 
 echo "=== H100 Full Attention Benchmark ==="
 echo "d_model=320  nhead=8  mode=none  dist_mode=v1"

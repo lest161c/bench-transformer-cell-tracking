@@ -132,7 +132,7 @@ Access: SSH host `capella` (VPN required). Partition `gpu-h100`, account
 
 SBATCH resources (as declared in the script): job `attn_full_bench`, account
 `p_scads_celltracking`, partition `gpu-h100`, time `01:00:00`, 1 GPU, 8 CPUs, 90 GB mem,
-logs `benchmark_attn/logs/full_bench_%j.{out,err}`.
+logs `logs/full_bench_%j.{out,err}`.
 
 In-script env: `PIP_REQUIRE_VIRTUALENV=false`, `OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK`,
 `MKL_NUM_THREADS=$SLURM_CPUS_PER_TASK`, `NCCL_DEBUG=WARN`,
