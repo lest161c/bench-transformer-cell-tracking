@@ -38,13 +38,26 @@ need `lightly` and `edt`.
 
 ### 2.3 Cluster paths (for H100 runs)
 
-All cluster paths are read from `<repo_root>/.env` by
-`slurm/load_cluster_env.sh`, which every slurm script sources.
+> **Before submitting any slurm script, you MUST replace the `REPO_ROOT`
+> placeholder** at the top of the script (see the `TODO: REPLACE` comment
+> block).  Slurm copies the script to `/var/spool/slurmd/jobXXX/` before
+> running, so neither `${BASH_SOURCE[0]}` nor `$SLURM_SUBMIT_DIR` reliably
+> resolves to the file's real location — the script must know its repo
+> root explicitly.  This is the only per-cluster value in the file;
+> everything else is resolved relative to it.
+
+All cluster paths (`TRK`, `BENCH`, `DATA_DIR`) are read from
+`<repo_root>/.env` by `slurm/load_cluster_env.sh`, which every slurm
+script sources after setting `REPO_ROOT`.
+
+```bash
+cp .env.example .env   # then edit TRK, BENCH, DATA_DIR
+```
 
 | Constant | Value |
 |---|---|
-| `TRK` | `/data/cat/ws/lest161c-cell_tracking/lest161c-ssl_cell_tracking-1778979601/trackastra` |
-| `DATA_DIR` | `/data/cat/ws/mawe985g-data/data/celltracking` |
+| `TRK` | `/path/to/trackastra` |
+| `DATA_DIR` | `/path/to/celltracking/data` |
 | Partition / account | `gpu-h100` / `p_scads_celltracking` |
 
 ---

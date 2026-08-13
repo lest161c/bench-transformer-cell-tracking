@@ -114,15 +114,24 @@ cd benchmark_attn && uv run python analysis/plot_sparse.py
 
 ## 3. Cluster requirements
 
-Set the cluster paths once (values depend on your account and workspace):
+> **Before submitting any slurm script, you MUST replace the `REPO_ROOT`
+> placeholder** at the top of the script (see the `TODO: REPLACE` comment
+> block).  Slurm copies the script to `/var/spool/slurmd/jobXXX/` before
+> running, so neither `${BASH_SOURCE[0]}` nor `$SLURM_SUBMIT_DIR` reliably
+> resolves to the file's real location — the script must know its repo
+> root explicitly.  This is the only per-cluster value in the file;
+> everything else is resolved relative to it.
+
+The slurm script sources `slurm/load_cluster_env.sh` (which sources
+`$REPO_ROOT/.env`), then `cd`s into `benchmark_attn/` and runs `uv sync`
+to install all dependencies from `pyproject.toml` into the project-local
+`.venv/`.  No external venv is needed.
+
+You also need a local `.env` at the repo root:
 
 ```bash
-export WS=/your/workspace      # workspace root on the cluster
-export REPO=$WS/bench-transformer-cell-tracking   # this bench repo checkout
+cp .env.example .env       # then edit TRK, BENCH, DATA_DIR
 ```
-
-The slurm script `cd`s into `benchmark_attn/` and runs `uv sync` to install all dependencies
-from `pyproject.toml` into the project-local `.venv/`. No external venv is needed.
 
 Access: SSH host `capella` (VPN required). Partition `gpu-h100`, account
 `p_scads_celltracking`, 1 GPU per node.
@@ -144,17 +153,19 @@ The script `cd`s into `benchmark_attn/`, runs `uv sync` to install all deps from
 Submit:
 
 ```bash
-cd "$REPO/benchmark_attn" && sbatch slurm/run_full_bench.slurm
+sbatch slurm/run_full_bench.slurm
 ```
 
 Equivalent manual command (also the one the slurm script should run):
 
 ```bash
-cd "$REPO/benchmark_attn" && uv run python scripts/benchmarks/benchmark_sweep.py \
+cd "$REPO_ROOT/benchmark_attn" && uv run python scripts/benchmarks/benchmark_sweep.py \
     --methods gather_sdpa,gather_fused,gather_matmul,mask_knn,dense_flash,dense_masked,nsa,knn_relpos,minimax \
     --d 320 --nhead 8 --warmup 10 --rep 50 --Ks 4,16 \
     --out results/full_bench_h100.csv
 ```
+
+(`$REPO_ROOT` is the path you set at the top of `slurm/run_full_bench.slurm`.)
 
 Purpose: full-method attention benchmark on the H100 (80 GB) as an A500-vs-H100 reference; the
 largest N (8192) runs without the A500's 4 GB limit.

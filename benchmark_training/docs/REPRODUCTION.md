@@ -102,6 +102,14 @@ python scripts/analysis/plot_combined.py
 
 ## 5. SLURM training runs (H100 cluster)
 
+> **Before submitting any slurm script, you MUST replace the `REPO_ROOT`
+> placeholder** at the top of the script (see the `TODO: REPLACE` comment
+> block).  Slurm copies the script to `/var/spool/slurmd/jobXXX/` before
+> running, so neither `${BASH_SOURCE[0]}` nor `$SLURM_SUBMIT_DIR` reliably
+> resolves to the file's real location — the script must know its repo
+> root explicitly.  This is the only per-cluster value in the file;
+> everything else is resolved relative to it.
+
 ### Unified training script
 
 **Script:** `scripts/slurm/run_training.slurm`

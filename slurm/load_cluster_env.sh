@@ -1,19 +1,19 @@
 #!/bin/bash
 # load_cluster_env.sh — Shared loader for cluster paths and runtime env vars.
 #
-# Source this file near the top of every slurm script:
+# This file is sourced by every slurm script. Because slurm copies each
+# script to /var/spool/slurmd/jobXXX/ before running, ${BASH_SOURCE[0]}
+# does NOT resolve to the file's real repo location, and $SLURM_SUBMIT_DIR
+# depends on where the reproducer called `sbatch` from. Both are unreliable.
 #
-#   # benchmark_ssl/slurm/foo.slurm, benchmark_attn/slurm/foo.slurm
-#   source "$(dirname "${BASH_SOURCE[0]}")/../../slurm/load_cluster_env.sh"
-#
-#   # benchmark_training/scripts/slurm/foo.slurm
-#   source "$(dirname "${BASH_SOURCE[0]}")/../../../slurm/load_cluster_env.sh"
+# The calling slurm script therefore sets REPO_ROOT at the top of the
+# file (the single cluster-specific path the reproducer must replace).
+# This loader trusts that variable and uses it to find .env.
 #
 # Responsibilities (deliberately narrow):
-#   1. Discover .env at <repo_root>/.env.
-#   2. Source .env (KEY=value format, no `export` — dotenv convention).
-#   3. Validate that $TRK (and $BENCH, if set) exist on disk.
-#   4. Export the runtime env vars expected by all training scripts
+#   1. Source .env at $REPO_ROOT/.env.
+#   2. Validate that $TRK and $BENCH (from .env) exist on disk.
+#   3. Export the runtime env vars expected by all training scripts
 #      (OMP/MKL thread counts, NCCL/CUDA flags, sanitised PYTHONPATH).
 #
 # This loader deliberately does NOT:
@@ -24,9 +24,20 @@
 #   - Create log directories (each slurm script owns its own logs/).
 #   - Activate a Python venv (uv-managed project .venvs are picked
 #     up automatically by `uv run` / `uv sync`).
+#
+# Fallback for direct (non-slurm) invocation: if REPO_ROOT is unset,
+# derive it from this loader's own filesystem location.
 
-# ─── Discover repo root ────────────────────────────────────────────────
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# ─── Locate repo root ─────────────────────────────────────────────────
+if [ -z "${REPO_ROOT:-}" ]; then
+    REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+fi
+
+if [ ! -d "$REPO_ROOT" ]; then
+    echo "FATAL: REPO_ROOT=$REPO_ROOT does not exist or is not a directory." >&2
+    echo "Each slurm script must define REPO_ROOT at the top (see comments)." >&2
+    exit 1
+fi
 
 # ─── Source .env ───────────────────────────────────────────────────────
 ENV_FILE="$REPO_ROOT/.env"

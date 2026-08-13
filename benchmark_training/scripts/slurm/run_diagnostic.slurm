@@ -23,19 +23,22 @@
 # Hardware: NVIDIA H100 80 GB (gpu-h100 partition on Capella).
 # -----------------------------------------------------------------------
 
-source "$(dirname "${BASH_SOURCE[0]}")/../../../slurm/load_cluster_env.sh"
+# ─── REPO_ROOT ────────────────────────────────────────────────────────
+# TODO: REPLACE with the absolute path to your bench-transformer-cell-tracking
+# checkout on the cluster.  This is the only cluster-specific value in the
+# file — everything else below is resolved relative to it.
+REPO_ROOT=/path/to/bench-transformer-cell-tracking
 
-CFG_DIR="$SLURM_SUBMIT_DIR/configs"
+source "$REPO_ROOT/slurm/load_cluster_env.sh"
+
+CFG_DIR="$REPO_ROOT/benchmark_training/configs"
 
 MODE="${MODE:-smoke}"
 
 # -----------------------------------------------------------------------
 # Sync project dependencies via uv
 # -----------------------------------------------------------------------
-# $SLURM_SUBMIT_DIR is the benchmark_training/ checkout. `uv sync` creates
-# .venv/ and installs all deps from pyproject.toml (torch+torchvision from
-# the cu130 index, lightning, configargparse, wandb, etc.).
-cd "$SLURM_SUBMIT_DIR"
+cd "$REPO_ROOT/benchmark_training"
 uv sync
 
 # -----------------------------------------------------------------------
@@ -43,19 +46,19 @@ uv sync
 # -----------------------------------------------------------------------
 cd "$TRK"
 git pull origin feature/sparse-attention-gather
-uv pip install --project "$SLURM_SUBMIT_DIR" -e "$TRK"
+uv pip install --project "$REPO_ROOT/benchmark_training" -e "$TRK"
 mkdir -p logs
 
 case "$MODE" in
     smoke)
         echo "=== SMOKE TEST: import check ==="
-        uv run --no-sync --project "$SLURM_SUBMIT_DIR" python -c "import trackastra; from trackastra.model import TrackingTransformer; print('trackastra OK:', TrackingTransformer); import torch; print('CUDA:', torch.cuda.is_available())"
+        uv run --no-sync --project "$REPO_ROOT/benchmark_training" python -c "import trackastra; from trackastra.model import TrackingTransformer; print('trackastra OK:', TrackingTransformer); import torch; print('CUDA:', torch.cuda.is_available())"
         echo "=== SMOKE TEST PASSED ==="
         ;;
     quick_bench)
         echo "=== QUICK BENCH: 10-epoch baseline ==="
         date
-        uv run --no-sync --project "$SLURM_SUBMIT_DIR" python scripts/train.py \
+        uv run --no-sync --project "$REPO_ROOT/benchmark_training" python scripts/train.py \
             --config "$CFG_DIR/vanvliet_baseline.yaml" \
             --epochs 10 \
             --name quick_bench_baseline
