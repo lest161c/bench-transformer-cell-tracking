@@ -1,11 +1,5 @@
 """Consolidated attention-method benchmark sweep: methods × layers × N × K → CSV.
 
-Replaces four standalone scripts that lived under ``benchmarks/``:
-  - ``benchmark_sparse.py``    — dense vs gather-sparse sweep over L layers
-  - ``benchmark_full.py``      — all methods × all N, K = 4..128
-  - ``benchmark_gather_v3.py`` — V1/V2/V3 gather-sparse comparison
-  - ``benchmark_small_n.py``   — small-N behaviour
-
 For every combination of (method, L, N, K) the sweep:
   1. builds synthetic inputs with ``make_inputs``,
   2. computes KNN indices with ``compute_knn_indices`` when the method needs
@@ -21,11 +15,6 @@ Methods are selected with ``--methods`` (registry keys such as
 ``dense_flash``, ``dense_masked``, ``nsa``, ``knn_relpos``, ``minimax``) and
 default to every registered method (``list_methods``).  K is only meaningful
 for KNN-based methods; all other methods are emitted with ``K=0``.
-
-Note on timing parameters: the harness ``try_bench`` times a built closure with
-the harness defaults (5 warmup iterations, 0.3 s autorange).  The
-``--warmup`` / ``--rep`` flags are accepted for CLI compatibility with the
-replaced scripts; the effective timing parameters are governed by the harness.
 
 Usage:
     python scripts/benchmarks/benchmark_sweep.py \\
