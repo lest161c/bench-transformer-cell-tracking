@@ -1,14 +1,13 @@
 #!/bin/bash
-#SBATCH --account=p_scads_celltracking
 #SBATCH --job-name=tr_train
-#SBATCH --output=logs/slurm-train-%j.out
-#SBATCH --error=logs/slurm-train-%j.err
+#SBATCH --account=p_scads_celltracking
 #SBATCH --time=48:00:00
 #SBATCH --nodes=1
-#SBATCH --ntasks=1
 #SBATCH --gpus-per-node=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=90G
+#SBATCH --output=logs/slurm-train-%j.out
+#SBATCH --error=logs/slurm-train-%j.err
 #
 # Unified Trackastra training script.
 #

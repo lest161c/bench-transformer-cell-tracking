@@ -1,14 +1,13 @@
 #!/bin/bash
-#SBATCH --account=p_scads_celltracking
 #SBATCH --job-name=h100_conv_race
-#SBATCH --output=logs/h100_conv_race-%j.out
-#SBATCH --error=logs/h100_conv_race-%j.err
+#SBATCH --account=p_scads_celltracking
 #SBATCH --time=24:00:00
 #SBATCH --nodes=1
-#SBATCH --ntasks=1
 #SBATCH --gpus-per-node=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=90G
+#SBATCH --output=logs/h100_conv_race-%j.out
+#SBATCH --error=logs/h100_conv_race-%j.err
 
 # H100 convergence race: Mode R (7D baseline) vs Mode C (7D + frozen CNN NT-Xent).
 # Mini Trackastra at full scale: d_model=320, nhead=8, 6 enc + 6 dec layers.

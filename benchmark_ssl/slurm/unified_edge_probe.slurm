@@ -1,14 +1,13 @@
 #!/bin/bash
-#SBATCH --account=p_scads_celltracking
 #SBATCH --job-name=edge_probe
-#SBATCH --output=logs/edge_probe-%j.out
-#SBATCH --error=logs/edge_probe-%j.err
+#SBATCH --account=p_scads_celltracking
 #SBATCH --time=02:00:00
 #SBATCH --nodes=1
-#SBATCH --ntasks=1
 #SBATCH --gpus-per-node=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
+#SBATCH --output=logs/edge_probe-%j.out
+#SBATCH --error=logs/edge_probe-%j.err
 
 # Unified edge probing: 5-fold CV over regionprops, HOCT, CNN-NT-Xent,
 # CNN-e2e, and DINOv2 features. Tests linear and MLP probes.

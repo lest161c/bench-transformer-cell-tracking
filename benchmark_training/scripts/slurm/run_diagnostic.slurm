@@ -1,14 +1,13 @@
 #!/bin/bash
-#SBATCH --account=p_scads_celltracking
 #SBATCH --job-name=tr_diag
-#SBATCH --output=logs/slurm-diag-%j.out
-#SBATCH --error=logs/slurm-diag-%j.err
+#SBATCH --account=p_scads_celltracking
 #SBATCH --time=1:00:00
 #SBATCH --nodes=1
-#SBATCH --ntasks=1
 #SBATCH --gpus-per-node=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=90G
+#SBATCH --output=logs/slurm-diag-%j.out
+#SBATCH --error=logs/slurm-diag-%j.err
 #
 # Diagnostic and quick-bench script.
 #

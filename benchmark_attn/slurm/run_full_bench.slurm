@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name=attn_full_bench
 #SBATCH --account=p_scads_celltracking
-#SBATCH --partition=gpu-h100
 #SBATCH --time=00:30:00
+#SBATCH --nodes=1
 #SBATCH --gpus-per-node=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=90G
