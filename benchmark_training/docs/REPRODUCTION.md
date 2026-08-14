@@ -102,13 +102,23 @@ python scripts/analysis/plot_combined.py
 
 ## 5. SLURM training runs (H100 cluster)
 
-> **Before submitting any slurm script, you MUST replace the `REPO_ROOT`
-> placeholder** at the top of the script (see the `TODO: REPLACE` comment
-> block).  Slurm copies the script to `/var/spool/slurmd/jobXXX/` before
-> running, so neither `${BASH_SOURCE[0]}` nor `$SLURM_SUBMIT_DIR` reliably
-> resolves to the file's real location — the script must know its repo
-> root explicitly.  This is the only per-cluster value in the file;
-> everything else is resolved relative to it.
+### One-time setup (login node)
+
+```bash
+git clone <repo-url> bench-transformer-cell-tracking
+cd bench-transformer-cell-tracking
+bash slurm/setup_env.sh          # creates ~/.bench.env, runs uv sync
+```
+
+`setup_env.sh` will prompt you to edit `~/.bench.env` — replace the
+`/path/to/...` placeholders with your actual cluster paths.  Then re-run
+the script to complete the setup (creates `.venv/` in each subproject,
+installs all deps, and installs trackastra in editable mode).  Slurm jobs
+use `.venv/bin/python` directly — **no `uv sync` runs inside the job**,
+so the full time budget is available for actual training.
+
+After `git pull`, the slurm files never need to be edited again — they
+read `REPO_ROOT` from `~/.bench.env`.
 
 ### Unified training script
 

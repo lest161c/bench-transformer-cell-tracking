@@ -18,19 +18,13 @@
 # Mini Trackastra at full scale: d_model=320, nhead=8, 6 enc + 6 dec layers.
 # Training: BCE(pos_weight=100), AdamW, cosine schedule, early stopping.
 
-# ─── REPO_ROOT ────────────────────────────────────────────────────────
-# TODO: REPLACE with the absolute path to your bench-transformer-cell-tracking
-# checkout on the cluster.  This is the only cluster-specific value in the
-# file — everything else below is resolved relative to it.
-REPO_ROOT=/path/to/bench-transformer-cell-tracking
-
+source "$HOME/.bench.env"
 source "$REPO_ROOT/slurm/load_cluster_env.sh"
 
 cd "$BENCH/benchmark_ssl" || exit 1
-uv sync
 mkdir -p logs
 
-uv run python -m src.cnn_encoder.h100_convergence \
+.venv/bin/python -m src.cnn_encoder.h100_convergence \
     --data-root "$DATA_DIR/vanvliet" \
     --checkpoint results/checkpoints/cnn/cnn_ntxent_large.pt \
     --scale large \

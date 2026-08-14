@@ -23,43 +23,22 @@
 # Hardware: NVIDIA H100 80 GB (gpu-h100 partition on Capella).
 # -----------------------------------------------------------------------
 
-# ─── REPO_ROOT ────────────────────────────────────────────────────────
-# TODO: REPLACE with the absolute path to your bench-transformer-cell-tracking
-# checkout on the cluster.  This is the only cluster-specific value in the
-# file — everything else below is resolved relative to it.
-REPO_ROOT=/path/to/bench-transformer-cell-tracking
-
+source "$HOME/.bench.env"
 source "$REPO_ROOT/slurm/load_cluster_env.sh"
 
-CFG_DIR="$REPO_ROOT/benchmark_training/configs"
-
-MODE="${MODE:-smoke}"
-
-# -----------------------------------------------------------------------
-# Sync project dependencies via uv
-# -----------------------------------------------------------------------
-cd "$REPO_ROOT/benchmark_training"
-uv sync
-
-# -----------------------------------------------------------------------
-# Pull trackastra branch and install in editable mode
-# -----------------------------------------------------------------------
-cd "$TRK"
-git pull origin feature/sparse-attention-gather
-uv pip install --project "$REPO_ROOT/benchmark_training" -e "$TRK"
-mkdir -p logs
+PY="$REPO_ROOT/benchmark_training/.venv/bin/python"
 
 case "$MODE" in
     smoke)
         echo "=== SMOKE TEST: import check ==="
-        uv run --no-sync --project "$REPO_ROOT/benchmark_training" python -c "import trackastra; from trackastra.model import TrackingTransformer; print('trackastra OK:', TrackingTransformer); import torch; print('CUDA:', torch.cuda.is_available())"
+        $PY -c "import trackastra; from trackastra.model import TrackingTransformer; print('trackastra OK:', TrackingTransformer); import torch; print('CUDA:', torch.cuda.is_available())"
         echo "=== SMOKE TEST PASSED ==="
         ;;
     quick_bench)
         echo "=== QUICK BENCH: 10-epoch baseline ==="
         date
-        uv run --no-sync --project "$REPO_ROOT/benchmark_training" python scripts/train.py \
-            --config "$CFG_DIR/vanvliet_baseline.yaml" \
+        $PY scripts/train.py \
+            --config "$REPO_ROOT/benchmark_training/configs/vanvliet_baseline.yaml" \
             --epochs 10 \
             --name quick_bench_baseline
         echo "=== DONE ==="

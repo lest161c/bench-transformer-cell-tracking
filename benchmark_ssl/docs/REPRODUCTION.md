@@ -38,21 +38,27 @@ need `lightly` and `edt`.
 
 ### 2.3 Cluster paths (for H100 runs)
 
-> **Before submitting any slurm script, you MUST replace the `REPO_ROOT`
-> placeholder** at the top of the script (see the `TODO: REPLACE` comment
-> block).  Slurm copies the script to `/var/spool/slurmd/jobXXX/` before
-> running, so neither `${BASH_SOURCE[0]}` nor `$SLURM_SUBMIT_DIR` reliably
-> resolves to the file's real location — the script must know its repo
-> root explicitly.  This is the only per-cluster value in the file;
-> everything else is resolved relative to it.
+All cluster paths (`REPO_ROOT`, `TRK`, `BENCH`, `DATA_DIR`) are read
+from `~/.bench.env` by `slurm/load_cluster_env.sh`.  Each slurm script
+sources `~/.bench.env` first, then the loader.
 
-All cluster paths (`TRK`, `BENCH`, `DATA_DIR`) are read from
-`<repo_root>/.env` by `slurm/load_cluster_env.sh`, which every slurm
-script sources after setting `REPO_ROOT`.
+#### One-time setup (login node)
 
 ```bash
-cp .env.example .env   # then edit TRK, BENCH, DATA_DIR
+git clone <repo-url> bench-transformer-cell-tracking
+cd bench-transformer-cell-tracking
+bash slurm/setup_env.sh          # creates ~/.bench.env, runs uv sync
 ```
+
+`setup_env.sh` will prompt you to edit `~/.bench.env` — replace the
+`/path/to/...` placeholders with your actual cluster paths.  Then re-run
+the script to complete the setup (creates `.venv/` in each subproject
+and installs all deps).  Slurm jobs use `.venv/bin/python` directly —
+**no `uv sync` runs inside the job**, so the full time budget is
+available for the actual experiment.
+
+After `git pull`, the slurm files never need to be edited again — they
+read `REPO_ROOT` from `~/.bench.env`.
 
 | Constant | Value |
 |---|---|

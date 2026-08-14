@@ -11,16 +11,10 @@
 
 set -e
 
-# ─── REPO_ROOT ────────────────────────────────────────────────────────
-# TODO: REPLACE with the absolute path to your bench-transformer-cell-tracking
-# checkout on the cluster.  This is the only cluster-specific value in the
-# file — everything else below is resolved relative to it.
-REPO_ROOT=/path/to/bench-transformer-cell-tracking
-
+source "$HOME/.bench.env"
 source "$REPO_ROOT/slurm/load_cluster_env.sh"
 
 cd "$BENCH/benchmark_attn" || exit 1
-uv sync
 mkdir -p logs
 
 echo "=== H100 Full Attention Benchmark ==="
@@ -29,7 +23,7 @@ echo "N = 128 256 512 1024 2048 4096 8192"
 echo "K = 4 16"
 echo ""
 
-uv run python scripts/benchmarks/benchmark_sweep.py \
+.venv/bin/python scripts/benchmarks/benchmark_sweep.py \
     --d 320 --nhead 8 \
     --methods gather_sdpa,gather_fused,gather_matmul,mask_knn,knn_relpos,minimax,nsa,dense_flash,dense_masked \
     --Ns 128,256,512,1024,2048,4096,8192 \

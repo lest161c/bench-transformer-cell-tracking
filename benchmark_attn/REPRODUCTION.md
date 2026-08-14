@@ -114,24 +114,32 @@ cd benchmark_attn && uv run python analysis/plot_sparse.py
 
 ## 3. Cluster requirements
 
-> **Before submitting any slurm script, you MUST replace the `REPO_ROOT`
-> placeholder** at the top of the script (see the `TODO: REPLACE` comment
-> block).  Slurm copies the script to `/var/spool/slurmd/jobXXX/` before
-> running, so neither `${BASH_SOURCE[0]}` nor `$SLURM_SUBMIT_DIR` reliably
-> resolves to the file's real location — the script must know its repo
-> root explicitly.  This is the only per-cluster value in the file;
-> everything else is resolved relative to it.
-
-The slurm script sources `slurm/load_cluster_env.sh` (which sources
-`$REPO_ROOT/.env`), then `cd`s into `benchmark_attn/` and runs `uv sync`
-to install all dependencies from `pyproject.toml` into the project-local
-`.venv/`.  No external venv is needed.
-
-You also need a local `.env` at the repo root:
+### 3.1 One-time setup (login node)
 
 ```bash
-cp .env.example .env       # then edit TRK, BENCH, DATA_DIR
+git clone <repo-url> bench-transformer-cell-tracking
+cd bench-transformer-cell-tracking
+bash slurm/setup_env.sh          # creates ~/.bench.env, runs uv sync
 ```
+
+`setup_env.sh` will prompt you to edit `~/.bench.env` — replace the
+`/path/to/...` placeholders with your actual cluster paths.  Then re-run
+the script to complete the setup.
+
+This creates `.venv/` in each subproject and installs all dependencies
+from `pyproject.toml`.  Slurm jobs use `.venv/bin/python` directly —
+**no `uv sync` runs inside the job**, so the full time budget is
+available for the actual benchmark.
+
+### 3.2 Updating dependencies
+
+If `pyproject.toml` changes after a `git pull`:
+
+```bash
+cd benchmark_attn && uv sync    # re-syncs .venv/
+```
+
+### 3.3 Cluster access
 
 Access: SSH host `capella` (VPN required). Partition `gpu-h100`, account
 `p_scads_celltracking`, 1 GPU per node.
@@ -147,8 +155,9 @@ logs `logs/full_bench_%j.{out,err}`.
 In-script env: `OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK`,
 `MKL_NUM_THREADS=$SLURM_CPUS_PER_TASK`, `NCCL_DEBUG=WARN`,
 `CUBLAS_WORKSPACE_CONFIG=:4096:8`, `PYTHONNOUSERSITE=1`, `unset PYTHONPATH PYTHONHOME`.
-The script `cd`s into `benchmark_attn/`, runs `uv sync` to install all deps from
-`pyproject.toml`, then invokes the benchmark via `uv run python`.
+The script sources `~/.bench.env` (gitignored, set once via `slurm/setup_env.sh`),
+sources `slurm/load_cluster_env.sh`, then invokes `.venv/bin/python` directly
+(no `uv sync` overhead — the `.venv/` was created during one-time setup).
 
 Submit:
 
@@ -159,13 +168,13 @@ sbatch slurm/run_full_bench.slurm
 Equivalent manual command (also the one the slurm script should run):
 
 ```bash
-cd "$REPO_ROOT/benchmark_attn" && uv run python scripts/benchmarks/benchmark_sweep.py \
+cd "$BENCH/benchmark_attn" && .venv/bin/python scripts/benchmarks/benchmark_sweep.py \
     --methods gather_sdpa,gather_fused,gather_matmul,mask_knn,dense_flash,dense_masked,nsa,knn_relpos,minimax \
     --d 320 --nhead 8 --warmup 10 --rep 50 --Ks 4,16 \
     --out results/full_bench_h100.csv
 ```
 
-(`$REPO_ROOT` is the path you set at the top of `slurm/run_full_bench.slurm`.)
+(`$BENCH` comes from `~/.bench.env`.)
 
 Purpose: full-method attention benchmark on the H100 (80 GB) as an A500-vs-H100 reference; the
 largest N (8192) runs without the A500's 4 GB limit.

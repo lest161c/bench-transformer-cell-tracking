@@ -28,12 +28,7 @@
 #
 # -----------------------------------------------------------------------
 
-# ─── REPO_ROOT ────────────────────────────────────────────────────────
-# TODO: REPLACE with the absolute path to your bench-transformer-cell-tracking
-# checkout on the cluster.  This is the only cluster-specific value in the
-# file — everything else below is resolved relative to it.
-REPO_ROOT=/path/to/bench-transformer-cell-tracking
-
+source "$HOME/.bench.env"
 source "$REPO_ROOT/slurm/load_cluster_env.sh"
 
 CFG_DIR="$REPO_ROOT/benchmark_training/configs"
@@ -123,26 +118,14 @@ case "$VARIANT" in
 esac
 
 # -----------------------------------------------------------------------
-# Sync project dependencies via uv
-# -----------------------------------------------------------------------
-cd "$REPO_ROOT/benchmark_training"
-uv sync
-
-# -----------------------------------------------------------------------
-# Pull trackastra branch and install in editable mode
+# Pull trackastra branch and verify env
 # -----------------------------------------------------------------------
 cd "$TRK"
 git pull origin "$BRANCH"
-uv pip install --project "$REPO_ROOT/benchmark_training" -e "$TRK"
-mkdir -p logs
-
-# -----------------------------------------------------------------------
-# Test mode: import check only
-# -----------------------------------------------------------------------
 
 if [ "$TEST" = "1" ]; then
-    echo "=== TEST MODE: environment setup + import check ==="
-    uv run --no-sync --project "$REPO_ROOT/benchmark_training" python -c "import trackastra; from trackastra.model import TrackingTransformer; print('trackastra OK:', TrackingTransformer); import torch; print('CUDA:', torch.cuda.is_available())"
+    echo "=== TEST MODE: import check ==="
+    "$REPO_ROOT/benchmark_training/.venv/bin/python" -c "import trackastra; from trackastra.model import TrackingTransformer; print('trackastra OK:', TrackingTransformer); import torch; print('CUDA:', torch.cuda.is_available())"
     echo "=== TEST PASSED ==="
     exit 0
 fi
@@ -150,9 +133,10 @@ fi
 # -----------------------------------------------------------------------
 # Normal mode: launch training
 # -----------------------------------------------------------------------
+PY="$REPO_ROOT/benchmark_training/.venv/bin/python"
 
 if [ -n "$CONFIG" ]; then
-    uv run --no-sync --project "$REPO_ROOT/benchmark_training" python scripts/train.py --config "$CONFIG" $EXTRA_ARGS
+    $PY scripts/train.py --config "$CONFIG" $EXTRA_ARGS
 else
-    uv run --no-sync --project "$REPO_ROOT/benchmark_training" python scripts/train.py $EXTRA_ARGS
+    $PY scripts/train.py $EXTRA_ARGS
 fi

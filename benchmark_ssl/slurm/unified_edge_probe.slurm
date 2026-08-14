@@ -17,19 +17,13 @@
 # Unified edge probing: 5-fold CV over regionprops, HOCT, CNN-NT-Xent,
 # CNN-e2e, and DINOv2 features. Tests linear and MLP probes.
 
-# ─── REPO_ROOT ────────────────────────────────────────────────────────
-# TODO: REPLACE with the absolute path to your bench-transformer-cell-tracking
-# checkout on the cluster.  This is the only cluster-specific value in the
-# file — everything else below is resolved relative to it.
-REPO_ROOT=/path/to/bench-transformer-cell-tracking
-
+source "$HOME/.bench.env"
 source "$REPO_ROOT/slurm/load_cluster_env.sh"
 
 cd "$BENCH/benchmark_ssl" || exit 1
-uv sync
 mkdir -p logs
 
-uv run python -m src.edge_probing.unified_edge_probe \
+.venv/bin/python -m src.edge_probing.unified_edge_probe \
     --features all \
     --probe both \
     --epochs 200 \
@@ -43,7 +37,7 @@ echo "  Probe exited with code $PROBE_EXIT at $(date)"
 
 if [ -f results/unified_probe_results_cv.json ]; then
     echo "=== RESULTS ==="
-    uv run python -c "
+    .venv/bin/python -c "
 import json
 with open('results/unified_probe_results_cv.json') as f:
     data = json.load(f)
