@@ -170,7 +170,7 @@ Equivalent manual command (also the one the slurm script should run):
 ```bash
 cd "$BENCH/benchmark_attn" && .venv/bin/python scripts/benchmarks/benchmark_sweep.py \
     --methods gather_sdpa,gather_fused,gather_matmul,mask_knn,dense_flash,dense_masked,nsa,knn_relpos,minimax \
-    --d 320 --nhead 8 --warmup 10 --rep 50 --Ks 4,16 \
+    --d 320 --nhead 8 --warmup 10 --rep 50 --Ks 4,16,32,64 \
     --out results/full_bench_h100.csv
 ```
 
@@ -179,7 +179,9 @@ cd "$BENCH/benchmark_attn" && .venv/bin/python scripts/benchmarks/benchmark_swee
 Purpose: full-method attention benchmark on the H100 (80 GB) as an A500-vs-H100 reference; the
 largest N (8192) runs without the A500's 4 GB limit.
 
-Output: `results/full_bench_h100.csv` on the cluster (not produced yet — no artifact on disk).
+Output: `results/full_bench_h100.csv` — 168 rows, all successful (zero OOMs).
+Largest single-layer memory: minimax@N=8192 = 44 GB (closest to the 80 GB limit).
+NSA timing is near-constant at ~2.5 ms regardless of N.
 
 ---
 
@@ -198,7 +200,7 @@ and output.
 | Spatial-cutoff methods | `scripts/benchmarks/benchmark_all_spatial_methods.py` | `results/all_spatial_methods.csv` |
 | KNN equivalence validation | `tests/validate_equivalence.py` | console only |
 | Sparse sweep visualization | `analysis/plot_sparse.py` | `results/benchmark_sparse.html` |
-| H100 full benchmark | `slurm/run_full_bench.slurm` | `results/full_bench_h100.csv` (cluster; not produced yet) |
+| H100 full benchmark | `slurm/run_full_bench.slurm` | `results/full_bench_h100.csv` (cluster) |
 | Backward pass at N=8192 | `../deprecated/benchmark_backward/benchmark_sparse_backward.py` | `../deprecated/benchmark_backward/sparse_backward_results_8192.csv` |
 | Full-model speed/mem (K × N) | `../benchmark_training/scripts/benchmarks/benchmark_speed_mem.py` | `results/speed_mem.csv` |
 | DINOv3 representation comparison | `exploratory/benchmark_dinov3_comparison_v2.py` | `results/dinov3_comparison.csv`, `results/dinov3_comparison_v2.csv` |
@@ -251,6 +253,23 @@ Data: [speed_mem.csv](results/speed_mem.csv).
 
 Full-model fp32 fwd+bwd+AdamW over K {0,4,8,16,32,64} × N {128,256,512}. Headline:
 K=64, N=512 = 194 ms / 1604 MB (fits the A500).
+
+### 6.7 `results/full_bench_h100.csv` — H100 full attention benchmark
+
+Data: [full_bench_h100.csv](results/full_bench_h100.csv).
+
+168 rows: 9 methods × 7 N values × up to 4 K values, single-layer (L=1), fp16 on H100 (80 GB).
+**All configurations completed with zero OOMs.** Key observations:
+
+| Method | N=8192 time | N=8192 memory | Notes |
+|--------|-------------|---------------|-------|
+| dense_flash | 0.35 ms | 25 MB | Fastest at all N |
+| gather_matmul K=4 | 0.36 ms | 72 MB | Outperforms gather_sdpa at large N |
+| knn_relpos K=4 | 0.55 ms | 71 MB | Near-identical to gather_sdpa |
+| gather_sdpa K=4 | 0.55 ms | 70 MB | |
+| mask_knn K=4 | 1.18 ms | 1050 MB | K-independent memory (N×N mask) |
+| nsa | 5.86 ms | 1714 MB | Near-constant ~2.5 ms for N < 8192 |
+| minimax | 292.9 ms | 44053 MB | Largest single-layer footprint |
 
 ---
 
