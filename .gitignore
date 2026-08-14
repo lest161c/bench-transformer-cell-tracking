@@ -1,7 +1,7 @@
 trackastra_env/
 __pycache__/
 *.pyc
-data/
+/data/
 checkpoints/
 wandb/
 *.egg-info/
