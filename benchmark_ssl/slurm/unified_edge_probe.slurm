@@ -41,7 +41,15 @@ if [ -f results/unified_probe_results_cv.json ]; then
 import json
 with open('results/unified_probe_results_cv.json') as f:
     data = json.load(f)
-for r in data['results']:
-    print(f\"{r['feature']:12s} {r['probe']:6s}  bal_acc={r.get('bal_acc',0):.4f}  F1={r.get('F1',0):.4f}\")
+for fkey, probes in data['results'].items():
+    if probes is None:
+        continue
+    for ptype in ['linear', 'mlp']:
+        if ptype not in probes or probes[ptype] is None:
+            continue
+        m = probes[ptype]
+        bal = m.get('bal_acc_mean', m.get('final_bal_acc', 0))
+        f1 = m.get('f1_mean', m.get('final_f1', 0))
+        print(f'{fkey:12s} {ptype:6s}  bal_acc={bal:.4f}  F1={f1:.4f}')
 "
 fi
