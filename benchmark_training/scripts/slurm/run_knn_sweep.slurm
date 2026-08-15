@@ -116,7 +116,7 @@ git pull origin feature/sparse-attention-gather
 
 if [ "$TEST" = "1" ]; then
     echo "=== TEST MODE: import check ==="
-    "$REPO_ROOT/benchmark_training/.venv/bin/python" -c "import trackastra; from trackastra.model import TrackingTransformer; print('trackastra OK:', TrackingTransformer); import torch; print('CUDA:', torch.cuda.is_available())"
+    "$TRK/.venv/bin/python" -c "import trackastra; from trackastra.model import TrackingTransformer; print('trackastra OK:', TrackingTransformer); import torch; print('CUDA:', torch.cuda.is_available())"
     echo "=== TEST PASSED ==="
     exit 0
 fi
@@ -124,7 +124,7 @@ fi
 # -----------------------------------------------------------------------
 # Normal mode: launch training
 # -----------------------------------------------------------------------
-PY="$REPO_ROOT/benchmark_training/.venv/bin/python"
+PY="$TRK/.venv/bin/python"
 
 echo "  Launching: $PY scripts/train.py $EXTRA_ARGS"
 echo ""
