@@ -1,0 +1,50 @@
+
+========================================================================================================================
+Unified Edge Probing Benchmark — Results
+========================================================================================================================
+Feature                      Probe    BalAcc (mean±std)      F1 (mean±std)          Status    
+------------------------------------------------------------------------------------------------------------------------
+Regionprops 7D               linear   0.5482±0.0312        0.1320±0.0228        OK        
+Regionprops 7D               mlp      0.8767±0.0182        0.4113±0.0210        OK        
+Regionprops 7D + Fourier PE  linear   0.5307±0.0100        0.1153±0.0424        OK        
+Regionprops 7D + Fourier PE  mlp      0.9529±0.0206        0.6864±0.0945        OK        
+CNN NT-Xent (frozen)         —        —                      —                      SKIP      
+CNN end-to-end               linear   0.5000±0.0000        0.0000±0.0000        OK        
+CNN end-to-end               mlp      0.5000±0.0000        0.0000±0.0000        OK        
+DINOv2 (frozen)              linear   0.5397±0.0146        0.1278±0.0410        OK        
+DINOv2 (frozen)              mlp      0.8895±0.0295        0.5618±0.0620        OK        
+HOCT 2D (13D)                linear   0.5280±0.0221        0.1370±0.0399        OK        
+HOCT 2D (13D)                mlp      0.9330±0.0216        0.5914±0.0741        OK        
+HOCT 2D + Fourier PE (43D)   linear   0.5358±0.0190        0.1282±0.0408        OK        
+HOCT 2D + Fourier PE (43D)   mlp      0.9608±0.0151        0.7189±0.0748        OK        
+--- shuffled baseline ---
+Regionprops 7D (shuffled)    linear   0.5205±0.0085        0.1250±0.0302        SHUF      
+Regionprops 7D (shuffled)    mlp      0.5306±0.0235        0.1342±0.0376        SHUF      
+Regionprops 7D + Fourier PE (shuffled) linear   0.5139±0.0177        0.1132±0.0424        SHUF      
+Regionprops 7D + Fourier PE (shuffled) mlp      0.5183±0.0205        0.1144±0.0621        SHUF      
+CNN end-to-end (shuffled)    linear   0.5000±0.0000        0.0000±0.0000        SHUF      
+CNN end-to-end (shuffled)    mlp      0.5000±0.0000        0.0000±0.0000        SHUF      
+DINOv2 (frozen) (shuffled)   linear   0.5373±0.0173        0.1276±0.0422        SHUF      
+DINOv2 (frozen) (shuffled)   mlp      0.5301±0.0205        0.1248±0.0505        SHUF      
+HOCT 2D (13D) (shuffled)     linear   0.5247±0.0071        0.1241±0.0332        SHUF      
+HOCT 2D (13D) (shuffled)     mlp      0.5198±0.0085        0.1263±0.0365        SHUF      
+HOCT 2D + Fourier PE (43D) (shuffled) linear   0.5243±0.0119        0.1188±0.0392        SHUF      
+HOCT 2D + Fourier PE (43D) (shuffled) mlp      0.5174±0.0143        0.1232±0.0399        SHUF      
+------------------------------------------------------------------------------------------------------------------------
+
+Best performer: HOCT 2D + Fourier PE (43D) + mlp (bal_acc=0.9608±0.0151, f1=0.7189±0.0748)
+
+  Probe exited with code 0 at Sa 15. Aug 22:31:00 CEST 2026
+=== RESULTS ===
+rp           linear  bal_acc=0.5482  F1=0.1320
+rp           mlp     bal_acc=0.8767  F1=0.4113
+rp_fourier   linear  bal_acc=0.5307  F1=0.1153
+rp_fourier   mlp     bal_acc=0.9529  F1=0.6864
+cnn_e2e      linear  bal_acc=0.5000  F1=0.0000
+cnn_e2e      mlp     bal_acc=0.5000  F1=0.0000
+dino         linear  bal_acc=0.5397  F1=0.1278
+dino         mlp     bal_acc=0.8895  F1=0.5618
+hoct2d       linear  bal_acc=0.5280  F1=0.1370
+hoct2d       mlp     bal_acc=0.9330  F1=0.5914
+hoct2d_fourier linear  bal_acc=0.5358  F1=0.1282
+hoct2d_fourier mlp     bal_acc=0.9608  F1=0.7189
