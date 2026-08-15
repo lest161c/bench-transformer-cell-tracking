@@ -83,8 +83,6 @@ case "$VARIANT" in
             --features wrfeat --causal_norm quiet_softmax \
             --attn_positional_bias rope --spatial_pos_cutoff 256 \
             --delta_cutoff 2 --knn_neighbors 16 \
-            --init_encoder runs/ssl_dino_pretrain \
-            --logger wandb --wandb_project trackastra \
             --mixedp True --num_workers 8 --seed 42 --augment 3"
         ;;
     sparse_k32)
