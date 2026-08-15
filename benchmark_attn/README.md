@@ -6,17 +6,26 @@ Standalone benchmarks for sparse attention mechanisms in transformer-based cell 
 
 ## Key Results
 
-Tested on NVIDIA A500 (fp16, B=2, d=256, h=4). All numbers single-layer forward pass.
+Full method sweep on NVIDIA A500 and NVIDIA H100 (fp16, single-layer forward pass, L=1). A500 numbers from `results/full_bench_a500.csv`, H100 numbers from `results/full_bench_h100.csv`. Sparse = KNN-gathered attention with K neighbors.
 
-| N | Method | Time (s) | GPU Mem (MB) | vs Dense |
-|---|--------|----------|-------------|----------|
-| 2048 | Dense | 0.0085 | 142 | 1× |
-| 2048 | Sparse K=16 | 0.0089 | 102 | 0.96× speed, 1.4× mem savings |
-| 8192 | Dense | 0.1391 | 2200 | 1× |
-| 8192 | Sparse K=4 | 0.0237 | 120 | **5.9× faster**, 18× less mem |
-| 8192 | Sparse K=16 | 0.0361 | 408 | **3.9× faster**, 5.4× less mem |
-| 8192 L=4 | Dense | OOM | OOM | — |
-| 8192 L=4 | Sparse K=4 | 0.0935 | 385 | Fits when dense OOMs |
+| N | Method | A500 time (ms) | A500 mem (MB) | H100 time (ms) | H100 mem (MB) | vs dense_masked |
+|---|--------|----------------|---------------|----------------|---------------|-----------------|
+| 2048 | dense_masked | 4.9 | 63 | 0.41 | 96 | 1× |
+| 2048 | gather_sdpa K=4 | 3.1 | 15 | 0.24 | 18 | 1.6× (A500) / 1.7× (H100) faster |
+| 8192 | dense_masked | 79.9 | 972 | 5.6 | 1487 | 1× |
+| 8192 | dense_flash | 4.9 | 20 | 0.35 | 25 | — |
+| 8192 | gather_sdpa K=4 | 12.2 | 60 | 0.54 | 70 | **6.5× (A500) → 10.3× (H100) faster**, 16× / 21× less mem |
+| 8192 | gather_sdpa K=16 | 19.0 | 204 | 1.0 | 199 | 4.2× (A500) → 5.6× (H100) faster |
+| 8192 | gather_matmul K=4 | — | — | 0.36 | 72 | ties dense_flash (0.36 vs 0.35 ms) |
+
+Key observations:
+
+- **The sparse advantage grows on faster hardware.** gather_sdpa K=4 is 6.5× faster than dense_masked on the A500 (79.9 → 12.2 ms) but 10.3× faster on the H100 (5.6 → 0.54 ms). Dense attention is O(N²) work, gathered sparse attention O(NK); the faster GPU amplifies the gap.
+- **Crossover confirmed for gather_matmul.** On the H100, gather_matmul K=4 ties dense_flash at N=8192 (0.36 ms vs 0.35 ms) — the predicted sparse/dense crossover is now confirmed for gather_matmul.
+- **NSA timing is near-constant ~2.5 ms** up to N=4096 on the H100 (2.46–2.62 ms), jumping to 5.9 ms at N=8192.
+- **minimax@8192 uses 44 GB** on the H100 — the largest single-layer footprint, closest to the 80 GB limit.
+- **Zero OOMs across all 168 configurations** on the H100 (9 methods × 7 N values × up to 4 K values).
+- Legacy A500-only finding (fp16, B=2, d=256, h=4): at L=4, N=8192 dense OOMs on the 4 GiB A500 while sparse K=4 fits (0.094 s / 385 MB).
 
 **Spatial reorder** (Wu et al., Point Transformer V3, CVPR 2024): negligible speedup on random data (~1-3%). Real data may differ.
 
