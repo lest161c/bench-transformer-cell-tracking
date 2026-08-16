@@ -116,7 +116,8 @@ EXTRA_ARGS="--name ${RUN_NAME} \
 # Pull trackastra branch and verify env
 # -----------------------------------------------------------------------
 cd "$TRK"
-git pull origin feature/sparse-attention-gather
+# Skip git pull — local fixes to model.py/model_parts.py for K>N clamping
+# git pull origin feature/sparse-attention-gather
 
 if [ "$TEST" = "1" ]; then
     echo "=== TEST MODE: import check ==="
