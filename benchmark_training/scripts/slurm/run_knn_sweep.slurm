@@ -113,11 +113,9 @@ EXTRA_ARGS="--name ${RUN_NAME} \
     --mixedp True --num_workers 8 --seed ${SEED} --augment 3"
 
 # -----------------------------------------------------------------------
-# Pull trackastra branch and verify env
+# Run training from the current trackastra checkout
 # -----------------------------------------------------------------------
 cd "$TRK"
-# Skip git pull — local fixes to model.py/model_parts.py for K>N clamping
-# git pull origin feature/sparse-attention-gather
 
 if [ "$TEST" = "1" ]; then
     echo "=== TEST MODE: import check ==="
