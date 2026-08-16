@@ -91,6 +91,9 @@ case "$VARIANT" in
         ;;
 esac
 
+# Per-task cache directory to prevent concurrent write corruption
+CACHE_DIR=".cache_knn_sweep_${SLURM_ARRAY_TASK_ID}"
+
 # Common args for all variants — identical except knn_neighbors and seed
 EXTRA_ARGS="--name ${RUN_NAME} \
     --ndim 2 --window 4 --epochs 500 --warmup_epochs 5 \
@@ -98,6 +101,7 @@ EXTRA_ARGS="--name ${RUN_NAME} \
     --input_train ${DATA_DIR}/rpsM ${DATA_DIR}/recA ${DATA_DIR}/pheA ${DATA_DIR}/metA ${DATA_DIR}/cib ${DATA_DIR}/trpL \
     --input_val ${DATA_DIR}/rpsM ${DATA_DIR}/recA ${DATA_DIR}/pheA \
     --outdir runs --distributed False \
+    --cachedir ${CACHE_DIR} \
     --batch_size 48 --max_tokens 2048 \
     --d_model 320 --num_encoder_layers 6 --num_decoder_layers 6 \
     --pos_embed_per_dim 32 --feat_embed_per_dim 8 \
@@ -134,4 +138,8 @@ $PY scripts/train.py $EXTRA_ARGS
 EXIT_CODE=$?
 echo ""
 echo "  Training exited with code ${EXIT_CODE} at $(date)"
+
+# Clean up per-task cache to avoid 90GB of duplicate caches
+rm -rf "${CACHE_DIR}" 2>/dev/null
+
 exit ${EXIT_CODE}
