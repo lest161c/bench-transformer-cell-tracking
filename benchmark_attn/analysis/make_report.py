@@ -29,15 +29,15 @@ from src.bench.html_report import file_to_b64, figure_to_b64
 
 sns.set_theme(style="whitegrid")
 
+# ─── Data loading ───
 
 def load_knn_methods_csv(path):
-    """Load benchmark rows from either the legacy or the corrected CSV schema.
+    """Load benchmark rows from the corrected H100 CSV.
 
-    Supports the legacy analytical CSV
-    (``method,N,K,time_ms,spatial_cutoff,data_source``) and the corrected
-    H100 full-bench CSV (``method,L,N,K,time_ms,memory_mb,error``, job
-    3920627, ``--with-knn``). Returns a list of dicts with keys ``method``,
-    ``N``, ``K``, ``time_ms``, and ``memory_mb``.
+    Reads the corrected H100 full-benchmark CSV (schema
+    ``method,L,N,K,time_ms,memory_mb,error``, job 3920627, ``--with-knn``).
+    Returns a list of dicts with keys ``method``, ``N``, ``K``,
+    ``time_ms``, and ``memory_mb``.
     """
     rows = []
     try:
@@ -86,12 +86,11 @@ def load_pipeline_csv(path):
 # ─── Figure generation ───
 
 def make_knn_speedup_figure(knn_rows):
-    """Generate the corrected crossover figure for dense_masked vs mask_knn.
+    """Generate the crossover figure for dense_masked vs mask_knn.
 
-    Uses the corrected H100 data (job 3920627, ``--with-knn``): plots
-    ``dense_masked`` and ``mask_knn K=4`` time vs N on a log-log scale and
-    draws a vertical line at the ~N=4000 crossover where ``mask_knn`` becomes
-    faster than the realistic dense baseline.
+    Plots ``dense_masked`` and ``mask_knn K=4`` time vs N on a log-log
+    scale, shades the two regions (dense wins below ~N=4000, sparse
+    wins above), and annotates the vanvliet training regime (N≈140).
 
     Args:
         knn_rows: List of rows from :func:`load_knn_methods_csv`.
@@ -108,17 +107,27 @@ def make_knn_speedup_figure(knn_rows):
                  key=lambda row: row["N"])
     if dense and knn:
         ax.plot([row["N"] for row in dense], [row["time_ms"] for row in dense],
-                "o-", color="#1f77b4", label="dense_masked", markersize=8, linewidth=2)
+                "o-", color="#1f77b4", label="dense_masked (EfficientAttention)",
+                markersize=8, linewidth=2)
         ax.plot([row["N"] for row in knn], [row["time_ms"] for row in knn],
-                "s-", color="#ff7f0e", label="mask_knn K=4", markersize=8, linewidth=2)
-        ax.axvline(4000, color="red", linestyle="--", alpha=0.7, linewidth=1.5,
-                   label="crossover ~ N=4000")
-    ax.set_xlabel("Cells per frame (N)")
+                "s-", color="#ff7f0e", label="mask_knn K=4 (EfficientAttention)",
+                markersize=8, linewidth=2)
+        # Shade regions
+        ax.axvspan(64, 4000, alpha=0.08, color="#1f77b4", label="dense wins")
+        ax.axvspan(4000, 16384, alpha=0.08, color="#ff7f0e", label="sparse wins")
+        ax.axvline(4000, color="red", linestyle="--", alpha=0.7, linewidth=1.5)
+        # Annotate vanvliet training regime
+        ax.axvline(140, color="green", linestyle=":", alpha=0.7, linewidth=1.5)
+        ax.text(140, ax.get_ylim()[1] * 0.7, "vanvliet\nN≈140",
+                fontsize=8, ha="center", color="green")
+        ax.text(4000, ax.get_ylim()[1] * 0.5, "crossover\nN≈4000",
+                fontsize=8, ha="center", color="red")
+    ax.set_xlabel("Sequence length N")
     ax.set_ylabel("Time (ms)")
-    ax.set_title("Corrected Crossover: dense_masked vs mask_knn K=4 (H100, --with-knn)")
+    ax.set_title("Dense vs Sparse Attention: Crossover at N≈4000 (H100, --with-knn)")
     ax.set_xscale("log", base=2)
     ax.set_yscale("log")
-    ax.legend(fontsize=9)
+    ax.legend(fontsize=8, loc="upper left")
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
     return fig
@@ -142,7 +151,6 @@ def make_flash_dispatch_figure(flash_rows):
     fig, axes = plt.subplots(1, 2, figsize=(16, 7))
 
     ax = axes[0]
-    colors = {"flash": "#2ecc71", "mem_efficient": "#f39c12", "cuDNN": "#e74c3c"}
     dispatch_mat = np.zeros((len(methods), len(Ns)))
     annot = np.empty((len(methods), len(Ns)), dtype=object)
     for i, m in enumerate(methods):
@@ -163,7 +171,7 @@ def make_flash_dispatch_figure(flash_rows):
         sub = sorted([row for row in flash_rows if row["method"] == m], key=lambda row: row["N"])
         ns = [row["N"] for row in sub]
         ts = [row["time_ms"] for row in sub]
-        be = sub[0]["predicted_backend"]
+        be = sub[0]["predicted_backend"] if sub else "?"
         ls = "-" if be == "flash" else "--"
         ax.plot(ns, ts, "o" + ls, label=f"{method_labels.get(m, m)} [{be}]",
                 markersize=6, linewidth=1.5, markerfacecolor="white")
@@ -181,34 +189,33 @@ def make_flash_dispatch_figure(flash_rows):
 
 
 def make_training_projection_figure():
-    """Generate training speedup projection chart."""
+    """Generate training speedup projection chart.
+
+    Shows only realistic optimizations. Spatial block partition is
+    NOT included because the corrected benchmark (job 3920627,
+    ``--with-knn``) shows sparse attention is slower than dense at
+    cell-tracking scale (N≈140 << crossover N≈4000).
+    """
     fig, ax = plt.subplots(figsize=(8, 5))
 
     optimizations = [
-        ("Default\nTrackastra", 11.0, 11.0, "#7f8c8d"),
-        ("+ blockwise_norm\nvectorization", 10.4, 10.4, "#3498db"),
-        ("+ FFN\ncheckpointing", 9.5, 9.5, "#e67e22"),
-        ("+ spatial block\npartition (safe)", 6.7, 6.7, "#2ecc71"),
-        ("+ score-modulated\nattn (needs acc check)", 5.6, 5.6, "#9b59b6"),
+        ("Default\nTrackastra", 11.0, "#7f8c8d"),
+        ("+ blockwise_norm\nvectorization", 10.4, "#3498db"),
+        ("+ FFN\ncheckpointing", 9.5, "#e67e22"),
     ]
 
     names = [o[0] for o in optimizations]
     hours = [o[1] for o in optimizations]
-    savings = [11.0 - h for h in hours]
-    colors = [o[3] for o in optimizations]
+    colors = [o[2] for o in optimizations]
     bars = ax.barh(range(len(names)), hours, color=colors, alpha=0.85,
                    edgecolor="white", linewidth=0.5)
     ax.set_yticks(range(len(names)))
     ax.set_yticklabels(names, fontsize=9)
     ax.set_xlabel("Training time (hours)")
-    ax.set_title("Training Time Reduction — Cumulative Optimizations")
-    for i, (bar, h, s) in enumerate(zip(bars, hours, savings)):
+    ax.set_title("Training Time Reduction — Realistic Optimizations Only")
+    for i, h in enumerate(hours):
         ax.text(h + 0.1, i, f"{h:.1f}h", va="center", fontweight="bold")
-        if s > 0.5:
-            ax.text(h / 2, i, f"save {s:.1f}h", va="center", color="white",
-                    fontweight="bold", fontsize=9)
-    ax.set_xlim(0, 12)
-    ax.axvline(11.0, color="gray", linestyle="--", alpha=0.3)
+    ax.set_xlim(0, 13)
     ax.grid(True, axis="x", alpha=0.3)
 
     fig.tight_layout()
@@ -218,10 +225,10 @@ def make_training_projection_figure():
 # ─── HTML assembly ───
 
 def build_html(args):
-    outdir = Path(args.outdir if hasattr(args, 'outdir') else 'benchmark_attn')
-    outdir = (outdir if outdir.is_absolute() else Path(__file__).resolve().parents[1] / outdir)
+    outdir = Path(args.outdir) if hasattr(args, 'outdir') and args.outdir else Path(__file__).resolve().parents[1] / "results"
+    outdir = Path(outdir) if isinstance(outdir, Path) else Path(outdir)
 
-    # Load data (default to the corrected H100 full benchmark, job 3920627)
+    # Load data (corrected H100 full benchmark, job 3920627)
     knn_rows = load_knn_methods_csv(args.knn_csv or str(outdir / "full_bench_h100.csv"))
     flash_rows = load_flash_cutoff_csv(args.flash_csv or str(outdir / "flash_cutoff_results.csv"))
     # Pipeline benchmarks live in ../deprecated/benchmark_pipeline/ after a repo cleanup
@@ -254,7 +261,7 @@ def build_html(args):
     # ── Build HTML ──
     html_parts = []
     html_parts.append("<!DOCTYPE html><html><head><meta charset='utf-8'>")
-    html_parts.append("<title>Trackastra Benchmark Suite — Comprehensive Report (Corrected H100, --with-knn)</title>")
+    html_parts.append("<title>Trackastra Benchmark Suite — Comprehensive Report</title>")
     html_parts.append("<style>")
     html_parts.append("body{font-family:system-ui,sans-serif;max-width:1400px;margin:0 auto;padding:24px;background:#0d1117;color:#c9d1d9}")
     html_parts.append("h1{color:#58a6ff;border-bottom:2px solid #30363d;padding-bottom:8px}")
@@ -269,77 +276,127 @@ def build_html(args):
     html_parts.append(".box{background:#161b22;border:1px solid #30363d;border-radius:6px;padding:16px;margin:16px 0}")
     html_parts.append(".highlight{color:#58a6ff;font-weight:600}")
     html_parts.append(".verdict{font-size:1.2em;font-weight:bold;padding:12px;border-radius:6px;margin:12px 0}")
-    html_parts.append(".verdict-best{background:#1a3a1a;border:2px solid #2ecc71;color:#2ecc71}")
+    html_parts.append(".verdict-bad{background:#3a1a1a;border:2px solid #f85149;color:#f85149}")
     html_parts.append(".toc a{color:#58a6ff;text-decoration:none}")
     html_parts.append(".toc a:hover{text-decoration:underline}")
     html_parts.append("</style></head><body>")
-    html_parts.append("<h1>Trackastra Benchmark Suite — Comprehensive Report (Corrected H100)</h1>")
-    html_parts.append(f"<p>Generated {datetime.datetime.now().strftime('%Y-%m-%d')} &middot; d_model=320, nhead=8, fp16</p>")
+
+    # ── Header ──
+    html_parts.append("<h1>Trackastra Benchmark Suite — Comprehensive Report</h1>")
+    html_parts.append(f"<p>Generated {datetime.datetime.now().strftime('%Y-%m-%d')} &middot; "
+                      "d_model=320, nhead=8, fp16, H100 (80 GB)</p>")
+
+    # ── Key Findings box ──
     html_parts.append("<div class='box'>")
-    html_parts.append("<p><span class='highlight'>Benchmark bug fixes (2026-08-17, job 3920627):</span></p>")
-    html_parts.append("<ul>")
-    html_parts.append("<li><b>dense_masked class fix:</b> registry now maps it to <code>CachedDistAttention</code> "
-                      "(pre-computed <code>dist_2d</code>) instead of <code>RelativePositionalAttention</code> "
-                      "(per-layer cdist).</li>")
-    html_parts.append("<li><b>KNN cost inclusion:</b> <code>--with-knn</code> flag now includes the O(N²) "
-                      "<code>cdist + topk</code> cost in timing, matching training behavior.</li>")
-    html_parts.append("<li><b>dense_flash is NOT realistic:</b> no mask → FlashAttention-2; training always enforces "
-                      "the spatial cutoff mask → EfficientAttention. Realistic comparison is "
-                      "<span class='highlight'>dense_masked vs mask_knn</span>.</li>")
-    html_parts.append("</ul>")
-    html_parts.append("<p>Effect at N=2048: dense_masked 0.41→0.344 ms, mask_knn 0.15→0.396 ms. "
-                      "Ranking flipped — dense_masked is now faster than mask_knn at N≤2048; "
-                      "mask_knn wins at N≥4096 (crossover ~N=4000).</p>")
+    html_parts.append("<h2 style='margin-top:0'>Key Findings (corrected benchmark, job 3920627)</h2>")
+    html_parts.append("<ol>")
+    html_parts.append("<li><b class='bad'>Sparse attention does NOT accelerate cell tracking.</b> "
+                      "At the vanvliet training regime (N≈140), <code>dense_masked</code> is "
+                      "<b>1.7× faster</b> than <code>mask_knn</code> (0.199 ms vs 0.335 ms at N=128). "
+                      "The crossover where sparse becomes faster is at <b>N≈4000</b> — well above "
+                      "the vanvliet scale (N≈140).</li>")
+    html_parts.append("<li><b class='warn'>dense_flash is an unrealistic upper bound.</b> "
+                      "It uses no mask → dispatches FlashAttention-2. But training always enforces "
+                      "the spatial cutoff mask → forces fallback to EfficientAttention. "
+                      "No training configuration can use FlashAttention-2.</li>")
+    html_parts.append("<li><b class='good'>Realistic training speedup: ~1.15×</b> "
+                      "(blockwise_norm vectorization + FFN checkpointing → 11h → 9.5h). "
+                      "Spatial block partition does NOT help at N≈140.</li>")
+    html_parts.append("<li><b>Attention is &lt;15% of step time</b> at N≈140. "
+                      "Optimizing attention yields negligible training speedup. "
+                      "The real bottleneck is the data pipeline (regionprops extraction, "
+                      "blockwise_norm).</li>")
+    html_parts.append("</ol>")
+    html_parts.append("<p class='warn'><b>Benchmark bug fixes (2026-08-17):</b> "
+                      "(1) <code>dense_masked</code> was mapped to <code>RelativePositionalAttention</code> "
+                      "(per-layer cdist, O(N²)×12 layers). Fixed to <code>CachedDistAttention</code> "
+                      "(pre-computed dist_2d, matching real training). "
+                      "(2) KNN index computation was excluded from <code>mask_knn</code> timing "
+                      "(pre-computed before timing loop). Fixed with <code>--with-knn</code> flag. "
+                      "Effect at N=2048: dense_masked 0.41→0.344 ms, mask_knn 0.15→0.396 ms. "
+                      "Ranking flipped.</p>")
     html_parts.append("</div>")
 
     # ── TOC ──
-    html_parts.append("<div class='box toc'><h2>Contents</h2><ol>")
-    html_parts.append("<li><a href='#verdict'>Current Best Scheme — Verdict</a></li>")
-    html_parts.append("<li><a href='#knn'>KNN Methods Comparison</a></li>")
+    html_parts.append("<div class='box toc'><h2 style='margin-top:0'>Contents</h2><ol>")
+    html_parts.append("<li><a href='#verdict'>Verdict: Dense Masked Wins at Cell-Tracking Scale</a></li>")
+    html_parts.append("<li><a href='#crossover'>Crossover Analysis: Why Sparse Doesn't Help at N≈140</a></li>")
+    html_parts.append("<li><a href='#knn'>KNN Methods Comparison (Corrected H100)</a></li>")
     html_parts.append("<li><a href='#flash-cutoff'>FlashAttention + Spatial Cutoff Verification</a></li>")
-    html_parts.append("<li><a href='#spatial-blocks'>Spatial Block Partition (Phase 3)</a></li>")
-    html_parts.append("<li><a href='#pipeline'>Pipeline Bottlenecks</a></li>")
     html_parts.append("<li><a href='#training'>Training Speedup Projection</a></li>")
-    html_parts.append("<li><a href='#tra'>TRA/AOGM Accuracy</a></li>")
+    html_parts.append("<li><a href='#pipeline'>Pipeline Bottlenecks</a></li>")
     html_parts.append("<li><a href='#supplementary'>Supplementary Analyses</a></li>")
     html_parts.append("</ol></div>")
 
     # ── 1. VERDICT ──
-    html_parts.append("<h2 id='verdict'>Current Best Attention Scheme (corrected)</h2>")
-    html_parts.append("<div class='box verdict verdict-best'>")
-    html_parts.append("<b>At cell-tracking scale (N≈140): dense_masked is faster</b> — "
-                      "0.199 ms vs mask_knn K=4 0.335 ms at N=128 (1.7×). "
-                      "Sparse attention is NOT faster below the crossover.<br>")
-    html_parts.append("<b>mask_knn wins at high N (≥4096):</b> 2.914 ms vs dense_masked 5.113 ms at N=8192 "
-                      "(1.8× faster). Crossover at ~N=4000.")
-    html_parts.append("</div>")
+    html_parts.append("<h2 id='verdict'>Verdict: Dense Masked Wins at Cell-Tracking Scale</h2>")
+    html_parts.append("<div class='box verdict verdict-bad'>"
+                      "<b>Sparse attention is MOOT for cell tracking.</b><br>"
+                      "At the vanvliet training regime (N≈140), <code>dense_masked</code> "
+                      "(0.199 ms) is <b>1.7× faster</b> than <code>mask_knn</code> (0.335 ms). "
+                      "The crossover where sparse becomes faster is at <b>N≈4000</b> — "
+                      "28× above the vanvliet scale. No window size, batch configuration, "
+                      "or K value changes this.</div>")
 
     html_parts.append("<table>")
     for row in [
-        ["Method", "Time N=2048", "Time N=8192", "Spatial cutoff?", "FlashAttn?", "Realistic?"],
-        ["dense_masked", "0.344ms", "5.113ms", "HARD cutoff ✓", "✗ masked (EfficientAttention)", "✓ realistic dense baseline"],
-        ["mask_knn K=4", "0.396ms", "2.914ms", "HARD cutoff ✓", "✗ masked (EfficientAttention)", "✓ realistic sparse"],
-        ["gather_sdpa K=4", "0.480ms", "2.268ms", "HARD cutoff ✓", "✗ masked (EfficientAttention)", "✓ realistic sparse"],
-        ["dense_flash", "0.111ms", "0.351ms", "✗ NONE", "✓ FlashAttention-2", "✗ unrealistic (no mask)"],
+        ["Method", "Time N=128", "Time N=2048", "Time N=8192", "Spatial cutoff?", "Realistic?"],
+        ["dense_masked", "0.199 ms", "0.344 ms", "5.113 ms", "HARD cutoff ✓", "✓ realistic dense baseline"],
+        ["mask_knn K=4", "0.335 ms", "0.396 ms", "2.914 ms", "HARD cutoff ✓", "✓ realistic sparse"],
+        ["gather_sdpa K=4", "0.400 ms", "0.480 ms", "2.268 ms", "HARD cutoff ✓", "✓ realistic sparse"],
+        ["dense_flash", "0.090 ms", "0.111 ms", "0.351 ms", "✗ NONE", "✗ unrealistic (no mask → FlashAttention-2)"],
     ]:
         html_parts.append("<tr>" + "".join(f"<td>{c}</td>" for c in row) + "</tr>")
     html_parts.append("</table>")
-    html_parts.append("<p class='warn'><b>dense_flash is an upper bound, not a training configuration:</b> "
-             "it uses no mask and dispatches FlashAttention-2, but real training always enforces the "
-             "spatial cutoff mask, forcing EfficientAttention. The realistic comparison is "
-             "<b>dense_masked vs mask_knn</b>: dense_masked wins at N≤2048, mask_knn wins at N≥4096.</p>")
 
-    # ── 2. KNN METHODS ──
-    html_parts.append("<h2 id='knn'>KNN Methods Comparison (corrected H100)</h2>")
+    html_parts.append("<div class='box'>")
+    html_parts.append("<h3>Why dense_masked wins at low N</h3>")
+    html_parts.append("<p>Both <code>dense_masked</code> and <code>mask_knn</code> use "
+                      "EfficientAttention (not FlashAttention-2) because the spatial cutoff "
+                      "mask forces the <code>check_for_attn_mask</code> gate in PyTorch's "
+                      "<code>sdp_utils.cpp</code> to reject the FlashAttention kernel.</p>")
+    html_parts.append("<p>At low N (≤2048), the overhead of building the N×N KNN mask "
+                      "(scatter -inf, then 0.0 at neighbour positions) exceeds the savings "
+                      "from attending to fewer tokens. Dense EfficientAttention is simply "
+                      "faster when N is small.</p>")
+    html_parts.append("<p>At high N (≥4096), the O(N²) cost of dense attention dominates, "
+                      "and the O(NK) sparse mask becomes worthwhile. The crossover is at "
+                      "~N=4000.</p>")
+    html_parts.append("</div>")
+
+    # ── 2. CROSSOVER ──
+    html_parts.append("<h2 id='crossover'>Crossover Analysis: Why Sparse Doesn't Help at N≈140</h2>")
+    html_parts.append("<table>")
+    for row in [
+        ["N", "dense_masked (ms)", "mask_knn K=4 (ms)", "Winner", "Sparse speedup"],
+        ["128", "0.199", "0.335", "dense_masked", "0.59× (1.68× slower)"],
+        ["256", "0.200", "0.338", "dense_masked", "0.59× (1.69× slower)"],
+        ["512", "0.200", "0.339", "dense_masked", "0.59× (1.70× slower)"],
+        ["1024", "0.201", "0.397", "dense_masked", "0.51× (1.98× slower)"],
+        ["2048", "0.344", "0.396", "dense_masked", "0.87× (1.15× slower)"],
+        ["4096", "1.311", "0.895", "mask_knn", "1.47× faster"],
+        ["8192", "5.113", "2.914", "mask_knn", "1.75× faster"],
+    ]:
+        html_parts.append("<tr>" + "".join(f"<td>{c}</td>" for c in row) + "</tr>")
+    html_parts.append("</table>")
+    html_parts.append("<p><b>Crossover at ~N=4000.</b> The vanvliet training regime "
+                      "(N≈140, window=4, ~35 cells/frame) is <b>28× below</b> the crossover. "
+                      "No K value, window size, or batch configuration at vanvliet scale "
+                      "reaches the crossover.</p>")
+    if knn_fig:
+        html_parts.append(f'<img src="data:image/png;base64,{figure_to_b64(knn_fig)}">')
+        plt.close(knn_fig)
+
+    # ── 3. KNN METHODS ──
+    html_parts.append("<h2 id='knn'>KNN Methods Comparison (Corrected H100)</h2>")
     if knn_rows:
-        # Representative K per method: K=4 for the gathered/masked KNN variants,
-        # K=0 (no KNN) for dense and block-sparse methods.
         representative_k = {"dense_masked": 0, "mask_knn": 4, "gather_sdpa": 4,
                             "gather_fused": 4, "gather_matmul": 4, "knn_relpos": 4,
                             "dense_flash": 0, "nsa": 0, "minimax": 0}
         methods_knn = [m for m in sorted(set(row["method"] for row in knn_rows))
                        if m in representative_k]
         ns = sorted(set(row["N"] for row in knn_rows))
+        html_parts.append("<table>")
         header = ["Method"] + [f"N={n}" for n in ns]
         html_parts.append("<tr>" + "".join(f"<th>{h}</th>" for h in header) + "</tr>")
         for method in methods_knn:
@@ -352,24 +409,17 @@ def build_html(args):
                 html_row = [method if k == 0 else f"{method} K={k}"]
                 for n in ns:
                     if n in times:
-                        html_row.append(f"{times[n]:.3f}ms")
+                        html_row.append(f"{times[n]:.3f} ms")
                     else:
                         html_row.append("—")
                 html_parts.append("<tr>" + "".join(f"<td>{c}</td>" for c in html_row) + "</tr>")
         html_parts.append("</table>")
         html_parts.append("<p class='warn'>Corrected H100 measurements (job 3920627, fp16, L=1, "
-                          "<code>--with-knn</code>). Realistic comparison: <b>dense_masked vs mask_knn</b>. "
-                          "dense_flash is unrealistic (no mask → FlashAttention-2).</p>")
-    if knn_fig:
-        html_parts.append(f'<img src="data:image/png;base64,{figure_to_b64(knn_fig)}">')
-        plt.close(knn_fig)
-    for name in ["KNN Crossover", "Performance KNN Detail"]:
-        b64 = file_to_b64(pngs[name])
-        if b64:
-            html_parts.append(f"<h3>{name}</h3>")
-            html_parts.append(f'<img src="data:image/png;base64,{b64}">')
+                          "<code>--with-knn</code>). <code>dense_flash</code> uses no mask → "
+                          "FlashAttention-2 (unrealistic for training). All other methods use "
+                          "EfficientAttention (realistic).</p>")
 
-    # ── 3. FLASH + SPATIAL CUTOFF ──
+    # ── 4. FLASH + SPATIAL CUTOFF ──
     html_parts.append("<h2 id='flash-cutoff'>FlashAttention + Spatial Cutoff Verification</h2>")
     html_parts.append("<div class='box'>")
     html_parts.append("<p><b>Can we enforce spatial cutoff AND dispatch FlashAttention?</b></p>")
@@ -378,7 +428,7 @@ def build_html(args):
     html_parts.append("<p><b>Phase 1 (forward pass):</b> cos_sim > 0.9999 at all N=32..1024 ✓</p>")
     html_parts.append("<p><b>Phase 2 (TRA):</b> full vanvliet training needed on Capella</p>")
     html_parts.append("<p class='warn'>Origin: Trackastra's own attn_dist_mode=v1 (exp(-5·dist/d_max)) + "
-             "FlexAttention score_mod (PyTorch 2.5+). No separate paper — ablation of existing design.</p>")
+                      "FlexAttention score_mod (PyTorch 2.5+). No separate paper — ablation of existing design.</p>")
     html_parts.append("</div>")
     if flash_rows:
         html_parts.append("<table>")
@@ -390,7 +440,7 @@ def build_html(args):
             backend = sub[0]["predicted_backend"] if sub else "?"
             html_row = [f"{method} [{backend}]"]
             for row in sub:
-                html_row.append(f"{row['time_ms']:.2f}ms")
+                html_row.append(f"{row['time_ms']:.2f} ms")
             html_parts.append("<tr>" + "".join(f"<td>{c}</td>" for c in html_row) + "</tr>")
         html_parts.append("</table>")
     if flash_fig:
@@ -401,23 +451,17 @@ def build_html(args):
         if b64:
             html_parts.append(f'<img src="data:image/png;base64,{b64}">')
 
-    # ── 4. SPATIAL BLOCKS ──
-    html_parts.append("<h2 id='spatial-blocks'>Spatial Block Partition (Phase 3)</h2>")
-    if pipe_spatial:
-        html_parts.append("<table>")
-        for N in [256, 512, 1024, 2048]:
-            sub = [row for row in pipe_spatial if int(row["N"]) == N and row.get("block_size") == "64" and row.get("overlap") == "1"]
-            if sub:
-                html_parts.append(f"<tr><td>N={N}</td><td>B=64, o=1</td>"
-                        f"<td>{sub[0].get('speedup_vs_baseline', '?')}× vs baseline</td>"
-                        f"<td>{sub[0].get('tokens_per_query', '?')} tokens/query</td></tr>")
-        html_parts.append("</table>")
-    for name in ["Spatial Block Partition"]:
-        b64 = file_to_b64(pngs[name])
-        if b64:
-            html_parts.append(f'<img src="data:image/png;base64,{b64}">')
+    # ── 5. SPATIAL BLOCKS (deprecated — sparse doesn't help at N≈140) ──
+    html_parts.append("<h2 id='spatial-blocks'>Spatial Block Partition — NOT Beneficial at N≈140</h2>")
+    html_parts.append("<div class='box'>")
+    html_parts.append("<p class='bad'><b>Spatial block partition does NOT help at cell-tracking scale.</b> "
+                      "The corrected benchmark shows sparse attention is 1.7× slower than dense "
+                      "at N≈140. The crossover where sparse becomes faster is at N≈4000 — "
+                      "well above the vanvliet scale. Spatial block partition is a sparse attention "
+                      "approach and inherits the same limitation.</p>")
+    html_parts.append("</div>")
 
-    # ── 5. PIPELINE ──
+    # ── 6. PIPELINE ──
     html_parts.append("<h2 id='pipeline'>Pipeline Bottlenecks</h2>")
 
     html_parts.append("<h3>blockwise_causal_norm — Vectorization</h3>")
@@ -449,34 +493,34 @@ def build_html(args):
             html_parts.append(f"<h3>{label}</h3>")
             html_parts.append(f'<img src="data:image/png;base64,{b64}">')
 
-    # ── 6. TRAINING SPEEDUP ──
+    # ── 7. TRAINING SPEEDUP ──
     html_parts.append("<h2 id='training'>Training Speedup Projection (11h baseline)</h2>")
     html_parts.append("<table>")
     for row in [
         ["Optimization", "Speedup", "Training time", "Saves", "Risk"],
         ["Default Trackastra", "1.00×", "11.0h", "—", "—"],
         ["+ blockwise_norm vectorization", "1.06×", "10.4h", "0.6h", "low"],
-        ["+ FFN checkpoint → B×1.5", "1.10×", "9.5h", "1.5h", "low"],
-        ["+ spatial blocks (at N>400 only)", "1.10×", "8.6h", "2.4h", "medium (accuracy)"],
-        ["+ score-modulated attn", "—", "—", "—", "HIGH — needs TRA verification"],
+        ["+ FFN checkpoint → B×1.5", "1.15×", "9.5h", "1.5h", "low"],
     ]:
         html_parts.append("<tr>" + "".join(f"<td>{c}</td>" for c in row) + "</tr>")
     html_parts.append("</table>")
-    html_parts.append("<p class='warn'>Corrected (job 3920627): at cell-tracking scale (N≈140), "
-             "<b>dense_masked is faster</b> than mask_knn (0.199 vs 0.335 ms at N=128). "
-             "mask_knn only wins at N≥4096 (crossover ~N=4000). dense_flash is an unrealistic upper bound "
-             "(no mask → FlashAttention-2). Realistic training speedup: ~1.3× (norm+checkpoint → 11h→8.6h).</p>")
+    html_parts.append("<div class='box'>")
+    html_parts.append("<p><b>Realistic training speedup: ~1.15×</b> "
+                      "(blockwise_norm vectorization + FFN checkpointing → 11h → 9.5h).</p>")
+    html_parts.append("<p class='bad'><b>Spatial block partition is NOT included.</b> "
+                      "The corrected benchmark (job 3920627, <code>--with-knn</code>) shows "
+                      "sparse attention is 1.7× slower than dense at N≈140. The crossover "
+                      "where sparse becomes faster is at N≈4000 — well above the vanvliet "
+                      "scale (N≈140).</p>")
+    html_parts.append("<p class='warn'><b>Attention is &lt;15% of step time</b> at N≈140. "
+                      "Even a perfect attention optimization (0 ms) would only reduce "
+                      "training time by ~15% (11h → 9.4h). The real bottleneck is the "
+                      "data pipeline, not attention.</p>")
+    html_parts.append("</div>")
 
     if training_fig:
         html_parts.append(f'<img src="data:image/png;base64,{figure_to_b64(training_fig)}">')
         plt.close(training_fig)
-
-    # ── 7. TRA/AOGM ──
-    html_parts.append("<h2 id='tra'>TRA/AOGM Accuracy</h2>")
-    for name in ["TRA/AOGM Analysis"]:
-        b64 = file_to_b64(pngs[name])
-        if b64:
-            html_parts.append(f'<img src="data:image/png;base64,{b64}">')
 
     # ── 8. SUPPLEMENTARY ──
     html_parts.append("<h2 id='supplementary'>Supplementary Analyses</h2>")
@@ -487,10 +531,11 @@ def build_html(args):
             html_parts.append(f'<img src="data:image/png;base64,{b64}">')
 
     html_parts.append("<hr><p style='text-align:center;color:#8b949e;font-size:0.8em'>")
-    html_parts.append(f"Trackastra Benchmark Suite &middot; Generated {datetime.datetime.now().strftime('%Y-%m-%d')}</p>")
+    html_parts.append(f"Trackastra Benchmark Suite &middot; Generated {datetime.datetime.now().strftime('%Y-%m-%d')} "
+                      "&middot; Corrected H100 data (job 3920627, --with-knn)</p>")
     html_parts.append("</body></html>")
 
-    output_path = getattr(args, 'out', 'benchmark_attn/comprehensive_report.html')
+    output_path = getattr(args, 'out', str(Path(__file__).resolve().parents[1] / "results" / "comprehensive_report.html"))
     with open(output_path, "w") as file_handle:
         file_handle.write("\n".join(html_parts))
     return output_path

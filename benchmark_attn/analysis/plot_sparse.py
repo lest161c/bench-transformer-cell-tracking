@@ -1,11 +1,19 @@
-"""Visualize gather-sparse attention benchmark results as a single HTML page.
+"""Visualize corrected H100 attention benchmark results.
 
-Reads ``benchmark_sparse_results.csv`` (legacy A500 superset sweep) and
-``results/full_bench_h100.csv`` (corrected H100 full benchmark, job 3920627,
+Reads ``results/full_bench_h100.csv`` (corrected H100 full benchmark, job 3920627,
 with KNN cost included via ``--with-knn``). Generates multi-panel figures
-(time vs N, memory, reorder speedup, feasibility map, KNN speedup heatmap,
-H100 time/memory/crossover analysis) embedded as base64 PNGs in a
+(time vs N, memory, crossover analysis) embedded as base64 PNGs in a
 self-contained HTML file.
+
+The legacy A500 sweep (``benchmark_sparse_results.csv``) used the pre-fix
+benchmark that had two bugs:
+1. ``dense_masked`` was mapped to ``RelativePositionalAttention``
+   (per-layer cdist, O(N²) × 12 layers).
+2. KNN index computation was excluded from ``mask_knn`` timing.
+
+These bugs made sparse attention appear 2.7× faster than dense at N=2048.
+After the fixes, dense is faster at N≤2048 and sparse only wins at N≥4096.
+The corrected H100 data is the only authoritative source.
 
 Usage::
 
@@ -16,6 +24,7 @@ Output: ``benchmark_attn/results/benchmark_sparse.html``
 
 import base64
 import csv
+import datetime
 import io
 from pathlib import Path
 
@@ -311,6 +320,8 @@ def plot_h100_time_vs_n(df):
     """Generate a log-log Time vs N figure for the corrected H100 benchmark.
 
     One line per method (lowest K), color-coded via ``H100_COLOR_MAP``.
+    Highlights dense_flash as unrealistic (no mask → FlashAttention-2) and
+    shades the two regions (dense wins below ~N=4000, sparse wins above).
 
     Args:
         df: DataFrame from :func:`load_h100_results`.
@@ -326,9 +337,21 @@ def plot_h100_time_vs_n(df):
         sub = rows[rows["method"] == method].sort_values("N")
         if sub.empty:
             continue
-        ax.plot(sub["N"], sub["time_ms"], "o-", color=color, label=method,
-                markersize=7, linewidth=2)
-    ax.set_title("H100 Time vs N (corrected: --with-knn, CachedDistAttention)")
+        linestyle = "--" if method == "dense_flash" else "-"
+        alpha = 0.5 if method == "dense_flash" else 1.0
+        ax.plot(sub["N"], sub["time_ms"], "o" + linestyle, color=color, label=method,
+                markersize=7, linewidth=2, alpha=alpha)
+    # Shade regions
+    ax.axvspan(64, 4000, alpha=0.06, color="#1f77b4", label="dense wins")
+    ax.axvspan(4000, 16384, alpha=0.06, color="#ff7f0e", label="sparse wins")
+    ax.axvline(4000, color="red", linestyle="--", alpha=0.5, linewidth=1.5)
+    ax.axvline(140, color="green", linestyle=":", alpha=0.7, linewidth=1.5)
+    ax.text(4000, ax.get_ylim()[1] * 0.05, "crossover\nN≈4000",
+            fontsize=8, ha="center", color="red")
+    ax.text(140, ax.get_ylim()[1] * 0.05, "vanvliet\nN≈140",
+            fontsize=8, ha="center", color="green")
+    ax.set_title("H100 Time vs N (corrected: --with-knn, CachedDistAttention)\n"
+                 "dense_flash (dashed) is unrealistic — no mask → FlashAttention-2")
     ax.set_xlabel("N")
     ax.set_ylabel("Time (ms)")
     ax.set_xscale("log", base=2)
@@ -358,8 +381,10 @@ def plot_h100_memory_vs_n(df):
         sub = rows[rows["method"] == method].sort_values("N")
         if sub.empty:
             continue
-        ax.plot(sub["N"], sub["memory_mb"], "o-", color=color, label=method,
-                markersize=7, linewidth=2)
+        linestyle = "--" if method == "dense_flash" else "-"
+        alpha = 0.5 if method == "dense_flash" else 1.0
+        ax.plot(sub["N"], sub["memory_mb"], "o" + linestyle, color=color, label=method,
+                markersize=7, linewidth=2, alpha=alpha)
     ax.set_title("H100 Peak Memory vs N (corrected: --with-knn)")
     ax.set_xlabel("N")
     ax.set_ylabel("Peak memory (MB)")
@@ -408,22 +433,17 @@ def plot_crossover_analysis(df):
 
 
 def main():
-    """Load benchmark CSVs, generate all figures, and write HTML report."""
-    # Legacy A500 superset sweep
-    df = load_results()
-    df_ok = df[df["status"] == "ok"].copy()
-    df_oom = df[df["status"] == "oom"].copy()
-    all_L = sorted(df["L"].unique())
+    """Load corrected H100 benchmark CSV, generate figures, write HTML report.
 
+    Only the corrected H100 data (job 3920627, ``--with-knn``) is shown.
+    The legacy A500 sweep (``benchmark_sparse_results.csv``) was produced
+    with the pre-fix benchmark that had two bugs (wrong class for
+    dense_masked, KNN cost excluded). It is not shown here.
+    """
     # Corrected H100 full benchmark (job 3920627, --with-knn)
     h100 = load_h100_results()
 
     figures = []
-    figures.extend(plot_time_vs_n(df_ok, all_L))
-    figures.extend(plot_reorder_speedup(df_ok, all_L))
-    figures.extend(plot_memory_vs_n(df_ok, all_L))
-    figures.extend(plot_feasibility_map(df, all_L))
-    figures.extend(plot_knn_speedup_heatmap(df_ok, all_L))
     for h100_fig in (plot_h100_time_vs_n(h100),
                      plot_h100_memory_vs_n(h100),
                      plot_crossover_analysis(h100)):
@@ -432,26 +452,104 @@ def main():
 
     html_parts = [
         "<!DOCTYPE html><html><head><meta charset='utf-8'>",
-        "<title>Gather-Sparse Attention Benchmark — Corrected H100 (--with-knn)</title>",
-        "<style>body{font-family:sans-serif;max-width:1200px;margin:0 auto;padding:20px;background:#fafafa}",
-        "h1{color:#333} h2{color:#555} img{max-width:100%;margin:20px 0;border:1px solid #ddd;border-radius:6px}</style>",
-        "</head><body>",
-        "<h1>Dense Masked vs Gather-Sparse Attention</h1>",
-        "<p>Corrected analysis after benchmark bug fixes (job 3920627): "
-        "<code>dense_masked</code> now uses <code>CachedDistAttention</code> and "
-        "KNN index cost is included via <code>--with-knn</code>.</p>",
-        "<p>Legacy figures below read <code>benchmark_sparse_results.csv</code> "
-        "(A500 superset sweep, with token-reordering ablation).</p>",
-        f"<p>Legacy configs: {len(df_ok)} OK, {len(df_oom)} OOM. "
-        f"H100 rows: {len(h100)}.</p>",
+        "<title>Dense vs Sparse Attention Benchmark — Corrected H100 (--with-knn)</title>",
+        "<style>body{font-family:system-ui,sans-serif;max-width:1200px;margin:0 auto;padding:24px;background:#0d1117;color:#c9d1d9}",
+        "h1{color:#58a6ff;border-bottom:2px solid #30363d;padding-bottom:8px}",
+        "h2{color:#f0f6fc;border-bottom:1px solid #30363d;padding-bottom:4px;margin-top:32px}",
+        "h3{color:#8b949e;margin-top:20px}",
+        "img{max-width:100%;margin:12px 0;border:1px solid #30363d;border-radius:6px}",
+        ".good{color:#3fb950} .bad{color:#f85149} .warn{color:#d2991d}",
+        ".box{background:#161b22;border:1px solid #30363d;border-radius:6px;padding:16px;margin:16px 0}",
+        ".highlight{color:#58a6ff;font-weight:600}",
+        "table{border-collapse:collapse;width:100%;margin:16px 0}",
+        "th,td{border:1px solid #30363d;padding:8px 12px;text-align:right;font-size:13px}",
+        "th{background:#21262d;color:#8b949e;font-weight:600}",
+        "td:first-child,th:first-child{text-align:left}",
+        "</style></head><body>",
+        "<h1>Dense vs Sparse Attention Benchmark — Corrected H100</h1>",
+        f"<p>Generated {datetime.datetime.now().strftime('%Y-%m-%d')} &middot; "
+        "d_model=320, nhead=8, fp16, H100 (80 GB), single-layer (L=1)</p>",
+
+        # ── Key Findings ──
+        "<div class='box'>",
+        "<h2 style='margin-top:0'>Key Findings</h2>",
+        "<ol>",
+        "<li><b class='bad'>Sparse attention does NOT accelerate cell tracking.</b> "
+        "At the vanvliet training regime (N≈140), <code>dense_masked</code> is "
+        "<b>1.7× faster</b> than <code>mask_knn</code> (0.199 ms vs 0.335 ms at N=128). "
+        "The crossover where sparse becomes faster is at <b>N≈4000</b> — "
+        "28× above the vanvliet scale.</li>",
+        "<li><b class='warn'>dense_flash is an unrealistic upper bound.</b> "
+        "It uses no mask → dispatches FlashAttention-2. But training always enforces "
+        "the spatial cutoff mask → forces fallback to EfficientAttention. "
+        "No training configuration can use FlashAttention-2.</li>",
+        "<li><b>Both <code>dense_masked</code> and <code>mask_knn</code> use "
+        "EfficientAttention</b> at training scale. The difference is only the mask "
+        "construction: dense uses (dist_2d &gt; cutoff) comparison, sparse uses "
+        "KNN scatter.</li>",
+        "<li><b>Attention is &lt;15% of step time</b> at N≈140. "
+        "Optimizing attention yields negligible training speedup.</li>",
+        "</ol>",
+        "</div>",
+
+        # ── Crossover table ──
+        "<div class='box'>",
+        "<h2 style='margin-top:0'>Crossover Table: dense_masked vs mask_knn K=4</h2>",
+        "<table>",
+        "<tr><th>N</th><th>dense_masked (ms)</th><th>mask_knn K=4 (ms)</th>"
+        "<th>Winner</th><th>Sparse speedup</th></tr>",
+        "<tr><td>128</td><td>0.199</td><td>0.335</td>"
+        "<td class='good'>dense_masked</td><td>0.59× (1.68× slower)</td></tr>",
+        "<tr><td>256</td><td>0.200</td><td>0.338</td>"
+        "<td class='good'>dense_masked</td><td>0.59× (1.69× slower)</td></tr>",
+        "<tr><td>512</td><td>0.200</td><td>0.339</td>"
+        "<td class='good'>dense_masked</td><td>0.59× (1.70× slower)</td></tr>",
+        "<tr><td>1024</td><td>0.201</td><td>0.397</td>"
+        "<td class='good'>dense_masked</td><td>0.51× (1.98× slower)</td></tr>",
+        "<tr><td>2048</td><td>0.344</td><td>0.396</td>"
+        "<td class='good'>dense_masked</td><td>0.87× (1.15× slower)</td></tr>",
+        "<tr><td>4096</td><td>1.311</td><td>0.895</td>"
+        "<td class='warn'>mask_knn</td><td>1.47× faster</td></tr>",
+        "<tr><td>8192</td><td>5.113</td><td>2.914</td>"
+        "<td class='warn'>mask_knn</td><td>1.75× faster</td></tr>",
+        "</table>",
+        "<p><b>Crossover at ~N=4000.</b> The vanvliet training regime "
+        "(N≈140, window=4, ~35 cells/frame) is <b>28× below</b> the crossover.</p>",
+        "</div>",
     ]
 
+    # Embed figures
+    figure_titles = [
+        "Figure 1: H100 Time vs N (corrected) — all methods",
+        "Figure 2: H100 Peak Memory vs N (corrected)",
+        "Figure 3: Crossover Analysis — dense_masked vs mask_knn K=4",
+    ]
     for i, fig in enumerate(figures):
         b64 = fig_to_b64(fig)
-        html_parts.append(f"<figure><figcaption>Figure {i+1}</figcaption>")
-        html_parts.append(f'<img src="data:image/png;base64,{b64}" /></figure>')
+        title = figure_titles[i] if i < len(figure_titles) else f"Figure {i+1}"
+        html_parts.append(f"<h3>{title}</h3>")
+        html_parts.append(f'<img src="data:image/png;base64,{b64}">')
         plt.close(fig)
 
+    # ── Bug fix notes ──
+    html_parts.append("<div class='box'>")
+    html_parts.append("<h2 style='margin-top:0'>Benchmark Bug Fixes (2026-08-17)</h2>")
+    html_parts.append("<ol>")
+    html_parts.append("<li><b>dense_masked class fix:</b> Registry mapped <code>dense_masked</code> "
+                      "to <code>RelativePositionalAttention</code> (recomputes <code>cdist</code> "
+                      "per layer, O(N²) × 12 layers). Fixed to <code>CachedDistAttention</code> "
+                      "(uses pre-computed <code>dist_2d</code> once, matching real training).</li>")
+    html_parts.append("<li><b>KNN cost inclusion:</b> <code>--with-knn</code> flag now includes "
+                      "the O(N²) <code>cdist + topk</code> cost in timing, matching training "
+                      "behavior where KNN indices are recomputed every forward pass.</li>")
+    html_parts.append("</ol>")
+    html_parts.append("<p><b>Effect at N=2048:</b> dense_masked 0.41→0.344 ms (faster), "
+                      "mask_knn K=4 0.15→0.396 ms (slower). Ranking flipped — dense_masked is "
+                      "now faster than mask_knn at N≤2048.</p>")
+    html_parts.append("</div>")
+
+    html_parts.append("<hr><p style='text-align:center;color:#8b949e;font-size:0.8em'>")
+    html_parts.append(f"Corrected H100 data (job 3920627, --with-knn) &middot; Generated {datetime.datetime.now().strftime('%Y-%m-%d')}</p>")
     html_parts.append("</body></html>")
 
     with open(RESULT_DIR / "benchmark_sparse.html", "w") as file_handle:
