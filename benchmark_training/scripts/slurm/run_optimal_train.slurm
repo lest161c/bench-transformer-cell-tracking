@@ -4,8 +4,7 @@
 #SBATCH --time=12:00:00
 #SBATCH --nodes=1
 #SBATCH --gpus-per-node=1
-#SBATCH --partition=gpu-h100
-#SBATCH --cpus-per-task=16
+#SBATCH --cpus-per-task=14
 #SBATCH --mem=120G
 #SBATCH --output=logs/optimal_train-%j.out
 #SBATCH --error=logs/optimal_train-%j.err
@@ -71,4 +70,4 @@ $PY scripts/train.py \
     --attn_positional_bias rope --spatial_pos_cutoff 256 \
     --delta_cutoff 2 \
     --knn_neighbors -1 \
-    --mixedp True --num_workers 16 --seed 42 --augment 3
+    --mixedp True --num_workers 14 --seed 42 --augment 3
