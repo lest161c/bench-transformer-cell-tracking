@@ -63,5 +63,5 @@ $PY scripts/train.py \
     --features wrfeat --causal_norm quiet_softmax \
     --attn_positional_bias rope --spatial_pos_cutoff 256 \
     --delta_cutoff 2 \
-    --knn_neighbors -1 \
+    --knn_neighbors -2 \
     --mixedp True --num_workers 8 --seed 42 --augment 3
