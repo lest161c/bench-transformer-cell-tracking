@@ -134,7 +134,7 @@ def _forward_layer(layer, x, coords, knn_idx, forward_style):
 
 def build_closure(method_key, layer_count, seq_len, knn_neighbors,
                   batch_size, d_model, n_head, coord_dim, mode, dist_mode,
-                  device, dtype, seed):
+                  device, dtype, seed, with_knn=False):
     """Build a zero-argument closure that runs ``layer_count`` chained layers.
 
     Creates the synthetic inputs with ``make_inputs``, computes the KNN
@@ -143,9 +143,17 @@ def build_closure(method_key, layer_count, seq_len, knn_neighbors,
     tensor.  Intended to be passed to the harness ``try_bench``, which calls
     this builder and times the returned closure.
 
+    When ``with_knn`` is ``True`` the KNN index computation is moved
+    *inside* the timed closure so that the measurement reflects the
+    per-forward-pass cost incurred during training (where
+    :class:`trackastra.model.TrackingTransformer` recomputes
+    ``cdist`` + ``topk`` on every call to ``forward``).  When
+    ``with_knn`` is ``False`` (default) the indices are pre-computed
+    once before timing, isolating the attention-kernel cost.
+
     Args:
         method_key: Registry key of the method.
-        layer_count: Number of chained attention layers.
+        layer_count: Number of chained layers.
         seq_len: Sequence length.
         knn_neighbors: Number of KNN neighbours (ignored for non-KNN methods).
         batch_size: Batch dimension.
@@ -157,6 +165,8 @@ def build_closure(method_key, layer_count, seq_len, knn_neighbors,
         device: torch device for inputs and layers.
         dtype: torch dtype for inputs and layers.
         seed: Random seed for input and parameter generation.
+        with_knn: If ``True``, include KNN index computation inside the
+            timed closure (training-realistic mode).
 
     Returns:
         A closure whose return value is the output of the last layer.
@@ -166,7 +176,12 @@ def build_closure(method_key, layer_count, seq_len, knn_neighbors,
     )
     registry_entry = METHOD_REGISTRY[method_key]
     attention_class = resolve_class(registry_entry.class_path)
-    knn_idx = compute_knn_indices(coords, knn_neighbors) if registry_entry.needs_knn else None
+
+    # Pre-compute KNN indices unless with_knn is requested.
+    if not with_knn:
+        knn_idx = compute_knn_indices(coords, knn_neighbors) if registry_entry.needs_knn else None
+    else:
+        knn_idx = None  # Will be computed inside the closure.
 
     layers = torch.nn.ModuleList([
         _make_layer(method_key, attention_class, seq_len, d_model, n_head, knn_neighbors,
@@ -175,11 +190,20 @@ def build_closure(method_key, layer_count, seq_len, knn_neighbors,
     ])
     forward_style = _METHOD_FORWARD_STYLES[method_key]
 
-    def closure():
-        output = query
-        for layer in layers:
-            output = _forward_layer(layer, output, coords, knn_idx, forward_style)
-        return output
+    if with_knn and registry_entry.needs_knn:
+        def closure():
+            # Training-realistic: recompute KNN indices every forward pass.
+            knn_idx_local = compute_knn_indices(coords, knn_neighbors)
+            output = query
+            for layer in layers:
+                output = _forward_layer(layer, output, coords, knn_idx_local, forward_style)
+            return output
+    else:
+        def closure():
+            output = query
+            for layer in layers:
+                output = _forward_layer(layer, output, coords, knn_idx, forward_style)
+            return output
 
     return closure
 
@@ -208,7 +232,8 @@ def _format_row(method_key, layer_count, seq_len, knn_neighbors,
 
 
 def run_sweep(methods, layer_counts, seq_lens, knn_choices, mode, dist_mode,
-              d_model, n_head, coord_dim, batch_size, device, dtype, seed):
+              d_model, n_head, coord_dim, batch_size, device, dtype, seed,
+              with_knn=False):
     """Run the full method × L × N × K sweep and collect the result rows.
 
     Non-KNN methods are swept once per (method, L, N) with ``K=0``; KNN-based
@@ -230,6 +255,8 @@ def run_sweep(methods, layer_counts, seq_lens, knn_choices, mode, dist_mode,
         device: torch device.
         dtype: torch dtype.
         seed: Random seed for reproducibility.
+        with_knn: If ``True``, include KNN index computation inside the
+            timed closure (training-realistic mode).
 
     Returns:
         List of CSV rows [method, L, N, K, time_ms, memory_mb, error].
@@ -248,7 +275,7 @@ def run_sweep(methods, layer_counts, seq_lens, knn_choices, mode, dist_mode,
                         build_closure,
                         method_key, layer_count, seq_len, knn_neighbors,
                         batch_size, d_model, n_head, coord_dim, mode, dist_mode,
-                        device, dtype, seed,
+                        device, dtype, seed, with_knn,
                     )
                     rows.append(_format_row(
                         method_key, layer_count, seq_len, knn_neighbors,
@@ -344,6 +371,14 @@ def main():
         "--coord-dim", type=int, default=2,
         help="Number of spatial coordinate dimensions.",
     )
+    parser.add_argument(
+        "--with-knn", action="store_true",
+        help="Include KNN index computation (cdist+topk) inside the timed "
+             "closure. This reflects the training-realistic cost where "
+             "TrackingTransformer.forward() recomputes KNN indices every "
+             "forward pass. Without this flag, KNN indices are pre-computed "
+             "once before timing, isolating the attention-kernel cost.",
+    )
     add_common_args(parser)
     args = parser.parse_args()
 
@@ -360,12 +395,14 @@ def main():
 
     print(f"Device: {device}  dtype: {dtype}  d={args.d}  nhead={args.nhead}")
     print(f"Methods: {methods}")
-    print(f"L = {layer_counts}  N = {seq_lens}  K = {knn_choices}\n")
+    print(f"L = {layer_counts}  N = {seq_lens}  K = {knn_choices}")
+    print(f"with_knn: {args.with_knn}\n")
 
     rows = run_sweep(
         methods, layer_counts, seq_lens, knn_choices,
         args.mode, args.dist_mode, args.d, args.nhead, args.coord_dim,
         batch_size=1, device=device, dtype=dtype, seed=args.seed,
+        with_knn=args.with_knn,
     )
 
     header = ["method", "L", "N", "K", "time_ms", "memory_mb", "error"]
