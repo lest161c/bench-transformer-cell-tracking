@@ -29,7 +29,8 @@ echo ""
     --Ns 128,256,512,1024,2048,4096,8192 \
     --Ks 4,16,32,64 \
     --warmup 10 --rep 50 \
-    --out full_bench_h100.csv
+    --with-knn \
+    --out full_bench_h100_with_knn.csv
 
 echo ""
 echo "=== Done ==="
