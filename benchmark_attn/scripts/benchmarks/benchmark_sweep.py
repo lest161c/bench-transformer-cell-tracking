@@ -109,7 +109,7 @@ def _make_layer(method_key, attention_class, seq_len, d_model, n_head, knn_neigh
     return attention_class(d_model, n_head).to(device, dtype)
 
 
-def _forward_layer(layer, x, coords, knn_idx, forward_style):
+def _forward_layer(layer, x, coords, knn_idx, forward_style, dist_2d=None):
     """Invoke one attention layer with the argument pattern it expects.
 
     Args:
@@ -119,6 +119,9 @@ def _forward_layer(layer, x, coords, knn_idx, forward_style):
             or None for methods that do not use coordinates.
         knn_idx: KNN index tensor (batch_size, seq_len, K) or None.
         forward_style: One of the keys of ``_METHOD_FORWARD_STYLES``.
+        dist_2d: Optional pre-computed 2D spatial distance matrix
+            ``(batch_size, seq_len, seq_len)``.  Passed to layers that
+            accept it (e.g. :class:`CachedDistAttention`).
 
     Returns:
         The layer's output tensor.
@@ -128,7 +131,7 @@ def _forward_layer(layer, x, coords, knn_idx, forward_style):
     if forward_style == "relpos":
         return layer(x, x, x, coords=coords, knn_indices=knn_idx)
     if forward_style == "masked":
-        return layer(x, x, x, coords=coords)
+        return layer(x, x, x, coords=coords, dist_2d=dist_2d)
     return layer(x, x, x)
 
 
@@ -178,11 +181,6 @@ def build_closure(method_key, layer_count, seq_len, knn_neighbors,
     attention_class = resolve_class(registry_entry.class_path)
 
     # Pre-compute KNN indices unless with_knn is requested.
-    if not with_knn:
-        knn_idx = compute_knn_indices(coords, knn_neighbors) if registry_entry.needs_knn else None
-    else:
-        knn_idx = None  # Will be computed inside the closure.
-
     layers = torch.nn.ModuleList([
         _make_layer(method_key, attention_class, seq_len, d_model, n_head, knn_neighbors,
                     coord_dim, mode, dist_mode, device, dtype)
@@ -190,19 +188,29 @@ def build_closure(method_key, layer_count, seq_len, knn_neighbors,
     ])
     forward_style = _METHOD_FORWARD_STYLES[method_key]
 
+    # Pre-compute the 2D spatial distance matrix once, matching
+    # TrackingTransformer.forward() which computes dist_2d once and
+    # shares it across all L layers.  This avoids per-layer cdist.
+    if not with_knn:
+        knn_idx = compute_knn_indices(coords, knn_neighbors) if registry_entry.needs_knn else None
+    else:
+        knn_idx = None  # Will be computed inside the closure.
+
+    dist_2d = torch.cdist(coords[..., 1:].float(), coords[..., 1:].float())
+
     if with_knn and registry_entry.needs_knn:
         def closure():
             # Training-realistic: recompute KNN indices every forward pass.
             knn_idx_local = compute_knn_indices(coords, knn_neighbors)
             output = query
             for layer in layers:
-                output = _forward_layer(layer, output, coords, knn_idx_local, forward_style)
+                output = _forward_layer(layer, output, coords, knn_idx_local, forward_style, dist_2d)
             return output
     else:
         def closure():
             output = query
             for layer in layers:
-                output = _forward_layer(layer, output, coords, knn_idx, forward_style)
+                output = _forward_layer(layer, output, coords, knn_idx, forward_style, dist_2d)
             return output
 
     return closure
