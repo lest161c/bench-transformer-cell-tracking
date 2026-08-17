@@ -14,9 +14,12 @@
 
 ## Confounders Excluded
 - No ROPE, no positional bias (mode="none")
-- No cdist/topk KNN precomputation (not timed)
 - No QKV/output projection timing (same synthetic input)
 - GPU warmup + sync before each measurement
+
+**Updated 2026-08-17:** the KNN `cdist + topk` index computation is now
+**included** in timing via the `--with-knn` flag (matching training behavior,
+where `TrackingTransformer.forward()` recomputes indices every pass).
 
 ## Usage
 
@@ -35,17 +38,28 @@ python benchmark_knn_methods.py --gpu --out knn_methods_results.csv
 - `speedup_heatmap_mask-KNN.png` — speedup vs dense_flash heatmap
 - `knn_crossover_analysis.png` — where gather overtakes mask
 
-## Key Findings (calibrated to GPU measurements at N=512)
+## Key Findings — Corrected H100 benchmark (job 3920627, `--with-knn`)
 
-| Method | N=128 | N=256 | N=512 | Dominant cost |
-|--------|-------|-------|-------|---------------|
-| dense_flash | 0.80ms | 0.80ms | 0.80ms | Pure SDPA (no overhead) |
-| gather_sdpa K=16 | 2.9ms | 5.9ms | 11.8ms | Per-token gather (~23µs/token) |
-| mask_knn K=16 | 6.5ms | 13.0ms | 26.0ms | Scatter overlay on N² SDPA |
-| minimax | 8.9ms | 18.0ms | 36.0ms | Block indexing (~50µs/token) |
+Corrected measurements on NVIDIA H100 (fp16, L=1, KNN cost included in timing):
 
-- **dense_flash is fastest at all N ≤ 8192** — FlashAttention is highly optimized
-- **gather_sdpa per-token overhead (~23µs) dominates** at N < 2000
-- gather_sdpa projected to cross below dense at N ~ 2000-4000
-- **mask_knn is always slower than dense** (same O(N²) SDPA + scatter cost)
-- **minimax is slowest** (block indexing is ~2x gather cost)
+| N | dense_masked (ms) | mask_knn K=4 (ms) | Winner |
+|---|-------------------|-------------------|--------|
+| 128 | 0.199 | 0.335 | dense_masked |
+| 2048 | 0.344 | 0.396 | dense_masked |
+| 4096 | 1.311 | 0.895 | mask_knn |
+| 8192 | 5.113 | 2.914 | mask_knn |
+
+- **`dense_flash` is NOT a realistic baseline** — it uses no mask and gets the
+  FlashAttention-2 kernel, but real training always enforces the spatial cutoff
+  mask → EfficientAttention. It is an upper bound on speed, not a reachable
+  training configuration.
+- **Realistic comparison: `dense_masked` vs `mask_knn`** — both use
+  EfficientAttention. At N≤2048, `dense_masked` is **faster** than `mask_knn`
+  (0.344 vs 0.396 ms at N=2048). At N≥4096, `mask_knn` is **faster** (2.914 vs
+  5.113 ms at N=8192). Crossover at ~N=4000.
+- **Two benchmark bugs were fixed (2026-08-17):** `dense_masked` was previously
+  mapped to `RelativePositionalAttention` (per-layer cdist) instead of
+  `CachedDistAttention`; KNN index computation was previously excluded from
+  `mask_knn` timing.
+- **Vanvliet training regime (N≈140) is well below the crossover** — sparse
+  attention is NOT faster at cell-tracking scale.

@@ -1,8 +1,10 @@
 """Visualize gather-sparse attention benchmark results as a single HTML page.
 
-Reads ``benchmark_sparse_results.csv`` from the ``results/`` directory
-and generates multi-panel figures (time vs N, memory, reorder speedup,
-feasibility map, KNN speedup heatmap) embedded as base64 PNGs in a
+Reads ``benchmark_sparse_results.csv`` (legacy A500 superset sweep) and
+``results/full_bench_h100.csv`` (corrected H100 full benchmark, job 3920627,
+with KNN cost included via ``--with-knn``). Generates multi-panel figures
+(time vs N, memory, reorder speedup, feasibility map, KNN speedup heatmap,
+H100 time/memory/crossover analysis) embedded as base64 PNGs in a
 self-contained HTML file.
 
 Usage::
@@ -46,6 +48,19 @@ COLOR_MAP = {
 }
 
 RESULT_DIR = Path(__file__).resolve().parents[1] / "results"
+
+# Colour map for the corrected H100 full benchmark methods
+H100_COLOR_MAP = {
+    "dense_flash": "tab:cyan",
+    "dense_masked": "tab:blue",
+    "mask_knn": "tab:orange",
+    "gather_sdpa": "tab:green",
+    "nsa": "tab:purple",
+    "minimax": "tab:red",
+    "gather_fused": "tab:olive",
+    "gather_matmul": "tab:brown",
+    "knn_relpos": "tab:pink",
+}
 
 
 def make_label(row):
@@ -255,12 +270,153 @@ def plot_knn_speedup_heatmap(df_ok, all_L):
     return figures
 
 
+def load_h100_results():
+    """Load the corrected H100 full-benchmark CSV into a DataFrame.
+
+    Reads ``results/full_bench_h100.csv`` (schema
+    ``method,L,N,K,time_ms,memory_mb,error``, produced by job 3920627 with
+    ``--with-knn`` so KNN index cost is included in ``time_ms``).
+
+    Returns:
+        A pandas DataFrame with columns ``method``, ``N``, ``K``, ``time_ms``,
+        ``memory_mb``, and a ``label`` column (e.g. ``"mask_knn K=4"``).
+    """
+    df = pd.read_csv(RESULT_DIR / "full_bench_h100.csv")
+    df = df.dropna(subset=["time_ms"])
+    df["label"] = df.apply(
+        lambda row: row["method"] if row["K"] == 0 else f"{row['method']} K={row['K']}",
+        axis=1,
+    )
+    return df
+
+
+def select_lowest_k_rows(df):
+    """Keep only the lowest-K row per method for each N.
+
+    Dense methods (K=0) keep their single row; K-gated methods (gather_*,
+    mask_knn, knn_relpos) collapse onto K=4 so every method contributes
+    exactly one line to the H100 time/memory figures.
+
+    Args:
+        df: DataFrame from :func:`load_h100_results`.
+
+    Returns:
+        Filtered DataFrame with one row per (method, N).
+    """
+    min_k = df.groupby("method")["K"].transform("min")
+    return df[df["K"] == min_k].copy()
+
+
+def plot_h100_time_vs_n(df):
+    """Generate a log-log Time vs N figure for the corrected H100 benchmark.
+
+    One line per method (lowest K), color-coded via ``H100_COLOR_MAP``.
+
+    Args:
+        df: DataFrame from :func:`load_h100_results`.
+
+    Returns:
+        A matplotlib Figure, or None if the input is empty.
+    """
+    rows = select_lowest_k_rows(df)
+    if rows.empty:
+        return None
+    fig, ax = plt.subplots(figsize=(9, 5))
+    for method, color in H100_COLOR_MAP.items():
+        sub = rows[rows["method"] == method].sort_values("N")
+        if sub.empty:
+            continue
+        ax.plot(sub["N"], sub["time_ms"], "o-", color=color, label=method,
+                markersize=7, linewidth=2)
+    ax.set_title("H100 Time vs N (corrected: --with-knn, CachedDistAttention)")
+    ax.set_xlabel("N")
+    ax.set_ylabel("Time (ms)")
+    ax.set_xscale("log", base=2)
+    ax.set_yscale("log")
+    ax.legend(title="Method", bbox_to_anchor=(1.02, 1), loc="upper left", fontsize=8)
+    ax.grid(True, which="both", ls="--", alpha=0.3)
+    fig.tight_layout()
+    return fig
+
+
+def plot_h100_memory_vs_n(df):
+    """Generate a log-log Memory vs N figure for the corrected H100 benchmark.
+
+    One line per method (lowest K), color-coded via ``H100_COLOR_MAP``.
+
+    Args:
+        df: DataFrame from :func:`load_h100_results`.
+
+    Returns:
+        A matplotlib Figure, or None if the input is empty.
+    """
+    rows = select_lowest_k_rows(df)
+    if rows.empty:
+        return None
+    fig, ax = plt.subplots(figsize=(9, 5))
+    for method, color in H100_COLOR_MAP.items():
+        sub = rows[rows["method"] == method].sort_values("N")
+        if sub.empty:
+            continue
+        ax.plot(sub["N"], sub["memory_mb"], "o-", color=color, label=method,
+                markersize=7, linewidth=2)
+    ax.set_title("H100 Peak Memory vs N (corrected: --with-knn)")
+    ax.set_xlabel("N")
+    ax.set_ylabel("Peak memory (MB)")
+    ax.set_xscale("log", base=2)
+    ax.set_yscale("log")
+    ax.legend(title="Method", bbox_to_anchor=(1.02, 1), loc="upper left", fontsize=8)
+    ax.grid(True, which="both", ls="--", alpha=0.3)
+    fig.tight_layout()
+    return fig
+
+
+def plot_crossover_analysis(df):
+    """Generate a figure showing where mask_knn crosses dense_masked.
+
+    Plots ``dense_masked`` and ``mask_knn K=4`` time vs N (log-log) and draws
+    a vertical line at the crossover N (~4000) where ``mask_knn`` becomes
+    faster than ``dense_masked``.
+
+    Args:
+        df: DataFrame from :func:`load_h100_results`.
+
+    Returns:
+        A matplotlib Figure, or None if the required methods are missing.
+    """
+    dense = df[df["method"] == "dense_masked"].sort_values("N")
+    knn = df[(df["method"] == "mask_knn") & (df["K"] == 4)].sort_values("N")
+    if dense.empty or knn.empty:
+        return None
+
+    fig, ax = plt.subplots(figsize=(9, 5))
+    ax.plot(dense["N"], dense["time_ms"], "o-", color=H100_COLOR_MAP["dense_masked"],
+            label="dense_masked", markersize=7, linewidth=2)
+    ax.plot(knn["N"], knn["time_ms"], "s-", color=H100_COLOR_MAP["mask_knn"],
+            label="mask_knn K=4", markersize=7, linewidth=2)
+    ax.axvline(4000, color="red", linestyle="--", alpha=0.7, linewidth=1.5,
+               label="crossover ~ N=4000")
+    ax.set_title("Crossover: mask_knn vs dense_masked (corrected H100)")
+    ax.set_xlabel("N")
+    ax.set_ylabel("Time (ms)")
+    ax.set_xscale("log", base=2)
+    ax.set_yscale("log")
+    ax.legend(fontsize=9)
+    ax.grid(True, which="both", ls="--", alpha=0.3)
+    fig.tight_layout()
+    return fig
+
+
 def main():
-    """Load benchmark CSV, generate all figures, and write HTML report."""
+    """Load benchmark CSVs, generate all figures, and write HTML report."""
+    # Legacy A500 superset sweep
     df = load_results()
     df_ok = df[df["status"] == "ok"].copy()
     df_oom = df[df["status"] == "oom"].copy()
     all_L = sorted(df["L"].unique())
+
+    # Corrected H100 full benchmark (job 3920627, --with-knn)
+    h100 = load_h100_results()
 
     figures = []
     figures.extend(plot_time_vs_n(df_ok, all_L))
@@ -268,22 +424,33 @@ def main():
     figures.extend(plot_memory_vs_n(df_ok, all_L))
     figures.extend(plot_feasibility_map(df, all_L))
     figures.extend(plot_knn_speedup_heatmap(df_ok, all_L))
+    for h100_fig in (plot_h100_time_vs_n(h100),
+                     plot_h100_memory_vs_n(h100),
+                     plot_crossover_analysis(h100)):
+        if h100_fig is not None:
+            figures.append(h100_fig)
 
     html_parts = [
         "<!DOCTYPE html><html><head><meta charset='utf-8'>",
-        "<title>Gather-Sparse Attention Benchmark (with Reorder)</title>",
+        "<title>Gather-Sparse Attention Benchmark — Corrected H100 (--with-knn)</title>",
         "<style>body{font-family:sans-serif;max-width:1200px;margin:0 auto;padding:20px;background:#fafafa}",
         "h1{color:#333} h2{color:#555} img{max-width:100%;margin:20px 0;border:1px solid #ddd;border-radius:6px}</style>",
         "</head><body>",
         "<h1>Dense Masked vs Gather-Sparse Attention</h1>",
-        "<p>With token-reordering ablation (Hassani et al. 2024) — reorder sequence by spatial proximity for memory locality.</p>",
-        f"<p>Configs: {len(df_ok)} OK, {len(df_oom)} OOM</p>",
+        "<p>Corrected analysis after benchmark bug fixes (job 3920627): "
+        "<code>dense_masked</code> now uses <code>CachedDistAttention</code> and "
+        "KNN index cost is included via <code>--with-knn</code>.</p>",
+        "<p>Legacy figures below read <code>benchmark_sparse_results.csv</code> "
+        "(A500 superset sweep, with token-reordering ablation).</p>",
+        f"<p>Legacy configs: {len(df_ok)} OK, {len(df_oom)} OOM. "
+        f"H100 rows: {len(h100)}.</p>",
     ]
 
     for i, fig in enumerate(figures):
         b64 = fig_to_b64(fig)
         html_parts.append(f"<figure><figcaption>Figure {i+1}</figcaption>")
         html_parts.append(f'<img src="data:image/png;base64,{b64}" /></figure>')
+        plt.close(fig)
 
     html_parts.append("</body></html>")
 

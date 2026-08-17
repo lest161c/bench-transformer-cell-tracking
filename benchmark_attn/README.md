@@ -6,30 +6,32 @@ Standalone benchmarks for sparse attention mechanisms in transformer-based cell 
 
 ## Key Results
 
-Full method sweep on NVIDIA A500 and NVIDIA H100 (fp16, single-layer forward pass, L=1). A500 numbers from `results/full_bench_a500.csv`, H100 numbers from `results/full_bench_h100.csv`. Sparse = KNN-gathered attention with K neighbors.
+Full method sweep on NVIDIA H100 (fp16, single-layer forward pass, L=1, KNN index computation included in timing via `--with-knn`). Numbers from `results/full_bench_h100.csv` (job 3920627).
 
-| N | Method | A500 time (ms) | A500 mem (MB) | H100 time (ms) | H100 mem (MB) | vs dense_masked |
-|---|--------|----------------|---------------|----------------|---------------|-----------------|
-| 2048 | dense_masked | 4.9 | 63 | 0.41 | 96 | 1× |
-| 2048 | gather_sdpa K=4 | 3.1 | 15 | 0.24 | 18 | 1.6× (A500) / 1.7× (H100) faster |
-| 8192 | dense_masked | 79.9 | 972 | 5.6 | 1487 | 1× |
-| 8192 | dense_flash | 4.9 | 20 | 0.35 | 25 | — |
-| 8192 | gather_sdpa K=4 | 12.2 | 60 | 0.54 | 70 | **6.5× (A500) → 10.3× (H100) faster**, 16× / 21× less mem |
-| 8192 | gather_sdpa K=16 | 19.0 | 204 | 1.0 | 199 | 4.2× (A500) → 5.6× (H100) faster |
-| 8192 | gather_matmul K=4 | — | — | 0.36 | 72 | ties dense_flash (0.36 vs 0.35 ms) |
+Two benchmark bugs were fixed:
+1. **`dense_masked` class fix:** Registry mapped `dense_masked` to `RelativePositionalAttention` (recomputes `cdist` per layer). Fixed to `CachedDistAttention` (uses pre-computed `dist_2d` once).
+2. **KNN cost inclusion:** `--with-knn` flag now includes O(N²) `cdist + topk` in timing, matching training behavior.
+
+| N | Method | H100 time (ms) | H100 mem (MB) | vs dense_masked |
+|---|--------|----------------|---------------|-----------------|
+| 2048 | dense_masked | 0.344 | 143.8 | 1× |
+| 2048 | mask_knn K=4 | 0.396 | 70.9 | 0.87× (1.15× slower) |
+| 2048 | gather_sdpa K=4 | 0.480 | 19.9 | 0.72× (1.39× slower) |
+| 2048 | dense_flash | 0.111 | 6.8 | 3.1× faster (unrealistic — no mask) |
+| 8192 | dense_masked | 5.113 | 2255.0 | 1× |
+| 8192 | mask_knn K=4 | 2.914 | 1049.5 | **1.8× faster** |
+| 8192 | gather_sdpa K=4 | 2.268 | 268.7 | **2.3× faster** |
+| 8192 | dense_flash | 0.351 | 25.3 | 14.6× faster (unrealistic — no mask) |
 
 Key observations:
 
-- **The sparse advantage grows on faster hardware.** gather_sdpa K=4 is 6.5× faster than dense_masked on the A500 (79.9 → 12.2 ms) but 10.3× faster on the H100 (5.6 → 0.54 ms). Dense attention is O(N²) work, gathered sparse attention O(NK); the faster GPU amplifies the gap.
-- **Crossover confirmed for gather_matmul.** On the H100, gather_matmul K=4 ties dense_flash at N=8192 (0.36 ms vs 0.35 ms) — the predicted sparse/dense crossover is now confirmed for gather_matmul.
+- **`dense_flash` is not a realistic baseline.** It uses no mask → gets FlashAttention-2 kernel. But in training, the spatial cutoff mask IS always enforced → forces fallback to EfficientAttention. `dense_flash` is an upper bound on speed.
+- **Realistic comparison: `dense_masked` vs `mask_knn`.** Both use EfficientAttention. At N≤2048, `dense_masked` is faster. At N≥4096, `mask_knn` is faster. Crossover at ~N=4000.
+- **Sparse attention wins at high N (≥4096).** `mask_knn` is 1.8× faster than `dense_masked` at N=8192. `gather_sdpa` is 2.3× faster.
+- **Vanvliet training regime (N≈140):** `dense_masked` (0.199 ms) is 1.7× faster than `mask_knn` (0.335 ms). Sparse attention is NOT faster at cell-tracking scale.
 - **NSA timing is near-constant ~2.5 ms** up to N=4096 on the H100 (2.46–2.62 ms), jumping to 5.9 ms at N=8192.
 - **minimax@8192 uses 44 GB** on the H100 — the largest single-layer footprint, closest to the 80 GB limit.
 - **Zero OOMs across all 168 configurations** on the H100 (9 methods × 7 N values × up to 4 K values).
-- Legacy A500-only finding (fp16, B=2, d=256, h=4): at L=4, N=8192 dense OOMs on the 4 GiB A500 while sparse K=4 fits (0.094 s / 385 MB).
-
-**Spatial reorder** (Wu et al., Point Transformer V3, CVPR 2024): negligible speedup on random data (~1-3%). Real data may differ.
-
-**Attention backends:** FlashAttention/CuDNN vs Math backend ~1.5-2× throughput difference at N≥512.
 
 ## Setup
 

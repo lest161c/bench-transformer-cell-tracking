@@ -170,19 +170,41 @@ Equivalent manual command (also the one the slurm script should run):
 ```bash
 cd "$BENCH/benchmark_attn" && .venv/bin/python scripts/benchmarks/benchmark_sweep.py \
     --methods gather_sdpa,gather_fused,gather_matmul,mask_knn,dense_flash,dense_masked,nsa,knn_relpos,minimax \
-    --d 320 --nhead 8 --warmup 10 --rep 50 --Ks 4,16,32,64 \
+    --d 320 --nhead 8 --warmup 10 --rep 50 --with-knn \
     --out results/full_bench_h100.csv
 ```
 
 (`$BENCH` comes from `~/.bench.env`.)
 
-Purpose: full-method attention benchmark on the H100 (80 GB) as an A500-vs-H100 reference; the
-largest N (8192) runs without the A500's 4 GB limit.
+Purpose: full-method attention benchmark on the H100 (80 GB) with
+KNN index computation included in timing (`--with-knn` flag). This
+matches real training behavior where `TrackingTransformer.forward()`
+recomputes KNN indices every forward pass.
 
-Completed run: job `3898011` (logs `logs/full_bench_3898011.{out,err}`) finished successfully.
-Output: `results/full_bench_h100.csv` — 168 rows, all successful (zero OOMs).
-Largest single-layer memory: minimax@N=8192 = 44 GB, i.e. 55 % of the 80 GB GPU.
-NSA timing is near-constant at ~2.5 ms from N=128 up to N=4096, then doubles to 5.87 ms at N=8192.
+### Benchmark bug fixes (2026-08-17)
+
+Two bugs were found in the benchmark harness and fixed:
+
+1. **`dense_masked` class fix.** The registry mapped `dense_masked` to
+   `RelativePositionalAttention`, which recomputes `torch.cdist` per layer
+   (O(N²) × 12 layers). Fixed to `CachedDistAttention`, which uses the
+   pre-computed `dist_2d` once — matching real
+   `TrackingTransformer.forward()` behavior.
+
+2. **KNN cost inclusion.** The old benchmark pre-computed KNN indices
+   *before* the timing loop (`benchmark_sweep.py:169`), hiding the O(N²)
+   `cdist + topk` cost. The `--with-knn` flag now includes this cost in
+   timing, matching training behavior.
+
+**Effect at N=2048:** `dense_masked` dropped from 0.41 ms → 0.344 ms (correct
+class). `mask_knn` rose from 0.15 ms → 0.396 ms (KNN cost included). The
+ranking flipped: `dense_masked` is now faster than `mask_knn` at N≤2048.
+
+Completed run: job `3920627` (logs `logs/full_bench_3920627.{out,err}`)
+finished successfully. Output: `results/full_bench_h100.csv` — 169 rows, all
+successful (zero OOMs). Largest single-layer memory: minimax@N=8192 = 44 GB,
+i.e. 55 % of the 80 GB GPU. NSA timing is near-constant at ~2.5 ms from
+N=128 up to N=4096, then doubles to 5.87 ms at N=8192.
 
 ---
 
@@ -259,18 +281,37 @@ K=64, N=512 = 194 ms / 1604 MB (fits the A500).
 
 Data: [full_bench_h100.csv](results/full_bench_h100.csv).
 
-168 rows: 9 methods × 7 N values × up to 4 K values, single-layer (L=1), fp16 on H100 (80 GB).
-**All configurations completed with zero OOMs** (job `3898011`). Key observations:
+169 rows: 9 methods × 7 N values × up to 4 K values, single-layer (L=1), fp16
+on H100 (80 GB), with KNN index computation included in timing
+(`--with-knn` flag, job `3920627`). **All configurations completed with zero
+OOMs.**
+
+**Two benchmark bugs were fixed** (see §4 for details):
+1. `dense_masked` used wrong class (per-layer cdist) → fixed to `CachedDistAttention`
+2. KNN index computation excluded from timing → fixed with `--with-knn` flag
+
+**Corrected results at N=8192:**
 
 | Method | N=8192 time | N=8192 memory | Notes |
 |--------|-------------|---------------|-------|
-| dense_flash | 0.35 ms | 25 MB | Fastest at all N |
-| gather_matmul K=4 | 0.36 ms | 72 MB | Effectively tied with dense_flash (0.36 vs 0.35 ms) |
-| gather_sdpa K=4 | 0.55 ms | 70 MB | |
-| knn_relpos K=4 | 0.55 ms | 71 MB | Near-identical to gather_sdpa |
-| mask_knn K=4 | 1.18 ms | 1050 MB | K-independent memory (N×N mask) |
-| nsa | 5.86 ms | 1714 MB | Near-constant ~2.5 ms up to N=4096, then doubles to 5.86 ms at N=8192 |
+| dense_flash | 0.351 ms | 25 MB | **Not realistic** — no mask, FlashAttention-2 |
+| dense_masked | 5.113 ms | 2255 MB | Realistic dense baseline (spatial cutoff mask) |
+| mask_knn K=4 | 2.914 ms | 1050 MB | **1.8× faster** than dense_masked at N=8192 |
+| gather_sdpa K=4 | 2.268 ms | 269 MB | **2.3× faster** than dense_masked at N=8192 |
+| nsa | 5.861 ms | 1714 MB | Near-constant ~2.5 ms up to N=4096 |
 | minimax | 294.9 ms | 44053 MB | Largest single-layer footprint; 55 % of the 80 GB GPU |
+
+**Crossover analysis (dense_masked vs mask_knn):**
+
+| N | dense_masked (ms) | mask_knn K=4 (ms) | Winner |
+|------|-------------------|-------------------|--------|
+| 128 | 0.199 | 0.335 | dense_masked |
+| 2048 | 0.344 | 0.396 | dense_masked |
+| 4096 | 1.311 | 0.895 | mask_knn |
+| 8192 | 5.113 | 2.914 | mask_knn |
+
+Crossover at ~N=4000. Vanvliet training regime (N≈140) is well below this
+threshold — sparse attention is NOT faster at cell-tracking scale.
 
 ---
 

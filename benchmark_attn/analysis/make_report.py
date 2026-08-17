@@ -31,6 +31,14 @@ sns.set_theme(style="whitegrid")
 
 
 def load_knn_methods_csv(path):
+    """Load benchmark rows from either the legacy or the corrected CSV schema.
+
+    Supports the legacy analytical CSV
+    (``method,N,K,time_ms,spatial_cutoff,data_source``) and the corrected
+    H100 full-bench CSV (``method,L,N,K,time_ms,memory_mb,error``, job
+    3920627, ``--with-knn``). Returns a list of dicts with keys ``method``,
+    ``N``, ``K``, ``time_ms``, and ``memory_mb``.
+    """
     rows = []
     try:
         with open(path) as file_handle:
@@ -40,7 +48,7 @@ def load_knn_methods_csv(path):
                     "N": int(row["N"]),
                     "K": int(row.get("K", -1)),
                     "time_ms": float(row["time_ms"]),
-                    "spatial_cutoff": row.get("spatial_cutoff", "False") == "True",
+                    "memory_mb": float(row["memory_mb"]) if row.get("memory_mb") else None,
                 })
     except Exception:
         pass
@@ -78,31 +86,38 @@ def load_pipeline_csv(path):
 # ─── Figure generation ───
 
 def make_knn_speedup_figure(knn_rows):
+    """Generate the corrected crossover figure for dense_masked vs mask_knn.
+
+    Uses the corrected H100 data (job 3920627, ``--with-knn``): plots
+    ``dense_masked`` and ``mask_knn K=4`` time vs N on a log-log scale and
+    draws a vertical line at the ~N=4000 crossover where ``mask_knn`` becomes
+    faster than the realistic dense baseline.
+
+    Args:
+        knn_rows: List of rows from :func:`load_knn_methods_csv`.
+
+    Returns:
+        A matplotlib Figure, or None if the input is empty.
+    """
     if not knn_rows:
         return None
     fig, ax = plt.subplots(figsize=(10, 6))
-    baseline = {row["N"]: row["time_ms"] for row in knn_rows
-                if row["method"] == "cached_dense (baseline)"}
-
-    for method, color, ls in [
-        ("mask-KNN", "#2ecc71", "-"),
-        ("gather-KNN", "#e74c3c", "--"),
-        ("dense_flash", "#3498db", ":"),
-        ("MiniMax", "#95a5a6", "-."),
-    ]:
-        sub = sorted([row for row in knn_rows if row["method"] == method and row["K"] in (16, -1)],
-                     key=lambda row: row["N"])
-        valid = [(row["N"], baseline[row["N"]] / row["time_ms"])
-                 for row in sub if row["N"] in baseline and baseline[row["N"]] > 0]
-        if valid:
-            ns, sp = zip(*valid)
-            ax.plot(ns, sp, "D" + ls, color=color, label=method,
-                    markersize=8, linewidth=2, markerfacecolor="white")
-    ax.axhline(1.0, color="gray", linestyle="--", alpha=0.5, label="baseline")
+    dense = sorted([row for row in knn_rows if row["method"] == "dense_masked"],
+                   key=lambda row: row["N"])
+    knn = sorted([row for row in knn_rows if row["method"] == "mask_knn" and row["K"] == 4],
+                 key=lambda row: row["N"])
+    if dense and knn:
+        ax.plot([row["N"] for row in dense], [row["time_ms"] for row in dense],
+                "o-", color="#1f77b4", label="dense_masked", markersize=8, linewidth=2)
+        ax.plot([row["N"] for row in knn], [row["time_ms"] for row in knn],
+                "s-", color="#ff7f0e", label="mask_knn K=4", markersize=8, linewidth=2)
+        ax.axvline(4000, color="red", linestyle="--", alpha=0.7, linewidth=1.5,
+                   label="crossover ~ N=4000")
     ax.set_xlabel("Cells per frame (N)")
-    ax.set_ylabel("Speedup vs CachedDistAttention")
-    ax.set_title("KNN Methods: Speedup vs Baseline (K=16)")
+    ax.set_ylabel("Time (ms)")
+    ax.set_title("Corrected Crossover: dense_masked vs mask_knn K=4 (H100, --with-knn)")
     ax.set_xscale("log", base=2)
+    ax.set_yscale("log")
     ax.legend(fontsize=9)
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
@@ -206,12 +221,14 @@ def build_html(args):
     outdir = Path(args.outdir if hasattr(args, 'outdir') else 'benchmark_attn')
     outdir = (outdir if outdir.is_absolute() else Path(__file__).resolve().parents[1] / outdir)
 
-    # Load data
-    knn_rows = load_knn_methods_csv(args.knn_csv or str(outdir / "knn_methods_results.csv"))
+    # Load data (default to the corrected H100 full benchmark, job 3920627)
+    knn_rows = load_knn_methods_csv(args.knn_csv or str(outdir / "full_bench_h100.csv"))
     flash_rows = load_flash_cutoff_csv(args.flash_csv or str(outdir / "flash_cutoff_results.csv"))
-    pipe_norm = load_pipeline_csv("benchmark_pipeline/blockwise_norm_results.csv")
-    pipe_ffn = load_pipeline_csv("benchmark_pipeline/ffn_checkpoint_results.csv")
-    pipe_spatial = load_pipeline_csv("benchmark_pipeline/spatial_blocks_results.csv")
+    # Pipeline benchmarks live in ../deprecated/benchmark_pipeline/ after a repo cleanup
+    pipeline_dir = Path(__file__).resolve().parents[2] / "deprecated" / "benchmark_pipeline"
+    pipe_norm = load_pipeline_csv(str(pipeline_dir / "blockwise_norm_results.csv"))
+    pipe_ffn = load_pipeline_csv(str(pipeline_dir / "ffn_checkpoint_results.csv"))
+    pipe_spatial = load_pipeline_csv(str(pipeline_dir / "spatial_blocks_results.csv"))
 
     # Generate figures
     knn_fig = make_knn_speedup_figure(knn_rows)
@@ -226,9 +243,10 @@ def build_html(args):
         "SDPA Backend Dispatch": str(outdir / "sdpa_backend_dispatch.png"),
         "System Impact Breakdown": str(outdir / "system_impact_breakdown.png"),
         "Tile Size Analysis": str(outdir / "tile_size_analysis.png"),
-        "Pipeline — Blockwise Norm": "benchmark_pipeline/blockwise_norm.png",
-        "Pipeline — FFN Checkpoint": "benchmark_pipeline/ffn_checkpoint.png",
-        "Pipeline — Regionprops": "benchmark_pipeline/regionprops_benchmark.png",
+        "Pipeline — Blockwise Norm": str(pipeline_dir / "blockwise_norm.png"),
+        "Pipeline — FFN Checkpoint": str(pipeline_dir / "ffn_checkpoint.png"),
+        "Pipeline — Regionprops": str(pipeline_dir / "regionprops_benchmark.png"),
+        "Pipeline — Spatial Blocks": str(pipeline_dir / "spatial_blocks.png"),
         "Spatial Block Partition": str(outdir / "spatial_block_partition.png"),
         "Flash Cutoff Solutions": str(outdir / "spatial_flash_solutions.png"),
     }
@@ -236,7 +254,7 @@ def build_html(args):
     # ── Build HTML ──
     html_parts = []
     html_parts.append("<!DOCTYPE html><html><head><meta charset='utf-8'>")
-    html_parts.append("<title>Trackastra Benchmark Suite — Comprehensive Report</title>")
+    html_parts.append("<title>Trackastra Benchmark Suite — Comprehensive Report (Corrected H100, --with-knn)</title>")
     html_parts.append("<style>")
     html_parts.append("body{font-family:system-ui,sans-serif;max-width:1400px;margin:0 auto;padding:24px;background:#0d1117;color:#c9d1d9}")
     html_parts.append("h1{color:#58a6ff;border-bottom:2px solid #30363d;padding-bottom:8px}")
@@ -255,8 +273,24 @@ def build_html(args):
     html_parts.append(".toc a{color:#58a6ff;text-decoration:none}")
     html_parts.append(".toc a:hover{text-decoration:underline}")
     html_parts.append("</style></head><body>")
-    html_parts.append("<h1>Trackastra Benchmark Suite — Comprehensive Report</h1>")
+    html_parts.append("<h1>Trackastra Benchmark Suite — Comprehensive Report (Corrected H100)</h1>")
     html_parts.append(f"<p>Generated {datetime.datetime.now().strftime('%Y-%m-%d')} &middot; d_model=320, nhead=8, fp16</p>")
+    html_parts.append("<div class='box'>")
+    html_parts.append("<p><span class='highlight'>Benchmark bug fixes (2026-08-17, job 3920627):</span></p>")
+    html_parts.append("<ul>")
+    html_parts.append("<li><b>dense_masked class fix:</b> registry now maps it to <code>CachedDistAttention</code> "
+                      "(pre-computed <code>dist_2d</code>) instead of <code>RelativePositionalAttention</code> "
+                      "(per-layer cdist).</li>")
+    html_parts.append("<li><b>KNN cost inclusion:</b> <code>--with-knn</code> flag now includes the O(N²) "
+                      "<code>cdist + topk</code> cost in timing, matching training behavior.</li>")
+    html_parts.append("<li><b>dense_flash is NOT realistic:</b> no mask → FlashAttention-2; training always enforces "
+                      "the spatial cutoff mask → EfficientAttention. Realistic comparison is "
+                      "<span class='highlight'>dense_masked vs mask_knn</span>.</li>")
+    html_parts.append("</ul>")
+    html_parts.append("<p>Effect at N=2048: dense_masked 0.41→0.344 ms, mask_knn 0.15→0.396 ms. "
+                      "Ranking flipped — dense_masked is now faster than mask_knn at N≤2048; "
+                      "mask_knn wins at N≥4096 (crossover ~N=4000).</p>")
+    html_parts.append("</div>")
 
     # ── TOC ──
     html_parts.append("<div class='box toc'><h2>Contents</h2><ol>")
@@ -271,45 +305,61 @@ def build_html(args):
     html_parts.append("</ol></div>")
 
     # ── 1. VERDICT ──
-    html_parts.append("<h2 id='verdict'>Current Best Attention Scheme</h2>")
+    html_parts.append("<h2 id='verdict'>Current Best Attention Scheme (corrected)</h2>")
     html_parts.append("<div class='box verdict verdict-best'>")
-    html_parts.append("<b>Proven: mask-KNN K=16</b> — 0.26ms at N=256 (3.1× vs CachedDist) | TRA 0.9972<br>")
-    html_parts.append("<b>Faster but unverified: Approach E (soft decay + FlashAttn)</b> — 0.21ms at N=256 (4.0× vs CachedDist, 1.24× vs mask-KNN)")
+    html_parts.append("<b>At cell-tracking scale (N≈140): dense_masked is faster</b> — "
+                      "0.199 ms vs mask_knn K=4 0.335 ms at N=128 (1.7×). "
+                      "Sparse attention is NOT faster below the crossover.<br>")
+    html_parts.append("<b>mask_knn wins at high N (≥4096):</b> 2.914 ms vs dense_masked 5.113 ms at N=8192 "
+                      "(1.8× faster). Crossover at ~N=4000.")
     html_parts.append("</div>")
 
     html_parts.append("<table>")
     for row in [
-        ["Method", "Time N=256", "vs CachedDist", "vs mask-KNN", "Spatial cutoff?", "FlashAttn?", "TRA verified?"],
-        ["mask-KNN K=16", "0.26ms", "3.1×", "1.00×", "HARD cutoff ✓", "cuDNN only ✗", "✓ 0.9972"],
-        ["Approach E (soft decay)", "0.21ms", "4.0×", "1.24×", "SOFT prior ✓", "✓ FlashAttn", "✗ UNTESTED"],
-        ["dense_flash", "0.20ms", "4.1×", "1.30×", "✗ NONE", "✓ FlashAttn", "✗ invalid"],
-        ["CachedDist (baseline)", "0.80ms", "1.00×", "0.32×", "HARD cutoff ✓", "✗ masked", "✓ baseline"],
+        ["Method", "Time N=2048", "Time N=8192", "Spatial cutoff?", "FlashAttn?", "Realistic?"],
+        ["dense_masked", "0.344ms", "5.113ms", "HARD cutoff ✓", "✗ masked (EfficientAttention)", "✓ realistic dense baseline"],
+        ["mask_knn K=4", "0.396ms", "2.914ms", "HARD cutoff ✓", "✗ masked (EfficientAttention)", "✓ realistic sparse"],
+        ["gather_sdpa K=4", "0.480ms", "2.268ms", "HARD cutoff ✓", "✗ masked (EfficientAttention)", "✓ realistic sparse"],
+        ["dense_flash", "0.111ms", "0.351ms", "✗ NONE", "✓ FlashAttention-2", "✗ unrealistic (no mask)"],
     ]:
         html_parts.append("<tr>" + "".join(f"<td>{c}</td>" for c in row) + "</tr>")
     html_parts.append("</table>")
-    html_parts.append("<p class='warn'><b>The bottleneck is now verification, not speed:</b> "
-             "Approach E (soft decay) is FASTER than mask-KNN AND dispatches FlashAttn, "
-             "but TRA/AOGM accuracy with soft-only spatial prior is UNTESTED. "
-             "If soft decay preserves TRA > 0.996, it becomes the best method. "
-             "If not, mask-KNN remains undisputed. Training run on vanvliet needed.</p>")
+    html_parts.append("<p class='warn'><b>dense_flash is an upper bound, not a training configuration:</b> "
+             "it uses no mask and dispatches FlashAttention-2, but real training always enforces the "
+             "spatial cutoff mask, forcing EfficientAttention. The realistic comparison is "
+             "<b>dense_masked vs mask_knn</b>: dense_masked wins at N≤2048, mask_knn wins at N≥4096.</p>")
 
     # ── 2. KNN METHODS ──
-    html_parts.append("<h2 id='knn'>KNN Methods Comparison</h2>")
+    html_parts.append("<h2 id='knn'>KNN Methods Comparison (corrected H100)</h2>")
     if knn_rows:
-        html_parts.append("<table>")
-        methods_knn = sorted(set(row["method"] for row in knn_rows))
-        header = ["Method"] + [f"N={n}" for n in sorted(set(row["N"] for row in knn_rows))]
+        # Representative K per method: K=4 for the gathered/masked KNN variants,
+        # K=0 (no KNN) for dense and block-sparse methods.
+        representative_k = {"dense_masked": 0, "mask_knn": 4, "gather_sdpa": 4,
+                            "gather_fused": 4, "gather_matmul": 4, "knn_relpos": 4,
+                            "dense_flash": 0, "nsa": 0, "minimax": 0}
+        methods_knn = [m for m in sorted(set(row["method"] for row in knn_rows))
+                       if m in representative_k]
+        ns = sorted(set(row["N"] for row in knn_rows))
+        header = ["Method"] + [f"N={n}" for n in ns]
         html_parts.append("<tr>" + "".join(f"<th>{h}</th>" for h in header) + "</tr>")
         for method in methods_knn:
-            sub = sorted([row for row in knn_rows if row["method"] == method and row["K"] in (16, -1)],
+            k = representative_k[method]
+            sub = sorted([row for row in knn_rows
+                          if row["method"] == method and row["K"] == k],
                          key=lambda row: row["N"])
             if sub:
-                html_row = [method]
-                for row in sub:
-                    html_row.append(f"{row['time_ms']:.2f}ms")
+                times = {row["N"]: row["time_ms"] for row in sub}
+                html_row = [method if k == 0 else f"{method} K={k}"]
+                for n in ns:
+                    if n in times:
+                        html_row.append(f"{times[n]:.3f}ms")
+                    else:
+                        html_row.append("—")
                 html_parts.append("<tr>" + "".join(f"<td>{c}</td>" for c in html_row) + "</tr>")
         html_parts.append("</table>")
-        html_parts.append("<p class='warn'>All times analytical (calibrated to labbook 2026-06-08). GPU verification pending.</p>")
+        html_parts.append("<p class='warn'>Corrected H100 measurements (job 3920627, fp16, L=1, "
+                          "<code>--with-knn</code>). Realistic comparison: <b>dense_masked vs mask_knn</b>. "
+                          "dense_flash is unrealistic (no mask → FlashAttention-2).</p>")
     if knn_fig:
         html_parts.append(f'<img src="data:image/png;base64,{figure_to_b64(knn_fig)}">')
         plt.close(knn_fig)
@@ -412,10 +462,10 @@ def build_html(args):
     ]:
         html_parts.append("<tr>" + "".join(f"<td>{c}</td>" for c in row) + "</tr>")
     html_parts.append("</table>")
-    html_parts.append("<p class='warn'>FlashAttn without cutoff is only 1.3× faster than mask-KNN at dataset N=256. "
-             "NOT a viable path. Spatial blocks only beat mask-KNN above N≈400. "
-             "At typical dataset N (100-300), mask-KNN K=16 is the undisputed best valid method. "
-             "Realistic training speedup: ~1.3× (norm+checkpoint → 11h→8.6h).</p>")
+    html_parts.append("<p class='warn'>Corrected (job 3920627): at cell-tracking scale (N≈140), "
+             "<b>dense_masked is faster</b> than mask_knn (0.199 vs 0.335 ms at N=128). "
+             "mask_knn only wins at N≥4096 (crossover ~N=4000). dense_flash is an unrealistic upper bound "
+             "(no mask → FlashAttention-2). Realistic training speedup: ~1.3× (norm+checkpoint → 11h→8.6h).</p>")
 
     if training_fig:
         html_parts.append(f'<img src="data:image/png;base64,{figure_to_b64(training_fig)}">')
