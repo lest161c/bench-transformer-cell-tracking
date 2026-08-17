@@ -57,7 +57,7 @@ PY="$TRK/.venv/bin/python"
 
 $PY scripts/train.py \
     --name optimal_speed \
-    --ndim 2 --window 4 --epochs 500 --warmup_epochs 5 \
+    --ndim 2 --window 10 --epochs 500 --warmup_epochs 5 \
     --detection_folders TRA \
     --input_train "$DATA_DIR/rpsM" "$DATA_DIR/recA" "$DATA_DIR/pheA" "$DATA_DIR/metA" "$DATA_DIR/cib" "$DATA_DIR/trpL" \
     --input_val "$DATA_DIR/rpsM" "$DATA_DIR/recA" "$DATA_DIR/pheA" \
