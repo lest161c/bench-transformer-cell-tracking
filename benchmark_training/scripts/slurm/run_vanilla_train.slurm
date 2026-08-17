@@ -36,6 +36,29 @@ source "$REPO_ROOT/slurm/load_cluster_env.sh"
 
 DATA_DIR="${DATA_DIR}/vanvliet"
 
+# Expand parent dirs into individual experiment subdirs.
+# The main branch lacks _expand_experiments(), so we do it in shell.
+# Vanvliet format: root/151029_E1-1/TRA/ — TRA is inside experiment subdirs.
+expand_experiments() {
+    local result=""
+    for path in "$@"; do
+        if [ -d "$path" ]; then
+            subdirs=$(find "$path" -maxdepth 1 -mindepth 1 -type d -exec test -d '{}/TRA' \; -print 2>/dev/null | sort)
+            if [ -n "$subdirs" ]; then
+                result="$result $subdirs"
+            else
+                result="$result $path"
+            fi
+        else
+            result="$result $path"
+        fi
+    done
+    echo $result
+}
+
+TRAIN_INPUTS=$(expand_experiments "$DATA_DIR/rpsM" "$DATA_DIR/recA" "$DATA_DIR/pheA" "$DATA_DIR/metA" "$DATA_DIR/cib" "$DATA_DIR/trpL")
+VAL_INPUTS=$(expand_experiments "$DATA_DIR/rpsM" "$DATA_DIR/recA" "$DATA_DIR/pheA")
+
 # Switch to the vanilla main branch
 cd "$TRK"
 
@@ -76,8 +99,8 @@ $PY scripts/train.py \
     --name vanilla_baseline \
     --ndim 2 --window 4 --epochs 500 --warmup_epochs 5 \
     --detection_folders TRA \
-    --input_train "$DATA_DIR/rpsM" "$DATA_DIR/recA" "$DATA_DIR/pheA" "$DATA_DIR/metA" "$DATA_DIR/cib" "$DATA_DIR/trpL" \
-    --input_val "$DATA_DIR/rpsM" "$DATA_DIR/recA" "$DATA_DIR/pheA" \
+    --input_train $TRAIN_INPUTS \
+    --input_val $VAL_INPUTS \
     --outdir runs --distributed False \
     --batch_size 48 --max_tokens 2048 \
     --d_model 320 --num_encoder_layers 6 --num_decoder_layers 6 \
