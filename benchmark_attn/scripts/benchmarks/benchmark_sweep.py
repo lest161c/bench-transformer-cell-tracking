@@ -196,7 +196,7 @@ def build_closure(method_key, layer_count, seq_len, knn_neighbors,
     else:
         knn_idx = None  # Will be computed inside the closure.
 
-    dist_2d = torch.cdist(coords[..., 1:].float(), coords[..., 1:].float())
+    dist_2d = torch.cdist(coords[..., 1:].float(), coords[..., 1:].float()).to(dtype)
 
     if with_knn and registry_entry.needs_knn:
         def closure():
