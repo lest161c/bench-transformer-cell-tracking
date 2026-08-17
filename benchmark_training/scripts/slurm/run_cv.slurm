@@ -59,14 +59,14 @@ for i in "${!CONDITIONS[@]}"; do
     fi
 done
 
-# Build the train conditions string for the CLI
-TRAIN_COND_STR=""
+# Build the train conditions array (use array expansion for proper quoting)
+TRAIN_PATHS=()
 for cond in "${TRAIN_CONDS[@]}"; do
-    TRAIN_COND_STR="$TRAIN_COND_STR \"$DATA_DIR/$cond\""
+    TRAIN_PATHS+=("$DATA_DIR/$cond")
 done
 
-# Also build the test conditions for later evaluation
-TEST_COND_STR="$DATA_DIR/$HELDOUT_COND"
+# Also build the test condition path for later evaluation
+TEST_PATH="$DATA_DIR/$HELDOUT_COND"
 
 # Switch to trackastra
 cd "$TRK"
@@ -76,7 +76,7 @@ export CV_CONFIG="$CONFIG"
 export CV_FOLD="$FOLD"
 export CV_HELDOUT="$HELDOUT_COND"
 export CV_TRAIN_CONDS="${TRAIN_CONDS[*]}"
-export CV_TEST_COND="$TEST_COND_STR"
+export CV_TEST_PATH="$TEST_PATH"
 
 echo "=== Proper CV: $CONFIG ==="
 echo "  Fold:          $FOLD"
@@ -131,8 +131,8 @@ $PY scripts/train.py \
     --name "$RUN_NAME" \
     --ndim 2 --window 4 --epochs 100 --warmup_epochs 5 \
     --detection_folders TRA \
-    --input_train $TRAIN_COND_STR \
-    --input_val $TRAIN_COND_STR \
+    --input_train "${TRAIN_PATHS[@]}" \
+    --input_val "${TRAIN_PATHS[@]}" \
     --outdir runs --distributed False \
     --batch_size 48 --max_tokens 2048 \
     --d_model 320 --num_encoder_layers 6 --num_decoder_layers 6 \
