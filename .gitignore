@@ -81,6 +81,7 @@ benchmark_pipeline/
 eval_data/
 eval_tensorboard/
 eval_traccuracy/
+hoct/
 labbook/
 logs/
 prompts/
@@ -107,3 +108,5 @@ benchmark_ssl/runs/*/*.html
 eval_traccuracy/*.html
 profiler_out/*.html
 benchmark_attn/*.html
+open_13_08.md
+todo_refac.md
