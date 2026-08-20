@@ -49,8 +49,14 @@ def amdahl_speedup(attention_share: np.ndarray, isolated_speedup: float) -> np.n
 
 
 def main() -> None:
-    """Generate and save the Amdahl's Law figure."""
-    attention_share = np.linspace(0.0, 1.0, 500)
+    """Generate and save the Amdahl's Law figure.
+
+    The plot is cropped to the small-s region (s ≤ 0.30) where the
+    data point of interest (vanvliet scale, s ≈ 0.05) actually lives;
+    on the full [0, 1] axis the point would be invisible.
+    """
+    # Sample on a fine grid so curves are smooth at the zoomed scale.
+    attention_share = np.linspace(0.0, 0.30, 500)
 
     speedups = [1.5, 1.78, 2.0, 5.0, 10.0]
     # Okabe–Ito categorical palette (see docs/vis_guidelines.md).
@@ -75,9 +81,10 @@ def main() -> None:
 
     ax.set_xlabel("Attention share of step time ($s$)", fontsize=12)
     ax.set_ylabel("Training speedup ($1 / ((1-s) + s/k)$)", fontsize=12)
-    ax.set_title("Amdahl's Law: Training Speedup vs. Attention Share", fontsize=13)
-    ax.set_xlim(0, 1)
-    ax.set_ylim(1, 10)
+    ax.set_title("Amdahl's Law: Training Speedup vs. Attention Share\n"
+                 "(cropped to $s \\leq 0.30$, vanvliet scale)", fontsize=12)
+    ax.set_xlim(0, 0.30)
+    ax.set_ylim(1.0, 1.30)
     ax.axhline(y=1, color="gray", linewidth=0.5, linestyle="-")
     ax.legend(loc="upper left", fontsize=9.5, framealpha=0.9)
     ax.grid(True, alpha=0.3)
@@ -85,10 +92,13 @@ def main() -> None:
     ax.annotate(
         f"$s=0.05,\\; k=1.78\\times$\n→ $1.022\\times$ training",
         xy=(0.05, 1.022),
-        xytext=(0.22, 1.6),
-        fontsize=9,
+        xytext=(0.14, 1.22),
+        fontsize=10,
         arrowprops=dict(arrowstyle="->", color="#D55E00", lw=1.2),
         color="#D55E00",
+        bbox=dict(boxstyle="round,pad=0.3", facecolor="white",
+                  edgecolor="#D55E00", linewidth=0.6, alpha=0.95),
+        zorder=7,
     )
 
     fig.tight_layout()
