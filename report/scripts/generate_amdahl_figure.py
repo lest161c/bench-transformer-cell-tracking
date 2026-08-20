@@ -83,7 +83,7 @@ def main() -> None:
     ax.grid(True, alpha=0.3)
 
     ax.annotate(
-        f"$s=0.05,\\; k=1.78\\times$\n→ $1.022\\times$ training\n(only $2.2\\%$ speedup)",
+        f"$s=0.05,\\; k=1.78\\times$\n→ $1.022\\times$ training",
         xy=(0.05, 1.022),
         xytext=(0.22, 1.6),
         fontsize=9,
