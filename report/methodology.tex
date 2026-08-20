@@ -22,17 +22,19 @@ We compare six attention architectures in a controlled benchmark (Table~\ref{tab
 \centering
 \caption{Comparative complexity of attention architectures.}
 \label{tab:complexity}
+{\small
 \begin{tabular}{@{}lccccl@{}}
 \toprule
 \textbf{Architecture} & \textbf{Compute} & \textbf{Memory} & \textbf{FlashAttn} & \textbf{Locality} & \textbf{Target Regime} \\
 \midrule
 Standard / Trackastra & $\mathcal{O}(N^2 d)$ & $\mathcal{O}(N^2)$ & $\times$ (masked) & \checkmark & --- \\
-FlashAttention-2 & $\mathcal{O}(N^2 d)$ & $\mathcal{O}(N)$ & $\checkmark$ & $\times$ & All $N$ (speed) \\
+FlashAttention-2 & $\mathcal{O}(N^2 d)$ & $\mathcal{O}(N)$ & \checkmark & $\times$ & All $N$ (speed) \\
 Fused NA / Gather sparse & $\mathcal{O}(N k d)$ & $\mathcal{O}(N k)$ & \checkmark & \checkmark & $\geq 8192$ \\
-Mask-KNN sparse & $\mathcal{O}(N k d)$ & $\mathcal{O}(N k)$ & $\times$ & $\checkmark$ & $\leq 4096$ \\
+Mask-KNN sparse & $\mathcal{O}(N k d)$ & $\mathcal{O}(N k)$ & $\times$ & \checkmark & $\leq 4096$ \\
 NSA & $\ll\mathcal{O}(N^2)$ & varies & partial & partial & $\geq 64{,}000$ (paper) \\
 \bottomrule
 \end{tabular}
+}
 \end{table}
 
 \subsubsection*{Equivalence Validation}
