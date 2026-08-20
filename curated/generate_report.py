@@ -103,11 +103,20 @@ LABELS = {
 
 
 def save(name):
-    path = FIGS / f'{name}.svg'
-    plt.savefig(path, bbox_inches='tight', dpi=150)
+    """Save the current figure as both SVG and PDF under ``curated/figures/``.
+
+    The LaTeX report includes the figures via ``\\includegraphics{*.pdf}``,
+    so the PDF is the source of truth that ships with the report; the SVG
+    is kept alongside for editing in Inkscape / Illustrator and for the
+    HTML report.
+    """
+    svg_path = FIGS / f'{name}.svg'
+    pdf_path = FIGS / f'{name}.pdf'
+    plt.savefig(svg_path, bbox_inches='tight', dpi=150)
+    plt.savefig(pdf_path, bbox_inches='tight')
     plt.close()
-    print(f'  {path.name}')
-    return path.name
+    print(f'  {svg_path.name}  +  {pdf_path.name}')
+    return pdf_path.name
 
 
 # ═══════════════════════════════════════════════════════════════
