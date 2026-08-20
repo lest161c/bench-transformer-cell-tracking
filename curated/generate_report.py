@@ -1,4 +1,9 @@
-"""Generate §4.1 Sparse Attention Report: SVGs + report.html"""
+"""Generate §4.1 Sparse Attention Report: SVGs + report.html.
+
+All colours follow the Okabe–Ito scientific palette defined in
+``docs/vis_guidelines.md`` (colorblind-safe, print-safe).
+Sequential heatmaps use ``viridis``. No Flat UI / web-design colours.
+"""
 
 import os, sys, math
 import pandas as pd
@@ -13,31 +18,61 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 FIGS = ROOT / 'curated' / 'figures'
 FIGS.mkdir(parents=True, exist_ok=True)
-sns.set_theme(style='whitegrid', palette='muted', font_scale=1.1)
+sns.set_theme(style='whitegrid', font_scale=1.1)
 
-# ── Color map across all panels ──
+# ── Okabe–Ito palette ──
+# Slot assignment follows docs/vis_guidelines.md §1.
+# The 8 hex codes below are the ONLY categorical colours used across
+# all panels; neutrals (#262626 / #cccccc / #ffffff / #999999) are
+# applied separately by matplotlib defaults.
+OI_BLACK    = '#000000'  # theory / baseline reference
+OI_ORANGE   = '#E69F00'  # variant A — sparse K=4, primary new method
+OI_SKYBLUE  = '#56B4E9'  # variant B — sparse K=32
+OI_GREEN    = '#009E73'  # variant C — sparse K=64, dense_flash
+OI_YELLOW   = '#F0E442'  # variant D — reserved
+OI_BLUE     = '#0072B2'  # secondary metric / QKV projection
+OI_VERMILION = '#D55E00' # ablation / sparse K=16
+OI_PURPLE   = '#CC79A7'  # attention / gather / sparse K=large
+
+# ── Color map across all panels (Okabe–Ito only) ──
 COLORS = {
-    'dense_flash': '#2ecc71',
-    'dense': '#e74c3c',
-    'dense_masked': '#e67e22',
-    'sparse_k4': '#3498db',
-    'sparse_k16': '#9b59b6',
-    'sparse_k64': '#1abc9c',
-    'sparse_gather': '#e74c3c',
-    'mask_knn': '#f39c12',
-    'baseline': '#e74c3c',
-    'k4': '#3498db',
-    'k16': '#9b59b6',
-    'k32': '#1abc9c',
-    'k64': '#2ecc71',
+    # dense variants
+    'dense_flash':  OI_GREEN,
+    'dense':        OI_BLACK,
+    'dense_masked': OI_BLACK,
+    # sparse kNN
+    'sparse_k4':    OI_ORANGE,
+    'sparse_k16':   OI_VERMILION,
+    'sparse_k64':   OI_PURPLE,
+    'sparse_gather': OI_PURPLE,
+    # alternative sparse designs
+    'mask_knn':     OI_SKYBLUE,
+    # baseline / reference
+    'baseline':     OI_BLACK,
+    # kNN sweep series (panel 4, 5, 6, 7, 9)
+    'k4':  OI_ORANGE,
+    'k16': OI_VERMILION,
+    'k32': OI_SKYBLUE,
+    'k64': OI_GREEN,
     # full_bench_a500.csv method names (fig 01)
-    'gather-KNN_K=4': '#3498db',
-    'gather-KNN_K=16': '#9b59b6',
-    'mask-KNN_K=4': '#e74c3c',
-    'mask-KNN_K=16': '#c0392b',
-    'NSA': '#95a5a6',
-    'KNN-RelPos_K=4': '#1abc9c',
-    'KNN-RelPos_K=16': '#16a085',
+    'gather-KNN_K=4':  OI_ORANGE,
+    'gather-KNN_K=16': OI_VERMILION,
+    'mask-KNN_K=4':    OI_BLACK,
+    'mask-KNN_K=16':   OI_BLACK,
+    'NSA':             '#999999',
+    'KNN-RelPos_K=4':  OI_PURPLE,
+    'KNN-RelPos_K=16': OI_PURPLE,
+}
+
+# Auxiliary colours used in compound / stacked plots (also Okabe–Ito or neutral grey)
+AUX = {
+    'qkv_proj':       OI_BLUE,        # QKV/output projection
+    'sdpa_q1':        OI_ORANGE,      # SDPA at q_len=1 (heavy compute)
+    'gather_index':   OI_VERMILION,   # gather / index copy
+    'copy_reshape':   '#999999',      # neutral grey
+    'mask_fill':      '#999999',      # neutral grey
+    'scatter_op':     OI_SKYBLUE,     # scatter_ in-place
+    'efficient_attn': OI_GREEN,       # EfficientAttn / FlashAttn
 }
 
 LABELS = {
@@ -284,8 +319,8 @@ def panel_edge_div_f1():
     fig, ax = plt.subplots(figsize=(7, 4.5))
     x = np.arange(len(models))
     w = 0.35
-    bars1 = ax.bar(x - w/2, [edge_f1[m] for m in models], w, label='Edge F1', color='#3498db')
-    bars2 = ax.bar(x + w/2, [div_f1[m] for m in models], w, label='Division F1', color='#e74c3c')
+    bars1 = ax.bar(x - w/2, [edge_f1[m] for m in models], w, label='Edge F1', color=OI_BLUE)
+    bars2 = ax.bar(x + w/2, [div_f1[m] for m in models], w, label='Division F1', color=OI_VERMILION)
     ax.set_xticks(x)
     ax.set_xticklabels([LABELS[m] for m in models], fontsize=9)
     ax.set_ylabel('F1 Score')
@@ -337,10 +372,10 @@ def panel_speedup_heatmap():
     pivot_dense = merged.pivot_table(index='N', columns='K', values='speedup_vs_dense')
     pivot_flash = merged.pivot_table(index='N', columns='K', values='speedup_vs_flash')
     fig, axes = plt.subplots(1, 2, figsize=(10, 4))
-    sns.heatmap(pivot_dense, annot=True, fmt='.2f', cmap='RdYlGn', center=1,
+    sns.heatmap(pivot_dense, annot=True, fmt='.2f', cmap='viridis', center=1,
                 ax=axes[0], cbar_kws={'label': '× vs Dense Masked'})
     axes[0].set_title('Speedup vs Dense Masked')
-    sns.heatmap(pivot_flash, annot=True, fmt='.2f', cmap='RdYlGn_r', center=1,
+    sns.heatmap(pivot_flash, annot=True, fmt='.2f', cmap='viridis_r', center=1,
                 ax=axes[1], cbar_kws={'label': '× vs Dense FlashAttn'})
     axes[1].set_title('Speedup vs Dense FlashAttn')
     fig.suptitle('Sparse Attention Speedup by N and K (L=1)', fontsize=13, y=1.02)
@@ -360,10 +395,10 @@ def panel_profiler_breakdown():
 
     # Bar 1: Gather (total 1084 us)
     gather_parts = [
-        ('SDPA q_len=1', 533, '#e67e22'),
-        ('Gather (index)', 277, '#c0392b'),
-        ('Copy/reshape', 210, '#95a5a6'),
-        ('QKV+out proj', 64, '#3498db'),
+        ('SDPA q_len=1', 533, AUX['sdpa_q1']),
+        ('Gather (index)', 277, AUX['gather_index']),
+        ('Copy/reshape', 210, AUX['copy_reshape']),
+        ('QKV+out proj', 64, AUX['qkv_proj']),
     ]
     cum = 0
     for name, val, col in gather_parts:
@@ -377,10 +412,10 @@ def panel_profiler_breakdown():
 
     # Bar 2: Scatter (total 97 us)
     scatter_parts = [
-        ('EfficientAttn', 36, '#2ecc71'),
-        ('QKV+out proj', 37, '#3498db'),
-        ('Mask fill', 13, '#95a5a6'),
-        ('scatter_', 11, '#f39c12'),
+        ('EfficientAttn', 36, AUX['efficient_attn']),
+        ('QKV+out proj', 37, AUX['qkv_proj']),
+        ('Mask fill', 13, AUX['mask_fill']),
+        ('scatter_', 11, AUX['scatter_op']),
     ]
     cum = 0
     for name, val, col in scatter_parts:
@@ -393,8 +428,8 @@ def panel_profiler_breakdown():
 
     # Bar 3: Dense Flash (total 54 us)
     flash_parts = [
-        ('FlashAttn', 17, '#27ae60'),
-        ('QKV+out proj', 37, '#3498db'),
+        ('FlashAttn', 17, AUX['efficient_attn']),
+        ('QKV+out proj', 37, AUX['qkv_proj']),
     ]
     cum = 0
     for name, val, col in flash_parts:
@@ -408,12 +443,12 @@ def panel_profiler_breakdown():
     # Legend (unique entries)
     from matplotlib.patches import Patch
     legend_elements = [
-        Patch(color='#e67e22', label='SDPA q_len=1'),
-        Patch(color='#c0392b', label='Gather (index)'),
-        Patch(color='#2ecc71', label='EfficientAttn / FlashAttn'),
-        Patch(color='#3498db', label='QKV+out proj'),
-        Patch(color='#95a5a6', label='Copy/reshape / Mask fill'),
-        Patch(color='#f39c12', label='scatter_ in-place'),
+        Patch(color=AUX['sdpa_q1'],      label='SDPA q_len=1'),
+        Patch(color=AUX['gather_index'], label='Gather (index)'),
+        Patch(color=AUX['efficient_attn'], label='EfficientAttn / FlashAttn'),
+        Patch(color=AUX['qkv_proj'],     label='QKV+out proj'),
+        Patch(color=AUX['copy_reshape'], label='Copy/reshape / Mask fill'),
+        Patch(color=AUX['scatter_op'],   label='scatter_ in-place'),
     ]
     ax.legend(handles=legend_elements, fontsize=7, loc='upper right')
 
@@ -434,7 +469,7 @@ def panel_ssl_negative():
     # LEFT: val_loss bar chart
     methods = ['From scratch\n(10% labels)', 'SSL identity BCE\n+ finetune', 'Random baseline\n(NT-Xent)']
     vals = [0.416, 0.404, 0.648]  # for contrastive: this is TRA not loss
-    colors_ssl = ['#e74c3c', '#f39c12', '#95a5a6']
+    colors_ssl = [OI_BLACK, OI_BLUE, '#999999']
     labels_ssl = ['0.416', '0.404', '0.648 TRA\n(= random)']
     bars = ax1.bar(range(len(methods)), vals, color=colors_ssl, width=0.5, edgecolor='white')
     for bar, v in zip(bars, vals):
@@ -446,9 +481,9 @@ def panel_ssl_negative():
     ax1.set_title('SSL: No Improvement Over Baseline')
 
     # RIGHT: identity BCE pretraining convergence (5 epochs)
-    df_ssl = pd.read_csv(ROOT / 'benchmark_ssl/runs/ssl_v1/training_log.csv')
-    ax2.plot(df_ssl.epoch, df_ssl.train_loss, 'o-', label='Train loss', color='#3498db', linewidth=2)
-    ax2.plot(df_ssl.epoch, df_ssl.val_loss, 's-', label='Val loss', color='#e74c3c', linewidth=2)
+    df_ssl = pd.read_csv(ROOT / 'benchmark_ssl' / 'results' / 'runs' / 'ssl_v1' / 'training_log.csv')
+    ax2.plot(df_ssl.epoch, df_ssl.train_loss, 'o-', label='Train loss', color=OI_BLUE, linewidth=2)
+    ax2.plot(df_ssl.epoch, df_ssl.val_loss, 's-', label='Val loss', color=OI_VERMILION, linewidth=2)
     ax2.axhline(y=0.416, color='gray', linestyle='--', alpha=0.5, label='Baseline final (0.416)')
     ax2.set_xlabel('SSL Pretraining Epoch')
     ax2.set_ylabel('BCE Loss')
@@ -466,11 +501,27 @@ def panel_ssl_negative():
 def panel_layer_scaling():
     df = pd.read_csv(ROOT / 'benchmark_sparse_results.csv')
     df = df[df.method.isin(['dense', 'dense_flash']) | ((df.method == 'sparse') & (df.K == 16))]
-    df['label'] = df.apply(lambda r: f"{'dense_flash' if r.method == 'dense_flash' else 'dense' if r.method == 'dense' else 'sparse'}_L{r.L}", axis=1)
+    df['model_kind'] = df.method.map({'dense': 'dense',
+                                     'dense_flash': 'dense_flash',
+                                     'sparse': 'sparse_k16'})
+    df['label'] = df.apply(lambda r: f"{r.model_kind}_L{r.L}", axis=1)
+    # Colour per model, linestyle per L — keeps the Okabe–Ito slots
+    # pure (one hue per model) and uses style for the secondary dim.
+    model_color = {
+        'dense':       OI_BLACK,
+        'dense_flash': OI_GREEN,
+        'sparse_k16':  OI_VERMILION,
+    }
+    layer_linestyle = {1: '-', 4: '--'}
     fig, ax = plt.subplots(figsize=(8, 5))
     for lbl, grp in df.groupby('label'):
         grp = grp.sort_values('N')
-        ax.plot(grp.N, grp.time_s * 1000, 'o-', label=lbl, linewidth=2, markersize=6)
+        kind = lbl.rsplit('_L', 1)[0]
+        L = int(lbl.rsplit('_L', 1)[1])
+        ax.plot(grp.N, grp.time_s * 1000, marker='o',
+                linestyle=layer_linestyle[L],
+                label=lbl, color=model_color[kind],
+                linewidth=2, markersize=6)
     ax.set_xscale('log', base=2)
     ax.set_yscale('log')
     ax.set_xlabel('N')
@@ -641,7 +692,7 @@ attention variants maintain or slightly improve tracking quality across all K va
 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
        max-width: 1100px; margin: 0 auto; padding: 30px 20px; background: #fafafa; color: #222; }
 h1 { font-size: 28px; border-bottom: 3px solid #333; padding-bottom: 10px; }
-h2 { font-size: 20px; margin-top: 40px; color: #2c3e50; border-left: 4px solid #3498db;
+h2 { font-size: 20px; margin-top: 40px; color: #262626; border-left: 4px solid #0072B2;
      padding-left: 12px; }
 .figure { background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.08);
           padding: 20px; margin: 15px 0; text-align: center; }
