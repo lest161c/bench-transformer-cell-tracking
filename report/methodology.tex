@@ -1,0 +1,54 @@
+We address two interconnected research questions. First, we ask whether we can recover throughput and memory by replacing dense masked SDPA with sparse attention over the spatial-cutoff graph, and what the optimal architecture is at the cell counts of the vanvliet and DeepCell datasets (Section~\ref{sec:dataset_stats}). Second, we investigate whether self-supervised pretraining on unlabeled single frames via geometric distortion can improve data efficiency in the low-label regime.
+
+\subsection{Dataset Statistics}
+\label{sec:dataset_stats}
+
+The vanvliet dataset~\cite{vanvliet2018} comprises $33$ sequences, $1{,}690$ frames, and $75{,}828$ cell instances. For full-frame four-frame windows, the per-sample cell count $N$ has median $62$ and mean $165.7$, with $9.3\%$ of samples exceeding $N > 500$. The DeepCell dataset~\cite{schwartz2023} has $12$ sequences, $1{,}985$ frames; per-frame cell count ranges from $4$ to $494$ (median $57$, mean $117.9$), and the per-sample $N$ (window $= 4$) has median $61$ and mean $121.3$. Full statistics are in Table~\ref{tab:app_dataset_stats} (appendix).
+
+\subsection{Efficient Sparse Attention Architectures}
+\label{sec:sparse_attn}
+
+We compare six attention architectures in a controlled benchmark (Table~\ref{tab:complexity}):
+\begin{enumerate}
+\item \textbf{Dense Masked SDPA (Trackastra baseline):} Per-layer pairwise distance computation with distance-decay bias and spatial cutoff mask using the memory-efficient SDPA backend. Uses $\mathcal{O}(N^2)$ memory.
+\item \textbf{Dense FlashAttention:} Standard SDPA without any mask, dispatching to the FlashAttention-2 backend in fp16. This is a trainable configuration (\texttt{knn\_neighbors}$=-2$) that removes the spatial cutoff entirely.
+\item \textbf{Gather-KNN:} Gathers selected key and value vectors and runs FlashAttention on $B \cdot N$ independent $1 \times K$ subproblems, achieving $\mathcal{O}(NKd_h)$ compute and $\mathcal{O}(NK)$ memory.
+\item \textbf{Mask-KNN:} Constructs a Boolean $N \times N$ mask via scatter-based operations and runs a single SDPA call on native tensor shape, eliminating gather overhead but forcing the memory-efficient SDPA backend.
+\item \textbf{CachedDistAttention:} Computes the $N \times N$ pairwise distance matrix once and shares it across all $L$ transformer layers, reducing mask construction from $L$ to one per forward pass.
+\item \textbf{NSA (Native Sparse Attention):}~\cite{yuan2025native} Combines compression, top-$n$ selection, and sliding window with learned gating. Designed for autoregressive LLM decoding at $64{,}000+$ tokens.
+\end{enumerate}
+
+\begin{table}[H]
+\centering
+\caption{Comparative complexity of attention architectures.}
+\label{tab:complexity}
+\begin{tabular}{@{}lccccl@{}}
+\toprule
+\textbf{Architecture} & \textbf{Compute} & \textbf{Memory} & \textbf{FlashAttn} & \textbf{Locality} & \textbf{Target Regime} \\
+\midrule
+Standard / Trackastra & $\mathcal{O}(N^2 d)$ & $\mathcal{O}(N^2)$ & $\times$ (masked) & \checkmark & --- \\
+FlashAttention-2 & $\mathcal{O}(N^2 d)$ & $\mathcal{O}(N)$ & $\checkmark$ & $\times$ & All $N$ (speed) \\
+Fused NA / Gather sparse & $\mathcal{O}(N k d)$ & $\mathcal{O}(N k)$ & \checkmark & \checkmark & $\geq 8192$ \\
+Mask-KNN sparse & $\mathcal{O}(N k d)$ & $\mathcal{O}(N k)$ & $\times$ & $\checkmark$ & $\leq 4096$ \\
+NSA & $\ll\mathcal{O}(N^2)$ & varies & partial & partial & $\geq 64{,}000$ (paper) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection*{Equivalence Validation}
+\label{sec:equiv_val}
+
+To confirm that gather-KNN and mask-KNN produce functionally equivalent associations, we compared their outputs across $18$ configurations ($N \in \{128, 256, 512\}$, $K \in \{4, 16\}$, three seeds, fp16 on CUDA). The cosine similarity ranged from $0.9995$ to $1.0010$, with forward differences $|\Delta| < 5 \times 10^{-4}$ and gradient relative errors below $8 \times 10^{-4}$---obtained in $\sim 2$ GPU-minutes rather than $600+$ GPU-minutes for a full training run. All configurations ($K \in \{4, 16, 32, 64\}$) achieved nearly identical tracking accuracy (TRA varied by less than $\pm 0.001$), suggesting that the effective receptive field is captured by $\sim 16$ nearest neighbors.
+
+\subsection{SSL Pretraining via Geometric Distortion}
+\label{sec:ssl}
+
+Given a single frame with segmentations $\{s_i\}$, we apply a random geometric transformation $T$ to produce a synthetic "next frame" with segmentations $\{T(s_i)\}$. The ground-truth association is the identity mapping $i \rightarrow T(i)$, modulo dropped or occluded cells. The distortions are geometric: affine transformations, per-cell jitter ($\sigma = 8$ pixels, simulating Brownian motion), and detection dropout (simulating segmentation failure). We explore two objectives:
+
+\paragraph{Identity BCE.}
+The association head predicts a binary matrix $\hat{A} \in [0,1]^{M \times N}$ against the identity ground truth. Loss is standard binary cross-entropy with the parental softmax formulation.
+
+\paragraph{NT-Xent contrastive objective.}
+Tokens from corresponding cells across two views form positive pairs; all other pairs are negatives. Loss is normalized temperature-scaled cross-entropy ($\tau = 0.05$) applied to encoder embeddings, pulling positives together and pushing negatives apart.
+
+Both objectives operate on the standard $7$-dimensional regionprops feature vector per cell.
