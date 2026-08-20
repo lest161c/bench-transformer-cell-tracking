@@ -15,7 +15,16 @@ benchmark_sparse_results.csv
 benchmark_small_n_results.csv
 benchmark_mask_vs_gather.csv
 **/benchmark_sparse.html
-report/
+# report/ is largely build artefacts; allow-list specific paths that should
+# be tracked (rendering scripts and figure outputs) and ignore everything
+# else inside it.
+report/*
+!report/scripts/
+!report/scripts/**
+!report/resources/
+!report/resources/**
+!report/resources/figures/
+!report/resources/figures/**
 
 # Secrets
 .env
@@ -114,3 +123,7 @@ benchmark_attn/*.html
 open_13_08.md
 todo_refac.md
 todo_refac.md
+
+# Re-include report/scripts/ (override line 103 'scripts/')
+!report/scripts/
+!report/scripts/**
