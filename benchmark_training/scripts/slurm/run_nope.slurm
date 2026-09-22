@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=nope
 #SBATCH --account=p_scads_celltracking
-#SBATCH --partition=gpu-h100
+#SBATCH --partition=capella
 #SBATCH --time=24:00:00
 #SBATCH --nodes=1
 #SBATCH --gpus-per-node=1
@@ -23,11 +23,10 @@
 # Estimated runtime: ~6.4-11 h on one H100 (24 h limit leaves ample headroom;
 # run_knn_sweep.slurm requests 48 h because its 500-epoch jobs are longer).
 #
-# PARTITION CONFLICT — verify at submit time: vault/context/C11-Capella-HPC.md
-# says the H100 nodes are partition "gpu-h100", but HANDOVER.md:168 says
-# "capella".  run_knn_sweep.slurm sets no explicit --partition (it inherits
-# from slurm/load_cluster_env.sh).  Check `sinfo -o "%P %N %G"` before
-# sbatch and fix the --partition line above if needed.
+# PARTITION — resolved 2026-09-22: live `sinfo` on the cluster shows the
+# H100 nodes in partition "capella*" (the default), consistent with
+# HANDOVER.md.  vault/context/C11-Capella-HPC.md's "gpu-h100" name is
+# stale; the --partition line above now uses "capella".
 #
 # ─── Usage ──────────────────────────────────────────────────────────
 #
