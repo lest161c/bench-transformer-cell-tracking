@@ -29,7 +29,7 @@ Total figures **on disk** under `report/resources/figures/`:
 | 3 | `13_ssl_negative.pdf`    | `curated/generate_report.py`                            | `report/../`                             | same as #1                       |
 | 4 | `15_amdahl_law.pdf`      | `report/scripts/generate_amdahl_figure.py`             | `report/scripts/`                        | `report/resources/figures/` (default) |
 | 5 | `sparse_attention_speed.pdf` | `results/generate_plots.py` (line 471)            | `results/`                               | `results/figures/` then copied to `report/resources/figures/` |
-| 6 | `sparse_attention_memory.pdf` | `results/generate_plots.py` (line 533)          | `results/`                               | same as #5                       |
+| 6 | `sparse_attention_memory.pdf` | `results/generate_plots.py` (`plot_sparse_attention_memory`) | `results/` (speed_mem.csv) + `benchmark_attn/results/mask_creation_scaling.csv` (job 4281334, mask-KNN creation series) | same as #5, plus `.svg` sibling |
 | 7 | `pipeline_breakdown.pdf` | `results/generate_plots.py` (line 594)                  | `results/`                               | same as #5                       |
 | 8 | `backward_pass.pdf`      | `results/generate_plots.py` (line 662)                  | `results/`                               | same as #5                       |
 
@@ -38,7 +38,8 @@ Each script writes **both** PDF and SVG where applicable:
 - `curated/generate_report.py`: writes `curated/figures/{name}.pdf`
   and `.svg` (line 71–72 in source).
 - `results/generate_plots.py`: writes PDF only, 300 dpi (line 90,
-  141–146).
+  141–146) — except `sparse_attention_memory`, which also writes an
+  SVG sibling since the job 4281334 mask-creation series was added.
 - `report/scripts/generate_amdahl_figure.py`: writes both PDF
   and SVG (line 97–98).
 

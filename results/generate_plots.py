@@ -491,8 +491,15 @@ def plot_sparse_attention_speed():
 def plot_sparse_attention_memory():
     """
     Line plot: N vs mem_mb for different K values.
-    Source: benchmark_attn/results/speed_mem.csv (updated 2026-08-04, K ∈ {0,4,8,16,32,64},
-    N ∈ {128,256,512}).
+    Sources:
+      * benchmark_attn/results/speed_mem.csv (updated 2026-08-04,
+        K ∈ {0,4,8,16,32,64}, N ∈ {128,256,512}) — dense baseline and
+        gather-KNN sparse variants (O(NK) memory).
+      * benchmark_attn/results/mask_creation_scaling.csv (job 4281334,
+        N ∈ {2048,4096,8192,16384}, K ∈ {16,64}) — mask-KNN scatter
+        construction memory: 8·N²·4 bytes (128 MB @2048 … 8 GB @16384).
+        The buffer is K-independent (same N×N Boolean mask for K=16 and
+        K=64), so a single measured line represents both K values.
     Fallback: bench-transformer-cell-tracking/benchmark_combined/results/speed_mem.csv (no K=64).
     """
     path_local = BASE / "benchmark_attn" / "results" / "speed_mem.csv"
@@ -535,16 +542,52 @@ def plot_sparse_attention_memory():
                 linewidth=1.5 if "Dense" in k_label or "K=16" in k_label else 1.0,
                 marker="s", markersize=3.5, label=k_label)
 
+    # Measured mask-construction memory (mask-KNN scatter path, job 4281334).
+    # The N×N Boolean mask buffer grows quadratically: 128 MB @2048, 512 MB
+    # @4096, 2 GB @8192, 8 GB @16384. This is the memory wall behind the
+    # report's claim that mask-KNN is memory-prohibitive at large N while
+    # gather-KNN (O(NK)) stays bounded.
+    mask_series_added = False
+    mask_path = BASE / "benchmark_attn" / "results" / "mask_creation_scaling.csv"
+    if mask_path.exists():
+        mask_df = pd.read_csv(mask_path)
+        # mem_mb is identical for K=16 and K=64 (same N² buffer) → keep one
+        # (N, mem_mb) pair per N so the line has 4 points, not 8 overlapping.
+        mask_df = (mask_df[mask_df["method"] == "mask_creation"]
+                          .drop_duplicates(subset=["N", "mem_mb"])
+                          .sort_values("N"))
+        ax.plot(mask_df["N"], mask_df["mem_mb"],
+                color=OI_BLACK, linestyle=":", linewidth=1.5,
+                marker="^", markersize=3.5,
+                label="mask-KNN mask creation (K=16/64)")
+        mask_series_added = True
+    else:
+        print("  ⚠ mask_creation_scaling.csv not found — plotting without mask series")
+
     ax.set_xlabel("Sequence length N")
     ax.set_ylabel("Memory (MB)")
     ax.set_xscale("log", base=2)
-    ax.set_xticks([128, 256, 512])
+    if mask_series_added:
+        # Extend x-axis and switch y to log: the mask series spans 128–8192 MB,
+        # two decades above the 80–1600 MB gather/dense cluster at N ≤ 512.
+        ax.set_xticks([128, 256, 512, 2048, 4096, 8192, 16384])
+        ax.set_xlim(100, 20000)
+        ax.set_yscale("log")
+        ax.get_yaxis().set_major_formatter(mticker.ScalarFormatter())
+    else:
+        ax.set_xticks([128, 256, 512])
+        ax.set_xlim(100, 600)
     ax.get_xaxis().set_major_formatter(mticker.ScalarFormatter())
-    ax.set_xlim(100, 600)
     add_horizontal_grid(ax)
     style_legend(ax, loc="upper left", fontsize=6.5)
 
     savefig("sparse_attention_memory.pdf", fig)
+    # SVG sibling for editing in report/figs/ (PDF remains the build asset).
+    if mask_series_added:
+        svg_path = FIGURES / "sparse_attention_memory.svg"
+        fig.savefig(svg_path, bbox_inches="tight", pad_inches=0.05)
+        size_kb = os.path.getsize(svg_path) / 1024
+        print(f"  ✓ sparse_attention_memory.svg  ({size_kb:.1f} KB)")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -613,9 +656,12 @@ def plot_pipeline_breakdown():
 def plot_backward_pass():
     """
     Bar chart comparing forward+backward time for different attention methods.
-    Source: benchmark_backward/sparse_backward_results.csv
+    Source: benchmark_attn/results/sparse_backward_results.csv
+    (legacy path benchmark_backward/ is kept as a fallback for older runs).
     """
-    path = BASE / "benchmark_backward" / "sparse_backward_results.csv"
+    path_new = BASE / "benchmark_attn" / "results" / "sparse_backward_results.csv"
+    path_old = BASE / "benchmark_backward" / "sparse_backward_results.csv"
+    path = path_new if path_new.exists() else path_old
     if not path.exists():
         print("  ⚠ sparse_backward_results.csv not found — skipping backward_pass.pdf")
         return
