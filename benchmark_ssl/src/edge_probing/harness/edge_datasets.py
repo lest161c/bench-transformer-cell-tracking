@@ -29,7 +29,7 @@ class EdgePairDataset(Dataset):
       label  = 1 if same-tracklet, 0 otherwise
     """
 
-    def __init__(self, feat_anchor, feat_query, target):
+    def __init__(self, feat_anchor, feat_query, target, pair_id=None):
         """Flatten an (n_cells_anchor, n_cells_query) target matrix into one sample per pair.
 
         Args:
@@ -37,6 +37,8 @@ class EdgePairDataset(Dataset):
             feat_query: (n_cells_query, D) features of cells in frame t+1.
             target: (n_cells_anchor, n_cells_query) binary edge matrix; each entry yields
                 one training sample.
+            pair_id: Stable frame-pair identifier (condition/experiment#frames) used
+                to pair per-frame-pair metrics across feature sets.
         """
         n_cells_anchor, n_cells_query = target.shape
         pairs_anchor, pairs_query, labels = [], [], []
@@ -48,6 +50,7 @@ class EdgePairDataset(Dataset):
         self.pairs_anchor = torch.stack(pairs_anchor) if pairs_anchor else torch.empty(0, feat_anchor.shape[-1])
         self.pairs_query = torch.stack(pairs_query) if pairs_query else torch.empty(0, feat_query.shape[-1])
         self.labels = torch.tensor(labels, dtype=torch.float32)
+        self.pair_id = pair_id
 
     def __len__(self):
         """Return the number of cell-cell pair samples."""
@@ -75,7 +78,14 @@ class EdgePairDatasetPatches(Dataset):
         target: (n_cells_anchor, n_cells_query) binary edge matrix.
     """
 
-    def __init__(self, patches_anchor, patches_query, target):
+    def __init__(self, patches_anchor, patches_query, target, pair_id=None):
+        """Flatten an (n_cells_anchor, n_cells_query) target matrix into patch samples.
+
+        Args:
+            patches_anchor, patches_query: per-cell image patches of the two frames.
+            target: binary edge matrix; each entry yields one training sample.
+            pair_id: Stable frame-pair identifier, carried for paired statistics.
+        """
         n_cells_anchor, n_cells_query = target.shape
         pairs_anchor, pairs_query, labels = [], [], []
         for i in range(n_cells_anchor):
@@ -86,6 +96,7 @@ class EdgePairDatasetPatches(Dataset):
         self.pairs_anchor = torch.stack(pairs_anchor) if pairs_anchor else torch.empty(0, *patches_anchor.shape[1:])
         self.pairs_query = torch.stack(pairs_query) if pairs_query else torch.empty(0, *patches_query.shape[1:])
         self.labels = torch.tensor(labels, dtype=torch.float32)
+        self.pair_id = pair_id
 
     def __len__(self):
         """Return the number of cell-cell pair samples."""
@@ -201,10 +212,12 @@ def flatten_to_pairs(edge_data):
     datasets = []
     for item in edge_data:
         if "feat_anchor" in item:
-            dataset = EdgePairDataset(item["feat_anchor"], item["feat_query"], item["target"])
+            dataset = EdgePairDataset(item["feat_anchor"], item["feat_query"], item["target"],
+                                      pair_id=item.get("pair_id"))
         else:
             # For cnn_e2e, patches are stored
-            dataset = EdgePairDatasetPatches(item["patches_anchor"], item["patches_query"], item["target"])
+            dataset = EdgePairDatasetPatches(item["patches_anchor"], item["patches_query"],
+                                             item["target"], pair_id=item.get("pair_id"))
         if len(dataset) > 0:
             datasets.append(dataset)
     return datasets

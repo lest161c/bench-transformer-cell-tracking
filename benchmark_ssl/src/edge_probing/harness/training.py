@@ -11,6 +11,7 @@ import logging
 import numpy as np
 import torch
 import torch.nn as nn
+from torch.utils.data import DataLoader
 from sklearn.metrics import balanced_accuracy_score, f1_score, precision_score, recall_score
 
 from src.edge_probing.harness.edge_datasets import _gather_labels, make_balanced_dataloader
@@ -29,6 +30,34 @@ def compute_metrics(scores, target):
     prec = precision_score(target_np, pred_np, zero_division=0)
     rec = recall_score(target_np, pred_np, zero_division=0)
     return bal_acc, f1, prec, rec
+
+
+def score_dataset(model, dataset, batch_size=512, is_e2e=False):
+    """Score every candidate of one dataset and return pooled logits and labels.
+
+    Used to compute per-frame-pair metrics (the statistical unit for paired
+    significance testing): the fold-level metric averages per-batch balanced
+    accuracy, which would smear one frame pair across batch boundaries.
+
+    Args:
+        model: Trained probe (LinearProbe/MLPProbe) or CNNProbeE2E.
+        dataset: An EdgePairDataset / EdgePairDatasetPatches or a ConcatDataset.
+        batch_size: Evaluation batch size (no effect on pooled metrics).
+        is_e2e: Whether ``model`` consumes patch pairs instead of feature pairs.
+
+    Returns:
+        Tuple (scores, targets) of concatenated logits and binary targets.
+    """
+    loader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
+    model.eval()
+    scores_all, targets_all = [], []
+    with torch.no_grad():
+        for batch_anchor, batch_query, batch_target in loader:
+            batch_anchor = batch_anchor.to(device)
+            batch_query = batch_query.to(device)
+            scores_all.append(model(batch_anchor, batch_query).cpu())
+            targets_all.append(batch_target)
+    return torch.cat(scores_all), torch.cat(targets_all)
 
 
 def train_probe(probe, train_loader, val_loader, epochs=200, lr=1e-3,

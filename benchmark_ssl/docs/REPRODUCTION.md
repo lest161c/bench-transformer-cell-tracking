@@ -81,7 +81,7 @@ read `REPO_ROOT` from `~/.bench.env`.
 | DINO backbone comparison | `python -m src.analysis.dino_backbone_comparison` | `runs/dino_comparison/comparison.csv`, `.png`, `verdict.txt` | DONE (A500) |
 | Coordinate shortcut diagnostic | `python -m src.analysis.coord_shortcut_diagnostic` | `runs/diagnose_coord_shortcut*/mode_{A,B,C}.csv`, PNG | DONE (A500) |
 | End-to-end SSL → downstream | `python -m src.analysis.end_to_end_diagnostic` | `runs/diagnose_end_to_end/downstream_{R,A,B,C}.csv`, PNG | DONE (A500) |
-| Unified edge probe (5-fold CV) | `python -m src.edge_probing.unified_edge_probe` | `results/unified_probe_results_cv.json` | DONE (A500) |
+| Unified edge probe (10-fold CV + per-pair significance) | `python -m src.edge_probing.unified_edge_probe` + `python -m src.analysis.probe_paired_significance` | `results/probes/unified_probe_results_cv10.json` + `probe_paired_significance.json` | DONE (A500, refreshed 2026-09-24; supersedes 5-fold) |
 | DINOv2 full SSL pretraining | — | `$TRK/runs/ssl_dino_pretrain/` | **NOT-NEEDED** (never completed) |
 | Multi-seed K-sweep (42/43/44) | `run_single_config.slurm` (cluster) | `results/knn_sweep/` variance estimates | PENDING (cluster) |
 | DeepCell cross-dataset eval | `slurm/cross_dataset_eval.slurm` (cluster) | `$TRK/results/cross_dataset/deepcell/...` | PENDING (cluster) |
@@ -157,17 +157,53 @@ SSL does not help downstream convergence at this scale.
 
 Verdict: "Feature quality bottleneck is domain mismatch, not model capacity."
 
-### 4.10 Unified edge probe (5-fold CV) — `results/unified_probe_results_cv.json`
+### 4.10 Unified edge probe (10-fold CV + per-pair significance) — `results/probes/unified_probe_results_cv10.json`
+
+Supersedes the 2026-08 5-fold run (`results/probes/unified_probe_results_cv.json`,
+kept for provenance): the probe script evolved since (hoct19 renamed hoct2d,
+Fourier-PE feature variants added), so the old numbers are not reproducible with
+current code and the table below replaces the one in the report.
+
+Command (from `benchmark_ssl/`, local A500 or any CUDA GPU):
+
+    .venv/bin/python -m src.edge_probing.unified_edge_probe \
+      --data-root ../data/vanvliet --features all --probe both \
+      --cv-folds 10 --max-pairs 30 --seed 42 --dump-predictions \
+      --checkpoint results/checkpoints/cnn/cnn_ntxent_large.pt \
+      --output results/probes/unified_probe_results_cv10.json
+    .venv/bin/python -m src.analysis.probe_paired_significance \
+      --input results/probes/probe_paired_significance.json \
+      --output results/probes/probe_paired_significance.json --check
+
+Per-feature balanced accuracy (MLP probe, 10-fold, seed 42):
+
 | Feature (MLP probe) | balanced acc (mean ± std) | F1 |
 |---|---|---|
-| DINOv2 (frozen) | 0.8958 ± 0.0362 | 0.566 ± 0.090 |
-| HOCT 2D (13D) | 0.8799 ± 0.0201 | 0.423 ± 0.076 |
-| Regionprops 7D | 0.8595 ± 0.0137 | 0.396 ± 0.056 |
-| CNN NT-Xent (frozen) | 0.7031 ± 0.0554 | 0.289 ± 0.126 |
+| Regionprops 7D + Fourier PE | 0.9626 ± 0.0235 | 0.735 ± 0.097 |
+| HOCT 2D + Fourier PE | 0.9287 ± 0.0952 | 0.680 |
+| DINOv2 (frozen) | 0.9226 ± 0.0511 | 0.719 |
+| HOCT 2D (13D) | 0.8644 ± 0.1528 | 0.531 |
+| Regionprops 7D | 0.8206 ± 0.0908 | 0.378 |
+| CNN NT-Xent (frozen) | 0.7753 ± 0.0779 | 0.354 |
 | CNN end-to-end | 0.5000 ± 0.0000 | 0.000 ± 0.000 |
 
-Linear probes: 0.50–0.57. Shuffle baseline 0.50–0.55 (no label leakage).
-Runtime 50 min 53 s, GPU peak ~3.35 GiB.
+Significance vs the 7D-regionprops reference (primary unit = matched frame pair,
+n = 29; paired t-test, bootstrap 95% CI, Monte-Carlo sign-flip permutation,
+Holm across feature sets; computed by `src/analysis/probe_paired_significance.py`,
+verified values in `docs/agent-state/specs/0006-probe-ci/SPEC.md`):
+
+| Feature | Δ bal_acc [95% CI] | p (Holm) |
+|---|---|---|
+| Regionprops 7D + Fourier PE | +0.171 [+0.121, +0.220] | 1.9e-06 |
+| DINOv2 (frozen) | +0.160 [+0.109, +0.212] | 9.1e-06 |
+| HOCT 2D + Fourier PE | +0.123 [+0.061, +0.178] | 1.1e-03 |
+| CNN NT-Xent (frozen) | +0.065 [−0.008, +0.136] | 0.18 (n.s.) |
+| HOCT 2D | +0.039 [−0.028, +0.102] | 0.26 (n.s.) |
+| CNN end-to-end | −0.235 [−0.285, −0.182] | 1.2e-08 |
+
+Note: fold-level statistics (per-batch-mean balanced accuracy) are reported as a
+secondary unit in `probe_paired_significance.json`; the frame pair is the
+statistical unit because every frame pair is validated exactly once.
 
 ---
 

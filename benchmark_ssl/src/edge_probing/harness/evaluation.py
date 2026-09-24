@@ -39,7 +39,7 @@ from src.edge_probing.harness.edge_datasets import (
     shuffle_edge_data_features,
 )
 from src.edge_probing.harness.probes import LinearProbe, MLPProbe, CNNProbeE2E
-from src.edge_probing.harness.training import compute_metrics, train_probe
+from src.edge_probing.harness.training import compute_metrics, score_dataset, train_probe
 from src.edge_probing.harness.registry import FEATURE_REGISTRY
 
 logger = logging.getLogger("edge_probing.evaluation")
@@ -146,6 +146,10 @@ def build_frame_pairs(pairs, max_pairs, feature_type, checkpoint_path=None):
             continue
         coords_anchor, labels_anchor, img_anchor, mask_anchor = frame_anchor
         coords_query, labels_query, img_query, mask_query = frame_query
+        # Stable per-frame-pair identity, required to pair metrics across feature sets.
+        frame_anchor_num = int(Path(mask_path_anchor).stem.replace("man_track", ""))
+        frame_query_num = int(Path(mask_path_query).stem.replace("man_track", ""))
+        pair_id = f"{condition}/{experiment}#{frame_anchor_num}-{frame_query_num}"
 
         if len(labels_anchor) < 3 or len(labels_query) < 3:
             continue
@@ -303,6 +307,7 @@ def build_frame_pairs(pairs, max_pairs, feature_type, checkpoint_path=None):
                 "n_neg": n_cells_anchor * n_cells_query - n_pos,
                 "condition": condition,
                 "experiment": experiment,
+                "pair_id": pair_id,
             })
             total += 1
             continue
@@ -336,6 +341,7 @@ def build_frame_pairs(pairs, max_pairs, feature_type, checkpoint_path=None):
                 "n_neg": n_cells_anchor * n_cells_query - n_pos,
                 "condition": condition,
                 "experiment": experiment,
+                "pair_id": pair_id,
             })
             total += 1
 
@@ -392,6 +398,7 @@ def run_cross_validation(frame_pair_datasets, probe_name, feat_dim, args,
 
     kf = KFold(n_splits=n_folds, shuffle=True, random_state=args.seed)
     all_fold_results = []
+    pair_results = []
 
     for fold_idx, (train_indices, val_indices) in enumerate(kf.split(frame_pair_datasets)):
         logger.info(f"    Fold {fold_idx + 1}/{n_folds}: "
@@ -459,6 +466,25 @@ def run_cross_validation(frame_pair_datasets, probe_name, feat_dim, args,
 
         all_fold_results.append(result)
 
+        if getattr(args, "dump_predictions", False):
+            # Per-frame-pair metrics: score each held-out pair separately so the
+            # paired significance test can use the frame pair as its unit.
+            dump_model = model if is_e2e else probe
+            fold_pairs = []
+            for val_dataset in val_datasets:
+                pair_scores, pair_targets = score_dataset(
+                    dump_model, val_dataset, is_e2e=is_e2e,
+                )
+                pair_bal_acc, pair_f1, _, _ = compute_metrics(pair_scores, pair_targets)
+                fold_pairs.append({
+                    "pair_id": getattr(val_dataset, "pair_id", None),
+                    "n_candidates": int(len(pair_targets)),
+                    "n_positive": int(pair_targets.sum().item()),
+                    "bal_acc": float(pair_bal_acc),
+                    "f1": float(pair_f1),
+                })
+            pair_results.append({"fold": fold_idx, "pairs": fold_pairs})
+
     bal_accs = [result["final_bal_acc"] for result in all_fold_results]
     f1s = [result["final_f1"] for result in all_fold_results]
 
@@ -474,6 +500,7 @@ def run_cross_validation(frame_pair_datasets, probe_name, feat_dim, args,
         "f1_max": float(np.max(f1s)),
         "is_cv": True,
         "standardized": bool(not is_e2e and getattr(args, "standardize", True)),
+        "pair_results": pair_results,
     }
 
 

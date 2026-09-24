@@ -123,6 +123,8 @@ def parse_args(argv=None):
                    help="Path to save JSON results (default: no save)")
     parser.add_argument("--seed", type=int, default=42,
                    help="Random seed")
+    parser.add_argument("--dump-predictions", action="store_true",
+                   help="Record per-frame-pair probe metrics for significance testing")
     parser.add_argument("--no-cache", action="store_true",
                    help="Skip loading/saving feature cache")
     parser.add_argument("--cv-folds", type=int, default=0,
