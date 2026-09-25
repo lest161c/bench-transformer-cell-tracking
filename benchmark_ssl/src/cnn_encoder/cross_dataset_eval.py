@@ -6,13 +6,26 @@ Evaluates all 6 trained checkpoints (trained on vanvliet) on the held-out
 deepcell dataset. Computes TRA, cHOTA, and AOGM metrics per sequence and
 aggregated across all 12 test sequences.
 
+CLI design note (multi-seed sweeps): we use ``--checkpoints-file`` (JSON list
+of ``[run_dir_name, label]`` pairs, appended to the built-in CHECKPOINTS) rather
+than a ``--knn-sweep-runs`` glob on ``$TRK/runs/*_knn_sweep_*/``. Trackastra
+run-dir names follow ``YYYY-MM-DD_HH-MM-SS_<config>_<details>`` (see e.g. SPEC
+0008's ``k4_s42`` / ``k32_s43`` multi-seed dirs); a fixed ``_knn_sweep_`` token
+would be a brittle naming assumption. The JSON file is naming-agnostic and is
+trivially emitted by the SPEC 0008 D2 sweep launcher.
+
 Usage:
     python cross_dataset_eval.py [--device cuda|cpu] [--dry-run]
+    python cross_dataset_eval.py --checkpoints-file knn_sweep_runs.json
 
 Output:
     results/cross_dataset/deepcell/{variant}/{seq}/  ← CTC-format predictions
     results/cross_dataset/deepcell/{variant}/metrics.json   ← per-sequence metrics
     results/cross_dataset/deepcell/summary.json             ← aggregated results
+
+Multi-seed labels (e.g. ``k16_s42``) keep runs distinguishable in the summary;
+the same protocol (same 12 deepcell sequences, TRA/cHOTA/AOGM) is used for every
+entry, built-in or appended.
 """
 
 import json
@@ -56,6 +69,15 @@ def main():
         help="Process only this variant label (e.g. 'baseline'). "
              "Default: process all CHECKPOINTS.",
     )
+    parser.add_argument(
+        "--checkpoints-file", type=str, default=None,
+        help="Path to a JSON file containing a list of [run_dir_name, label] "
+             "pairs to APPEND to the built-in CHECKPOINTS list (e.g. multi-seed "
+             "K-sweep runs). Each extra checkpoint is evaluated with the same "
+             "protocol (same 12 deepcell sequences, TRA/cHOTA/AOGM) and writes "
+             "to the same output structure. Default: not set (only built-in "
+             "CHECKPOINTS are evaluated, preserving historical behavior).",
+    )
     args = parser.parse_args()
 
     # Sequences 00–11 are the deepcell test split (held-out, never used in training)
@@ -77,12 +99,40 @@ def main():
 
     all_results = {}
 
-    checkpoints_to_run = CHECKPOINTS
+    # Build the full checkpoint list: built-ins + optional extras from the
+    # JSON file. Default behavior (no --checkpoints-file) is exactly the
+    # historical CHECKPOINTS list.
+    all_checkpoints = list(CHECKPOINTS)
+    if args.checkpoints_file is not None:
+        with open(args.checkpoints_file) as file_handle:
+            extra = json.load(file_handle)
+        if not isinstance(extra, list):
+            parser.error(
+                f"--checkpoints-file: expected a JSON list of "
+                f"[run_dir_name, label] pairs, got {type(extra).__name__}"
+            )
+        for entry in extra:
+            if (
+                not isinstance(entry, list)
+                or len(entry) != 2
+                or not all(isinstance(x, str) for x in entry)
+            ):
+                parser.error(
+                    f"--checkpoints-file: each entry must be a "
+                    f"[run_dir_name, label] pair of strings; got {entry!r}"
+                )
+        all_checkpoints.extend(extra)
+
+    checkpoints_to_run = all_checkpoints
     if args.variant is not None:
-        checkpoints_to_run = [(d, v) for d, v in CHECKPOINTS if v == args.variant]
+        checkpoints_to_run = [
+            (d, v) for d, v in all_checkpoints if v == args.variant
+        ]
         if not checkpoints_to_run:
-            available = [v for _, v in CHECKPOINTS]
-            parser.error(f"Unknown variant '{args.variant}'. Available: {available}")
+            available = [v for _, v in all_checkpoints]
+            parser.error(
+                f"Unknown variant '{args.variant}'. Available: {available}"
+            )
 
     for ckpt_dir, variant in checkpoints_to_run:
         model_dir = TRK / "runs" / ckpt_dir
@@ -222,7 +272,7 @@ def main():
     elif args.dry_run:
         print("\n  DRY RUN — use --dry-run to see plan")
         print(f"  Sequences to process: {len(test_seqs)}")
-        print(f"  Checkpoints to evaluate: {len(CHECKPOINTS)}")
+        print(f"  Checkpoints to evaluate: {len(checkpoints_to_run)}")
         print(f"  Output root: {OUTPUT_ROOT}")
 
     print("\nDone.")

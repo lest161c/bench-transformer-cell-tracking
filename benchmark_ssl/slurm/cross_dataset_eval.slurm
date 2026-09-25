@@ -28,3 +28,12 @@ mkdir -p logs
 EVAL_EXIT=$?
 echo "=== Evaluation finished with exit code $EVAL_EXIT ==="
 echo "  Results: $TRK/results/cross_dataset/deepcell/summary.json"
+
+# ── Optional: multi-seed K-sweep checkpoints on DeepCell (commented) ─────────
+# After the SPEC 0008 D2 sweep completes, generate a checkpoints JSON
+# (list of [run_dir_name, label] pairs, e.g. ["2026-09-22_10-00-00_k16_s42",
+# "k16_s42"]) and pass --checkpoints-file to cross_dataset_eval.py:
+#   .venv/bin/python -m src.cnn_encoder.cross_dataset_eval \
+#       --device cuda --checkpoints-file "$BENCH/knn_sweep_checkpoints.json"
+# Appended entries are evaluated with the same protocol and land in the same
+# output tree ($TRK/results/cross_dataset/deepcell/<label>/).
