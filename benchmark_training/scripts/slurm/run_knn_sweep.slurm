@@ -3,7 +3,8 @@
 #SBATCH --account=p_scads_celltracking
 #SBATCH --time=48:00:00
 #SBATCH --nodes=1
-#SBATCH --gpus-per-node=1
+#SBATCH --gres=gpu:1
+# Cluster QOS rejects --gpus-per-node submissions with QOSMinGRES (verified live 2026-09-24).
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=90G
 #SBATCH --array=0-14
