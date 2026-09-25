@@ -188,3 +188,32 @@ The following benchmarks were migrated to their appropriate repositories:
 | Speed sweep mode (`--mode sweep`) | `benchmark_attn/` | Pure attention layer timing; redundant with `benchmark_sweep.py` |
 | Ablation Phase 1 (speed scaling) | `benchmark_attn/` | 1-epoch attention scaling; redundant with `benchmark_sweep.py` |
 | Downstream SSL transfer evaluation | `benchmark_ssl/` | Isolated SSL proof-of-concept; tests SSL transfer quality |
+
+---
+
+## Coordinate-free NoPE run (training-fit collapse) — job 4281395
+
+Decisive in-architecture test prescribed in `labbook/2026-06-02`: the base dense
+tracker trained with the positional encoding removed, isolating whether position
+carries the association signal.
+
+- **Config**: `configs/vanvliet_nope.yaml` (exact mirror of
+  `configs/vanvliet_baseline.yaml` except `pos_embed_per_dim: 0`,
+  `attn_positional_bias: none`, `attn_dist_mode: none`; dense attention — KNN
+  neighbour selection is coordinate-based, so sparse variants are not runnable
+  coordinate-free). Seed 42, code 28f3bb3-era (the later K>N guard, 77613dc,
+  is a no-op for this dense config).
+- **Command**: `sbatch benchmark_training/scripts/slurm/run_nope.slurm`
+  (partition `capella`; the QOS requires `--gres=gpu:1`).
+- **Result** (tensorboard `val_loss`, identical pipeline for both runs):
+  best **0.095** (epoch 58; early stop at 141), versus the identical
+  position-carrying baseline (job `4281394_0`, same build) at **1.6e-06**
+  (epoch 499, 500-epoch cap). Four orders of magnitude: the model fails to fit
+  without positional information.
+- Protocol note: the refreshed pipeline (seeded augmentation RNG, torch
+  2.14.0+cu130) fits deeper than the historical single-seed sweep and may run
+  to the 500-epoch cap without early stopping; do not compare per-epoch
+  wall-times across builds.
+- Numbers extracted from tensorboard on 2026-09-24; re-verify against the run
+  dirs on Capella (`$TRK/runs/2026-09-22_13-19-50_vanvliet_nope_s42/tb/`)
+  if in doubt.
