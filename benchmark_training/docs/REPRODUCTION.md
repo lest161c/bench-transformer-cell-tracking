@@ -214,6 +214,5 @@ carries the association signal.
   2.14.0+cu130) fits deeper than the historical single-seed sweep and may run
   to the 500-epoch cap without early stopping; do not compare per-epoch
   wall-times across builds.
-- Numbers extracted from tensorboard on 2026-09-24; re-verify against the run
-  dirs on Capella (`$TRK/runs/2026-09-22_13-19-50_vanvliet_nope_s42/tb/`)
-  if in doubt.
+- Numbers verified from tensorboard (2026-09-25): nope n=142, first 0.5024,
+  best 0.094963 (epoch 59, 1-indexed), final 0.1617.
