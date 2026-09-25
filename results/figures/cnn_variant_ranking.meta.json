@@ -1,0 +1,31 @@
+{
+  "figure": "cnn_variant_ranking",
+  "created_utc": "2026-09-25T18:13:54.987910+00:00",
+  "generator": "results/generate_plots.py",
+  "git_commit": "c45465a",
+  "sources": [],
+  "values": {
+    "labels": [
+      "CNN CONCAT + dropout\n(p=0.2)",
+      "CNN additive + dropout\n(p=0.2)",
+      "CNN additive + dropout\n(p=0.5)",
+      "CNN additive + trainable\ndropout (p=0.2)",
+      "Vanilla CNN (frozen)",
+      "CNN trainable",
+      "\u03bb(t) step + dropout",
+      "\u03bb(t) step only"
+    ],
+    "val_losses": [
+      0.011,
+      0.016,
+      0.023,
+      0.024,
+      0.035,
+      0.036,
+      0.04,
+      0.077
+    ],
+    "baseline": 0.003
+  },
+  "note": "val_loss values hardcoded in generator (progress_roadmap.html Chart 16)"
+}

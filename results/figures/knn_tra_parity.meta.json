@@ -1,0 +1,40 @@
+{
+  "figure": "knn_tra_parity",
+  "created_utc": "2026-09-25T18:13:56.147203+00:00",
+  "generator": "results/generate_plots.py",
+  "git_commit": "c45465a",
+  "sources": [
+    "/home/leonard.starke@mediainterface.de/Dokumente/Uni/research-proj/results/knn_sweep/results_baseline.csv",
+    "/home/leonard.starke@mediainterface.de/Dokumente/Uni/research-proj/results/knn_sweep/results_k4.csv",
+    "/home/leonard.starke@mediainterface.de/Dokumente/Uni/research-proj/results/knn_sweep/results_k16.csv",
+    "/home/leonard.starke@mediainterface.de/Dokumente/Uni/research-proj/results/knn_sweep/results_k32.csv",
+    "/home/leonard.starke@mediainterface.de/Dokumente/Uni/research-proj/results/knn_sweep/results_k64.csv"
+  ],
+  "values": [
+    {
+      "config": "Dense",
+      "mean_tra": 0.9962598021656612,
+      "std_tra": 0.009997156893759218
+    },
+    {
+      "config": "K = 4",
+      "mean_tra": 0.9957273858763465,
+      "std_tra": 0.01011621660591289
+    },
+    {
+      "config": "K = 16",
+      "mean_tra": 0.9971707845007874,
+      "std_tra": 0.008658612744391796
+    },
+    {
+      "config": "K = 32",
+      "mean_tra": 0.9963038146362875,
+      "std_tra": 0.010647485623499445
+    },
+    {
+      "config": "K = 64",
+      "mean_tra": 0.9968938809587138,
+      "std_tra": 0.00996758618814078
+    }
+  ]
+}

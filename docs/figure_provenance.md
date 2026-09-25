@@ -149,3 +149,60 @@ recommended.
 
 | 2026-09-25 | `edge_probe_bal_acc.pdf/svg`, `edge_probe_f1.pdf/svg` | `results/generate_plots.py` (`plot_edge_probe_bal_acc`, `plot_edge_probe_f1`) | `results/probes/unified_probe_results_cv10.json` (10-fold CV, seed 42, 7 features incl. Fourier-PE variants; supersedes the hardcoded 5-feature values) | SPEC 0009 |
 | 2026-09-25 | `probe_significance.pdf/svg` | `results/generate_plots.py` (`plot_probe_significance`) | `results/probes/probe_paired_significance.json` (per-frame-pair paired deltas vs 7D, bootstrap CI, Holm p; n=29) | SPEC 0009 |
+| 2026-09-25 | all 10 figures in `results/figures/` | `results/generate_plots.py` (`savefig` extended) | added `<stem>.meta.json` sidecars; sources + values recorded per plot | SPEC 0009 addendum |
+
+## 10. Metadata sidecars
+
+Every PDF (and matching SVG where present) written by
+`results/generate_plots.py` now has a machine-checkable sidecar
+`<stem>.meta.json` in the same directory. The sidecar is written
+automatically by `savefig(name, fig, dpi, meta=...)` immediately after the
+figure is saved, so no separate command is needed.
+
+### Convention
+
+- **Naming:** `<stem>.meta.json`, where `stem` is the figure name without
+  extension (e.g. `edge_probe_bal_acc.pdf` → `edge_probe_bal_acc.meta.json`).
+  PDF and SVG siblings share one sidecar.
+- **Auto-written by:** `savefig()` in `results/generate_plots.py` (line 226).
+- **Regenerate:** `python3 results/generate_plots.py` (from the repo root).
+  The sidecar is regenerated every time the figure is regenerated.
+
+### Fields
+
+| Field           | Type   | Source                                                                                       |
+|-----------------|--------|----------------------------------------------------------------------------------------------|
+| `figure`        | string | `Path(name).stem`                                                                             |
+| `created_utc`   | string | `datetime.now(timezone.utc).isoformat()` — ISO-8601 UTC timestamp                              |
+| `generator`     | string | always `"results/generate_plots.py"`                                                         |
+| `git_commit`    | string | `git rev-parse --short HEAD` (cwd=BASE); `"unknown"` if git is unavailable                    |
+| `sources`       | list   | `meta["sources"]` — input file paths actually read (absolute or repo-relative strings)        |
+| `values`        | any    | `meta["values"]` — the essential plotted numbers (lists of dicts, or dicts)                  |
+| extra keys      | any    | any additional `meta` keys are copied to the sidecar top level (e.g. `n_folds`, `n_frame_pairs`, `note`) |
+
+### Per-figure contents
+
+| Figure (stem)                | `sources`                                                              | Extra keys / notes                                                              |
+|------------------------------|------------------------------------------------------------------------|---------------------------------------------------------------------------------|
+| `cnn_convergence`            | `[]` (anchor points hardcoded)                                         | `note`: "anchor points hardcoded in generator"                                  |
+| `cnn_variant_ranking`        | `[]` (val_loss values hardcoded)                                       | `note`: "val_loss values hardcoded in generator"                                |
+| `edge_probe_bal_acc`         | `["results/probes/unified_probe_results_cv10.json"]`                   | `n_folds=10`; 14 bars (7 features × linear/mlp)                                 |
+| `edge_probe_f1`              | same                                                                    | `n_folds=10`; 14 bars                                                           |
+| `probe_significance`         | `["results/probes/probe_paired_significance.json"]`                    | `n_frame_pairs=29`; 12 rows (6 features × bal_acc/f1)                           |
+| `sparse_attention_speed`     | `["benchmark_attn/results/speed_mem.csv"]`                             | 18 (K,N,time_ms) rows                                                           |
+| `sparse_attention_memory`    | speed_mem.csv + mask_creation_scaling.csv                              | gather/dense rows + mask_creation series dict                                   |
+| `pipeline_breakdown`         | `[]`                                                                    | `note`: "hardcoded in generator"                                                |
+| `backward_pass`              | `["benchmark_attn/results/sparse_backward_results.csv"]`               | rows for N=512, K=16                                                            |
+| `knn_tra_parity`             | 5× `results/knn_sweep/results_{baseline,k4,k16,k32,k64}.csv`           | 5 rows of mean/std TRA                                                          |
+
+### Verification
+
+The sidecar exists for every figure and the spot-checked numbers match
+the artifacts:
+- `edge_probe_bal_acc.meta.json` contains 0.963 / 0.929 / 0.923 / 0.864 /
+  0.821 / 0.775 / 0.500 (the seven MLP bal_acc means).
+- `probe_significance.meta.json` contains the full 12-row significance
+  table (mean_difference, ci_low, ci_high, holm_p per feature×metric).
+
+This makes figure-vs-data consistency verifiable by reading text, without
+re-running the pipeline.

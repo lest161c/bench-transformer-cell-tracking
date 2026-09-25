@@ -1,0 +1,61 @@
+{
+  "figure": "backward_pass",
+  "created_utc": "2026-09-25T18:13:56.033641+00:00",
+  "generator": "results/generate_plots.py",
+  "git_commit": "c45465a",
+  "sources": [
+    "/home/leonard.starke@mediainterface.de/Dokumente/Uni/research-proj/benchmark_attn/results/sparse_backward_results.csv"
+  ],
+  "values": [
+    {
+      "method": "mask-KNN",
+      "phase": "Forward",
+      "time_ms": 0.2031603809991793
+    },
+    {
+      "method": "gather-KNN",
+      "phase": "Forward",
+      "time_ms": 1.767401264987711
+    },
+    {
+      "method": "sparse softmax",
+      "phase": "Forward",
+      "time_ms": 0.6252449640087434
+    },
+    {
+      "method": "dense masked",
+      "phase": "Forward",
+      "time_ms": 0.4842926328586015
+    },
+    {
+      "method": "dense flash",
+      "phase": "Forward",
+      "time_ms": 0.1009870330005166
+    },
+    {
+      "method": "mask-KNN",
+      "phase": "Backward",
+      "time_ms": 1.082339215658673
+    },
+    {
+      "method": "gather-KNN",
+      "phase": "Backward",
+      "time_ms": 4.4567718150574365
+    },
+    {
+      "method": "sparse softmax",
+      "phase": "Backward",
+      "time_ms": 1.5700557645489293
+    },
+    {
+      "method": "dense masked",
+      "phase": "Backward",
+      "time_ms": 0.5263847438064183
+    },
+    {
+      "method": "dense flash",
+      "phase": "Backward",
+      "time_ms": 0.8238099794846978
+    }
+  ]
+}

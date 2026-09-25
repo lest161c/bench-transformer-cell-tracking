@@ -19,8 +19,10 @@ Usage:
 """
 
 import os
+import subprocess
 import sys
 import warnings
+from datetime import datetime, timezone
 from pathlib import Path
 
 import matplotlib
@@ -175,8 +177,60 @@ plt.rcParams.update({
 })
 
 # ── Helper ────────────────────────────────────────────────────────────────────
-def savefig(name, fig=None, dpi=300):
-    """Save figure to results/figures/ with consistent settings."""
+def _short_git_commit():
+    """Return ``git rev-parse --short HEAD`` for ``BASE``, or ``"unknown"``.
+
+    Wrapped in try/except so the plot generator never fails on a machine
+    without git or without a checkout (CI containers, archives).
+    """
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=str(BASE),
+            stderr=subprocess.DEVNULL,
+            timeout=5,
+        ).decode().strip()
+    except Exception:
+        return "unknown"
+
+
+def _write_meta_sidecar(name, meta):
+    """Write ``FIGURES/<stem>.meta.json`` next to the figure.
+
+    The sidecar is the machine-checkable trace of what produced the figure:
+    when, by which script, from which commit, which input files were read,
+    and which numeric values were plotted. It makes figure-vs-data
+    consistency verifiable by reading text, without re-running the pipeline.
+    """
+    stem = Path(name).stem
+    if not isinstance(meta, dict):
+        meta = {}
+    sidecar = {
+        "figure": stem,
+        "created_utc": datetime.now(timezone.utc).isoformat(),
+        "generator": "results/generate_plots.py",
+        "git_commit": _short_git_commit(),
+        "sources": list(meta.get("sources", [])),
+        "values": meta.get("values", {}),
+    }
+    # Pass-through extra keys (e.g. ``n_folds``, ``n_frame_pairs``, ``note``)
+    # so data-rich plots can expose their sample size and provenance notes.
+    for key, value in meta.items():
+        if key in ("sources", "values"):
+            continue
+        sidecar[key] = value
+    sidecar_path = FIGURES / f"{stem}.meta.json"
+    sidecar_path.write_text(json.dumps(sidecar, indent=2, default=str))
+
+
+def savefig(name, fig=None, dpi=300, meta=None):
+    """Save figure to ``results/figures/`` and write a ``<stem>.meta.json`` sidecar.
+
+    The PDF write is unchanged. ``meta`` is an optional dict with keys
+    ``"sources"`` (list of input file paths) and ``"values"`` (the essential
+    plotted numbers); extra keys are copied into the sidecar. Even with
+    ``meta=None`` a minimal sidecar is written so every figure has one.
+    """
     if fig is None:
         fig = plt.gcf()
     path = FIGURES / name
@@ -184,6 +238,7 @@ def savefig(name, fig=None, dpi=300):
     size_kb = os.path.getsize(path) / 1024
     print(f"  ✓ {name}  ({size_kb:.1f} KB)")
     plt.close(fig)
+    _write_meta_sidecar(name, meta)
 
 
 def add_horizontal_grid(ax):
@@ -267,7 +322,17 @@ def plot_cnn_convergence():
                 arrowprops=dict(arrowstyle="->", color=OI_ORANGE, lw=0.8),
                 fontsize=6.5, color=OI_ORANGE)
 
-    savefig("cnn_convergence.pdf", fig)
+    # Meta: anchor points ARE the data; interpolated curves are derived. Record
+    # the anchors so figure-vs-data checks compare the same numbers.
+    meta = {
+        "sources": [],
+        "note": "anchor points hardcoded in generator (progress_roadmap.html Chart 17)",
+        "values": {
+            "baseline_pts": baseline_pts.tolist(),
+            "cnn_pts": cnn_pts.tolist(),
+        },
+    }
+    savefig("cnn_convergence.pdf", fig, meta=meta)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -325,7 +390,16 @@ def plot_cnn_variant_ranking():
         ax.text(bar.get_width() * 1.05, bar.get_y() + bar.get_height() / 2,
                 f"{val:.4f}", va="center", fontsize=6.5)
 
-    savefig("cnn_variant_ranking.pdf", fig)
+    meta = {
+        "sources": [],
+        "note": "val_loss values hardcoded in generator (progress_roadmap.html Chart 16)",
+        "values": {
+            "labels": labels,
+            "val_losses": values,
+            "baseline": baseline,
+        },
+    }
+    savefig("cnn_variant_ranking.pdf", fig, meta=meta)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -371,7 +445,15 @@ def plot_edge_probe_bal_acc():
     add_horizontal_grid(ax)
     style_legend(ax, loc="lower right", fontsize=6.5)
 
-    savefig("edge_probe_bal_acc.pdf", fig)
+    meta = {
+        "sources": [str(PROBE_JSON)],
+        "n_folds": 10,
+        "values": [
+            {"label": label, "mean": mean, "std": std, "n_folds": 10}
+            for label, mean, std, _ in entries
+        ],
+    }
+    savefig("edge_probe_bal_acc.pdf", fig, meta=meta)
     svg_path = FIGURES / "edge_probe_bal_acc.svg"
     fig.savefig(svg_path, bbox_inches="tight", pad_inches=0.05)
 
@@ -414,7 +496,15 @@ def plot_edge_probe_f1():
     ax.set_xlabel("F1 (threshold 0.5)")
     add_horizontal_grid(ax)
 
-    savefig("edge_probe_f1.pdf", fig)
+    meta = {
+        "sources": [str(PROBE_JSON)],
+        "n_folds": 10,
+        "values": [
+            {"label": label, "mean": mean, "std": std, "n_folds": 10}
+            for label, mean, std, _ in entries
+        ],
+    }
+    savefig("edge_probe_f1.pdf", fig, meta=meta)
     svg_path = FIGURES / "edge_probe_f1.svg"
     fig.savefig(svg_path, bbox_inches="tight", pad_inches=0.05)
 
@@ -459,7 +549,24 @@ def plot_probe_significance():
         add_horizontal_grid(ax)
     axes[1].set_xlabel("Paired delta vs Regionprops 7D (29 matched frame pairs)")
 
-    savefig("probe_significance.pdf", fig)
+    meta = {
+        "sources": [str(SIGNIFICANCE_JSON)],
+        "n_frame_pairs": 29,
+        "values": [
+            {
+                "feature": feature,
+                "metric": metric_key,
+                "mean_difference": values["mean_difference"],
+                "ci_low": values["ci_low"],
+                "ci_high": values["ci_high"],
+                "holm_p": values["holm_p"],
+                "n_frame_pairs": values.get("unit_count", 29),
+            }
+            for key, values in sig.items()
+            for feature, metric_key in [key.split("|")]
+        ],
+    }
+    savefig("probe_significance.pdf", fig, meta=meta)
     svg_path = FIGURES / "probe_significance.svg"
     fig.savefig(svg_path, bbox_inches="tight", pad_inches=0.05)
 
@@ -522,7 +629,14 @@ def plot_sparse_attention_speed():
     add_horizontal_grid(ax)
     style_legend(ax, loc="upper left", fontsize=6.5)
 
-    savefig("sparse_attention_speed.pdf", fig)
+    meta = {
+        "sources": [str(path)],
+        "values": [
+            {"K": int(row["K"]), "N": int(row["N"]), "time_ms": float(row["time_ms"])}
+            for _, row in df.iterrows()
+        ],
+    }
+    savefig("sparse_attention_speed.pdf", fig, meta=meta)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -621,7 +735,25 @@ def plot_sparse_attention_memory():
     add_horizontal_grid(ax)
     style_legend(ax, loc="upper left", fontsize=6.5)
 
-    savefig("sparse_attention_memory.pdf", fig)
+    # Meta: record both the speed_mem.csv series (gather/dense lines) and the
+    # mask_creation_scaling.csv series (mask-KNN scatter line) since both
+    # appear in the figure.
+    sources = [str(path)]
+    values = [
+        {"K": int(row["K"]), "N": int(row["N"]), "mem_mb": float(row["mem_mb"])}
+        for _, row in df.iterrows()
+    ]
+    if mask_series_added:
+        sources.append(str(mask_path))
+        values.append({
+            "series": "mask_creation",
+            "points": [
+                {"N": int(row["N"]), "K": int(row["K"]), "mem_mb": float(row["mem_mb"])}
+                for _, row in mask_df.iterrows()
+            ],
+        })
+    meta = {"sources": sources, "values": values}
+    savefig("sparse_attention_memory.pdf", fig, meta=meta)
     # SVG sibling for editing in report/figs/ (PDF remains the build asset).
     if mask_series_added:
         svg_path = FIGURES / "sparse_attention_memory.svg"
@@ -687,7 +819,18 @@ def plot_pipeline_breakdown():
     style_legend(ax2, loc="upper right", fontsize=6)
 
     fig.tight_layout(pad=0.8)
-    savefig("pipeline_breakdown.pdf", fig)
+    meta = {
+        "sources": [],
+        "note": "hardcoded in generator",
+        "values": {
+            "step_breakdown": dict(zip(step_labels, step_values)),
+            "regionprops_split": [
+                {"N": label, "cpu_pct": cpu, "gpu_pct": gpu}
+                for label, cpu, gpu in zip(region_labels, cpu_pct, gpu_pct)
+            ],
+        },
+    }
+    savefig("pipeline_breakdown.pdf", fig, meta=meta)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -758,7 +901,20 @@ def plot_backward_pass():
     add_horizontal_grid(ax)
     style_legend(ax, loc="upper right", fontsize=6.5)
 
-    savefig("backward_pass.pdf", fig)
+    # Meta: record only the N=512/K=16 rows that actually get plotted (the
+    # figure filters to those; the CSV has N ∈ {128,256,512} × K ∈ {4,16,32,64}).
+    meta = {
+        "sources": [str(path)],
+        "values": [
+            {
+                "method": row["method_short"],
+                "phase": row["phase"],
+                "time_ms": float(row["time_ms"]),
+            }
+            for _, row in df_k16_long.iterrows()
+        ],
+    }
+    savefig("backward_pass.pdf", fig, meta=meta)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -884,7 +1040,14 @@ def plot_knn_tra_parity():
     ax.legend(handles=legend_elements, loc="lower right", fontsize=6.5,
               framealpha=0.85)
 
-    savefig("knn_tra_parity.pdf", fig)
+    meta = {
+        "sources": [str(results_dir / fname) for _, fname in configs],
+        "values": [
+            {"config": label, "mean_tra": mean, "std_tra": std}
+            for label, mean, std in zip(labels, means, stds)
+        ],
+    }
+    savefig("knn_tra_parity.pdf", fig, meta=meta)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

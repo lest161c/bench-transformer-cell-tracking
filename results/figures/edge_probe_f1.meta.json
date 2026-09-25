@@ -1,0 +1,96 @@
+{
+  "figure": "edge_probe_f1",
+  "created_utc": "2026-09-25T18:13:55.233522+00:00",
+  "generator": "results/generate_plots.py",
+  "git_commit": "c45465a",
+  "sources": [
+    "/home/leonard.starke@mediainterface.de/Dokumente/Uni/research-proj/results/probes/unified_probe_results_cv10.json"
+  ],
+  "values": [
+    {
+      "label": "Regionprops 7D + Fourier PE MLP",
+      "mean": 0.7350531284205781,
+      "std": 0.09659694012179607,
+      "n_folds": 10
+    },
+    {
+      "label": "Regionprops 7D + Fourier PE linear",
+      "mean": 0.15038461909098216,
+      "std": 0.07317563858804305,
+      "n_folds": 10
+    },
+    {
+      "label": "DINOv2 (frozen) MLP",
+      "mean": 0.719461387725028,
+      "std": 0.16098354311245272,
+      "n_folds": 10
+    },
+    {
+      "label": "DINOv2 (frozen) linear",
+      "mean": 0.1567873228108704,
+      "std": 0.06571943305239766,
+      "n_folds": 10
+    },
+    {
+      "label": "HOCT 2D + Fourier PE MLP",
+      "mean": 0.6803914793987413,
+      "std": 0.1475310600681723,
+      "n_folds": 10
+    },
+    {
+      "label": "HOCT 2D + Fourier PE linear",
+      "mean": 0.15863370222801812,
+      "std": 0.05936846729512714,
+      "n_folds": 10
+    },
+    {
+      "label": "HOCT 2D MLP",
+      "mean": 0.5310297448200854,
+      "std": 0.16139237025985054,
+      "n_folds": 10
+    },
+    {
+      "label": "HOCT 2D linear",
+      "mean": 0.16137307976295662,
+      "std": 0.06519534109123973,
+      "n_folds": 10
+    },
+    {
+      "label": "Regionprops 7D MLP",
+      "mean": 0.37840550073841084,
+      "std": 0.1157849812567579,
+      "n_folds": 10
+    },
+    {
+      "label": "Regionprops 7D linear",
+      "mean": 0.16271523741082652,
+      "std": 0.06363070493573299,
+      "n_folds": 10
+    },
+    {
+      "label": "CNN NT-Xent (frozen) MLP",
+      "mean": 0.35425131473698906,
+      "std": 0.16611199563790355,
+      "n_folds": 10
+    },
+    {
+      "label": "CNN NT-Xent (frozen) linear",
+      "mean": 0.1622072230552354,
+      "std": 0.06682240342880183,
+      "n_folds": 10
+    },
+    {
+      "label": "CNN end-to-end MLP",
+      "mean": 0.0,
+      "std": 0.0,
+      "n_folds": 10
+    },
+    {
+      "label": "CNN end-to-end linear",
+      "mean": 0.0,
+      "std": 0.0,
+      "n_folds": 10
+    }
+  ],
+  "n_folds": 10
+}
