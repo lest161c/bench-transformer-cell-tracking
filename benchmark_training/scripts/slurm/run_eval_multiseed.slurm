@@ -90,27 +90,24 @@ echo "  Run:     ${RUN_NAME}"
 echo ""
 
 # ─── Resolve run dir by glob ───────────────────────────────────────
-# Run dirs follow <timestamp>_<run_name> under $TRK/runs/. The * matches the
-# timestamp portion so no specific timestamp is hardcoded (the 2026-09-22_
-# prefix scopes this glob to the sweep's training-date window). Error
-# clearly on 0 or >1 matches.
+# Run dirs follow <timestamp>_<run_name> under $TRK/runs/. OOM-killed
+# training attempts are auto-requeued by SLURM into FRESH timestamped dirs
+# (the training launcher never resumes into an existing dir), so one
+# (variant, seed) pair can have several candidate dirs of which only the
+# newest holds a completed model. Pick the NEWEST candidate containing
+# model.pt; error clearly if none exists.
 
-GLOB_PATTERN="$TRK/runs/2026-09-22_*_knn_sweep_${VARIANT}_s${SEED}"
-shopt -s nullglob
-RUN_CANDIDATES=($GLOB_PATTERN)
-shopt -u nullglob
-
-if [ "${#RUN_CANDIDATES[@]}" -eq 0 ]; then
-    echo "ERROR: no run dir matching pattern:"
-    echo "  ${GLOB_PATTERN}"
+RUN=""
+for candidate in $(ls -dt "$TRK"/runs/*_knn_sweep_${VARIANT}_s${SEED} 2>/dev/null); do
+    if [ -f "$candidate/model.pt" ]; then
+        RUN="$candidate"
+        break
+    fi
+done
+if [ -z "$RUN" ]; then
+    echo "ERROR: no completed run dir (with model.pt) for ${VARIANT}_s${SEED}"
     exit 1
 fi
-if [ "${#RUN_CANDIDATES[@]}" -gt 1 ]; then
-    echo "ERROR: ${#RUN_CANDIDATES[@]} run dirs match ${RUN_NAME}:"
-    printf '  %s\n' "${RUN_CANDIDATES[@]}"
-    exit 1
-fi
-RUN="${RUN_CANDIDATES[0]}"
 echo "  Run dir: ${RUN}"
 echo ""
 
