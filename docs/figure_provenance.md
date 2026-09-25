@@ -146,3 +146,6 @@ recommended.
   `curated/generate_report.py` writes to
   `curated/figures/`. Output-dir behaviour is **inconsistent**
   between scripts.
+
+| 2026-09-25 | `edge_probe_bal_acc.pdf/svg`, `edge_probe_f1.pdf/svg` | `results/generate_plots.py` (`plot_edge_probe_bal_acc`, `plot_edge_probe_f1`) | `results/probes/unified_probe_results_cv10.json` (10-fold CV, seed 42, 7 features incl. Fourier-PE variants; supersedes the hardcoded 5-feature values) | SPEC 0009 |
+| 2026-09-25 | `probe_significance.pdf/svg` | `results/generate_plots.py` (`plot_probe_significance`) | `results/probes/probe_paired_significance.json` (per-frame-pair paired deltas vs 7D, bootstrap CI, Holm p; n=29) | SPEC 0009 |

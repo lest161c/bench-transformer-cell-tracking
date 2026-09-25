@@ -31,12 +31,16 @@ import numpy as np
 import pandas as pd
 from matplotlib.lines import Line2D
 from cycler import cycler
+import json
+from matplotlib.patches import Patch
 
 warnings.filterwarnings("ignore")
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 BASE = Path(__file__).resolve().parent.parent  # research-proj/
 FIGURES = BASE / "results" / "figures"
+PROBE_JSON = BASE / "results" / "probes" / "unified_probe_results_cv10.json"
+SIGNIFICANCE_JSON = BASE / "results" / "probes" / "probe_paired_significance.json"
 FIGURES.mkdir(parents=True, exist_ok=True)
 
 # ── Okabe–Ito palette (see docs/vis_guidelines.md) ────────────────────────────
@@ -51,6 +55,26 @@ OI_YELLOW    = "#F0E442"   # variant D
 OI_BLUE      = "#0072B2"   # secondary metric / dense baseline
 OI_VERMILION = "#D55E00"   # ablation / sparse K=16
 OI_PURPLE    = "#CC79A7"   # attention / gather / sparse K=32
+
+PROBE_DISPLAY = {
+    "rp": "Regionprops 7D",
+    "rp_fourier": "Regionprops 7D + Fourier PE",
+    "hoct2d": "HOCT 2D",
+    "hoct2d_fourier": "HOCT 2D + Fourier PE",
+    "dino": "DINOv2 (frozen)",
+    "cnn_frozen": "CNN NT-Xent (frozen)",
+    "cnn_e2e": "CNN end-to-end",
+}
+PROBE_FAMILY_COLORS = {
+    "rp": OI_VERMILION,
+    "rp_fourier": OI_ORANGE,
+    "hoct2d": OI_GREEN,
+    "hoct2d_fourier": OI_SKYBLUE,
+    "dino": OI_BLUE,
+    "cnn_frozen": OI_PURPLE,
+    "cnn_e2e": OI_YELLOW,
+}
+
 
 # Cross-figure role aliases — every figure picks its colours from this table,
 # so a "Dense baseline" series is always OI_BLUE, etc.
@@ -308,122 +332,138 @@ def plot_cnn_variant_ranking():
 #  3. Edge Probe — Balanced Accuracy  (Chart 19)
 # ══════════════════════════════════════════════════════════════════════════════
 def plot_edge_probe_bal_acc():
+    """Grouped horizontal bar chart of edge-probe balanced accuracy.
+
+    Source: results/probes/unified_probe_results_cv10.json (10-fold CV, seed 42;
+    the SPEC 0006 refresh). Replaces the hardcoded 5-feature/5-fold version:
+    the probe script evolved since the Aug run (Fourier-PE variants, hoct2d
+    rename), so the old numbers are neither current nor reproducible.
     """
-    Grouped horizontal bar chart of edge prediction balanced accuracy (5-fold CV).
-    Source: progress_roadmap.html §Chart 19 (chEdgeBalAcc).
-    """
-    labels = [
-        "DINOv2 MLP", "DINOv2 linear",
-        "HOCT 19D MLP", "HOCT 19D linear",
-        "Regionprops MLP", "Regionprops linear",
-        "CNN NT-Xent MLP", "CNN NT-Xent linear",
-        "CNN e2e MLP", "CNN e2e linear",
-    ]
-    values = [0.896, 0.528, 0.880, 0.573, 0.860, 0.557, 0.703, 0.543, 0.500, 0.500]
-    errors = [0.036, 0.006, 0.020, 0.012, 0.014, 0.030, 0.055, 0.015, 0.000, 0.000]
+    probe = json.loads(PROBE_JSON.read_text())["results"]
+    entries = []
+    for feature in sorted(probe, key=lambda f: -probe[f]["mlp"]["bal_acc_mean"]):
+        for probe_type, suffix in (("mlp", "MLP"), ("linear", "linear")):
+            stats = probe[feature].get(probe_type)
+            if not isinstance(stats, dict):
+                continue
+            entries.append((f"{PROBE_DISPLAY[feature]} {suffix}",
+                            float(stats["bal_acc_mean"]), float(stats["bal_acc_std"]),
+                            PROBE_FAMILY_COLORS[feature]))
+
+    labels = [e[0] for e in entries]
+    values = [e[1] for e in entries]
+    errors = [e[2] for e in entries]
+    colors = [e[3] for e in entries]
     baseline = 0.500
 
-    # Group colors by feature type (Okabe–Ito; one hue per family)
-    group_map = {
-        "DINOv2":     OI_BLUE,
-        "HOCT 19D":    OI_GREEN,
-        "Regionprops": OI_VERMILION,
-        "CNN NT-Xent": OI_PURPLE,
-        "CNN e2e":     ROLE_NEUTRAL,
-    }
-
-    colors = []
-    for lbl in labels:
-        if "DINOv2" in lbl:
-            colors.append(group_map["DINOv2"])
-        elif "HOCT" in lbl:
-            colors.append(group_map["HOCT 19D"])
-        elif "Regionprops" in lbl:
-            colors.append(group_map["Regionprops"])
-        elif "CNN NT-Xent" in lbl:
-            colors.append(group_map["CNN NT-Xent"])
-        elif "CNN e2e" in lbl:
-            colors.append(group_map["CNN e2e"])
-
-    fig, ax = plt.subplots(figsize=figsize_wide(1.1))
-
+    fig, ax = plt.subplots(figsize=figsize_wide(1.5))
     y_pos = np.arange(len(labels))
-    bars = ax.barh(y_pos, values, xerr=errors, color=colors,
-                   edgecolor="white", linewidth=0.3, height=0.65, capsize=2,
-                   error_kw={"linewidth": 0.6, "ecolor": "#666666"})
+    ax.barh(y_pos, values, xerr=errors, color=colors,
+            edgecolor="white", linewidth=0.3, height=0.65, capsize=2,
+            error_kw={"linewidth": 0.6, "ecolor": "#666666"})
     ax.axvline(x=baseline, color="#888888", linewidth=0.8, linestyle="--",
                label="Random baseline = 0.500")
     ax.set_yticks(y_pos)
     ax.set_yticklabels(labels, fontsize=7)
+    ax.invert_yaxis()
     ax.set_xlabel("Balanced Accuracy")
     ax.set_xlim(0.45, 1.0)
     add_horizontal_grid(ax)
     style_legend(ax, loc="lower right", fontsize=6.5)
 
     savefig("edge_probe_bal_acc.pdf", fig)
+    svg_path = FIGURES / "edge_probe_bal_acc.svg"
+    fig.savefig(svg_path, bbox_inches="tight", pad_inches=0.05)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  4. Edge Probe — F1 Score  (Chart 20)
 # ══════════════════════════════════════════════════════════════════════════════
 def plot_edge_probe_f1():
+    """Grouped horizontal bar chart of edge-probe F1 (canonical threshold 0.5).
+
+    Source: results/probes/unified_probe_results_cv10.json (10-fold CV, seed
+    42). F1 is computed on the natural (heavily imbalanced) candidate
+    distribution, so it is reported per feature but the balanced-accuracy
+    chart carries the headline signal.
     """
-    Grouped horizontal bar chart of edge prediction F1 score (5-fold CV).
-    Source: progress_roadmap.html §Chart 20 (chEdgeF1).
-    """
-    labels = [
-        "DINOv2 MLP", "DINOv2 linear",
-        "HOCT 19D MLP", "HOCT 19D linear",
-        "Regionprops MLP", "Regionprops linear",
-        "CNN NT-Xent MLP", "CNN NT-Xent linear",
-        "CNN e2e MLP", "CNN e2e linear",
-    ]
-    values = [0.566, 0.113, 0.424, 0.144, 0.396, 0.131, 0.290, 0.129, 0.000, 0.000]
-    errors = [0.090, 0.044, 0.076, 0.037, 0.056, 0.029, 0.126, 0.035, 0.000, 0.000]
-    baseline = 0.000
+    probe = json.loads(PROBE_JSON.read_text())["results"]
+    entries = []
+    for feature in sorted(probe, key=lambda f: -probe[f]["mlp"]["f1_mean"]):
+        for probe_type, suffix in (("mlp", "MLP"), ("linear", "linear")):
+            stats = probe[feature].get(probe_type)
+            if not isinstance(stats, dict):
+                continue
+            entries.append((f"{PROBE_DISPLAY[feature]} {suffix}",
+                            float(stats["f1_mean"]), float(stats["f1_std"]),
+                            PROBE_FAMILY_COLORS[feature]))
 
-    group_map = {
-        "DINOv2":     OI_BLUE,
-        "HOCT 19D":    OI_GREEN,
-        "Regionprops": OI_VERMILION,
-        "CNN NT-Xent": OI_PURPLE,
-        "CNN e2e":     ROLE_NEUTRAL,
-    }
+    labels = [e[0] for e in entries]
+    values = [e[1] for e in entries]
+    errors = [e[2] for e in entries]
+    colors = [e[3] for e in entries]
 
-    colors = []
-    for lbl in labels:
-        if "DINOv2" in lbl:
-            colors.append(group_map["DINOv2"])
-        elif "HOCT" in lbl:
-            colors.append(group_map["HOCT 19D"])
-        elif "Regionprops" in lbl:
-            colors.append(group_map["Regionprops"])
-        elif "CNN NT-Xent" in lbl:
-            colors.append(group_map["CNN NT-Xent"])
-        elif "CNN e2e" in lbl:
-            colors.append(group_map["CNN e2e"])
-
-    fig, ax = plt.subplots(figsize=figsize_wide(1.1))
-
+    fig, ax = plt.subplots(figsize=figsize_wide(1.5))
     y_pos = np.arange(len(labels))
-    bars = ax.barh(y_pos, values, xerr=errors, color=colors,
-                   edgecolor="white", linewidth=0.3, height=0.65, capsize=2,
-                   error_kw={"linewidth": 0.6, "ecolor": "#666666"})
-    ax.axvline(x=baseline, color="#888888", linewidth=0.8, linestyle="--",
-               label="Random baseline = 0.000")
+    ax.barh(y_pos, values, xerr=errors, color=colors,
+            edgecolor="white", linewidth=0.3, height=0.65, capsize=2,
+            error_kw={"linewidth": 0.6, "ecolor": "#666666"})
     ax.set_yticks(y_pos)
     ax.set_yticklabels(labels, fontsize=7)
-    ax.set_xlabel("F1 Score")
-    ax.set_xlim(-0.05, 0.75)
+    ax.invert_yaxis()
+    ax.set_xlabel("F1 (threshold 0.5)")
     add_horizontal_grid(ax)
-    style_legend(ax, loc="lower right", fontsize=6.5)
 
     savefig("edge_probe_f1.pdf", fig)
+    svg_path = FIGURES / "edge_probe_f1.svg"
+    fig.savefig(svg_path, bbox_inches="tight", pad_inches=0.05)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  5. Sparse Attention — Forward Speed
 # ══════════════════════════════════════════════════════════════════════════════
+def plot_probe_significance():
+    """Forest chart of per-frame-pair paired deltas vs the 7D reference.
+
+    Source: results/probes/probe_paired_significance.json (SPEC 0006): paired
+    t-test over the 29 matched frame pairs, bootstrap 95% CI, Monte-Carlo
+    sign-flip permutation, Holm adjustment across feature sets. Communicates
+    the significance result the report states in text: position-augmented 7D
+    and DINOv2 improve significantly over plain 7D, plain HOCT 2D does not.
+    """
+    sig = json.loads(SIGNIFICANCE_JSON.read_text())["comparisons_pairs"]
+    fig, axes = plt.subplots(2, 1, figsize=figsize_wide(1.3), sharex=True)
+    for ax, metric, title in zip(
+            axes, ("bal_acc", "f1"),
+            ("Balanced accuracy", "F1 (threshold 0.5)")):
+        rows = []
+        for key, values in sig.items():
+            feature, metric_key = key.split("|")
+            if metric_key != metric:
+                continue
+            rows.append((PROBE_DISPLAY[feature], values["mean_difference"],
+                         values["ci_low"], values["ci_high"], values["holm_p"]))
+        rows.sort(key=lambda r: r[1])
+        y_pos = np.arange(len(rows))
+        for i, (label, mean, lo, hi, holm) in enumerate(rows):
+            significant = holm < 0.05
+            ax.errorbar(mean, i, xerr=[[mean - lo], [hi - mean]],
+                        fmt="o", ms=5, capsize=3, linewidth=0.8,
+                        color=OI_BLUE, markerfacecolor=OI_BLUE if significant else "white")
+            ax.annotate(f"Holm p = {holm:.1e}", (hi, i), fontsize=6,
+                        va="center", xytext=(4, 0), textcoords="offset points")
+        ax.axvline(0, color="#888888", linewidth=0.8, linestyle="--")
+        ax.set_yticks(y_pos)
+        ax.set_yticklabels([r[0] for r in rows], fontsize=7)
+        ax.set_title(title, fontsize=8)
+        add_horizontal_grid(ax)
+    axes[1].set_xlabel("Paired delta vs Regionprops 7D (29 matched frame pairs)")
+
+    savefig("probe_significance.pdf", fig)
+    svg_path = FIGURES / "probe_significance.svg"
+    fig.savefig(svg_path, bbox_inches="tight", pad_inches=0.05)
+
+
 def plot_sparse_attention_speed():
     """
     Line plot: N vs time_ms for different K values.
@@ -861,6 +901,7 @@ def main():
         ("3/9", "Edge Probe — Balanced Accuracy", plot_edge_probe_bal_acc),
         ("4/9", "Edge Probe — F1 Score", plot_edge_probe_f1),
         ("5/9", "Sparse Attention Speed", plot_sparse_attention_speed),
+        ("5a/9", "Probe Significance (forest)", plot_probe_significance),
         ("6/9", "Sparse Attention Memory", plot_sparse_attention_memory),
         ("7/9", "Pipeline Breakdown", plot_pipeline_breakdown),
         ("8/9", "Backward Pass Comparison", plot_backward_pass),
