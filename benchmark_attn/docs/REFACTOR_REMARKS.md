@@ -8,9 +8,15 @@ Each item is grouped by the file it concerns, with action notes added during imp
 - [ ] **Cosine histogram analysis.** Verify whether `analysis/cosine_histogram.py`
       is still maintained. If deprecated, remove it from the README structure
       listing.
-- [ ] **Hassani citation is wrong for one entry.** The README credits Hassani et al.
+- [x] **Hassani citation is wrong for one entry.** The README credits Hassani et al.
       for both *Neighborhood Attention* and *spatial reorder*. One of these is
       incorrect — check the paper and correct the attribution.
+      Resolved: spatial token reordering follows the point-cloud serialization
+      of Wu et al. 2024 (Point Transformer V3, CVPR 2024, arXiv:2312.10035),
+      not Hassani et al. 2024 (Faster Neighborhood Attention reformulates NA
+      at the threadblock level instead of reordering tokens). The README
+      reference list already includes `wu2024ptv3`; the `SpatialReorder`
+      docstrings and the report cite Wu et al. now.
 - [ ] **Citation style.** Rewrite references as proper LaTeX-style citations
       (`\citep{...}` / `\bibliography`). There are more than two sources to cite
       in the attention benchmarks section; gather the full list from the

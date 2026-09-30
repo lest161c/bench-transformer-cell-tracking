@@ -1455,13 +1455,24 @@ class NSASparseAttention(nn.Module):
 class SpatialReorder:
     """Reorders sequence by spatial proximity for memory locality (Wu et al. 2024).
 
-    Quantizes coords to grid, computes linearized index (Z-order-like), sorts by it.
-    Neighboring tokens in original space → close indices → gather hits contiguous memory.
+    Quantizes coords to a grid, computes a raster-order (lexicographic,
+    row-major over quantization bins) linearized index, and sorts by it.
+    Neighboring tokens in original space → close indices → gather hits
+    contiguous memory.
 
-    This is the spatial reorder concept from Point Transformer V3: reordering
-    tokens by spatial proximity via a Z-order-like linearized index so
-    neighbours land adjacent in memory — exactly PTv3's point cloud
-    serialization (§4.1), using Z-order/Hilbert space-filling curves.
+    This is a simplified variant of the point-cloud serialization of Point
+    Transformer V3 (§4.1): PTv3 uses bit-interleaved Z-order or Hilbert
+    space-filling curves, which preserve locality better than the
+    raster order used here (measured ~1.8× worse mean consecutive-token
+    distance than true Z-order on uniform random points). The measured
+    reorder speedups in ``exploratory/benchmark_reorder_real_vs_random.py``
+    therefore correspond to this weaker raster variant, and a PTv3-style
+    curve could in principle recover more locality than measured here.
+
+    Note: this data-level token reordering is *not* the technique of
+    Hassani et al. 2024 (Faster Neighborhood Attention), which reformulates
+    neighborhood attention at the CUDA threadblock level with batched GEMMs
+    and fused gather/scatter instead of physically reordering tokens.
 
     Wu, X., Jiang, L., Wang, P.-S., Liu, Z., Liu, X., Qiao, Y., Ouyang, W.,
     He, T., & Zhao, H. (2024). Point Transformer V3: Simpler, Faster,
@@ -1480,9 +1491,11 @@ class SpatialReorder:
     def compute_idx(self, coords: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """Compute reorder and unreorder indices from coordinates.
 
-        Quantizes each coordinate dimension into ``n_bins`` bins,
-        then computes a Z-order-like linearized index by interleaving
-        dimension-specific indices with increasing strides.
+        Quantizes each coordinate dimension into ``n_bins`` bins, then
+        computes a raster-order linearized index by weighting each dimension
+        with the full bin range (``dim d`` gets weight ``n_bins**d``), i.e. a
+        row-major lexicographic sort over quantization bins — *not* a
+        bit-interleaved Z-order code.
 
         Args:
             coords: Coordinate tensor ``(batch_size, seq_len, coord_dim)``.
@@ -1515,7 +1528,7 @@ class SpatialReorder:
 
         Args:
             tensor: Input tensor of shape ``(batch_size, seq_len, ...)``
-                (3-D or 4-D).
+                (3-D).
             idx: Index tensor of shape ``(batch_size, seq_len)``.
 
         Returns:
@@ -1523,14 +1536,15 @@ class SpatialReorder:
             reordered according to ``idx``.
 
         Raises:
-            ValueError: If ``tensor`` is not 3-D or 4-D.
+            ValueError: If ``tensor`` is not 3-D. (A 4-D variant was
+                removed: its advanced-index broadcasting silently produced
+                ``(batch, batch, seq, head, dim)`` for ``(batch, head, seq,
+                dim)`` inputs.)
         """
-        batch_size = torch.arange(tensor.shape[0], device=tensor.device)
+        batch_indices = torch.arange(tensor.shape[0], device=tensor.device)
         if tensor.dim() == 3:
-            return tensor[batch_size[:, None], idx]
-        elif tensor.dim() == 4:
-            return tensor[batch_size[:, None, None], :, idx]
-        raise ValueError(f"Unsupported dim {tensor.dim()}")
+            return tensor[batch_indices[:, None], idx]
+        raise ValueError(f"Unsupported dim {tensor.dim()}; only 3-D tensors are supported")
 
     def reorder(self, tensor: torch.Tensor, idx: torch.Tensor) -> torch.Tensor:
         """Reorder a tensor by spatial proximity.
