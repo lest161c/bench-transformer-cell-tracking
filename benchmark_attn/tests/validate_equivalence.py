@@ -7,6 +7,10 @@ multiple seeds, sequence lengths, and KNN neighbor counts.
 If all configurations pass, mask_knn inherits gather_knn's tracking
 accuracy and the two can be used interchangeably.
 
+Note: the forward cosine-similarity metric is computed in fp32 (the
+fp16 outputs are upcast first); an fp16 metric can round above 1.0
+(Cauchy-Schwarz), overstating equivalence.
+
 Usage::
 
     python tests/validate_equivalence.py
@@ -106,8 +110,11 @@ for seq_len in SEQUENCE_LENGTHS:
                 output_mask - output_gather
             ).abs().mean().item()
 
+            # Cosine is computed in fp32: an fp16 metric can round above 1.0
+            # (Cauchy-Schwarz), overstating equivalence.  Upcast removes the
+            # metric artifact without changing the fp16 outputs themselves.
             forward_cosine_similarity = torch.nn.functional.cosine_similarity(
-                output_mask.flatten(), output_gather.flatten(), dim=0,
+                output_mask.flatten().float(), output_gather.flatten().float(), dim=0,
             ).item()
 
             # ---- backward pass ----
