@@ -1,8 +1,8 @@
 {
   "figure": "knn_tra_parity",
-  "created_utc": "2026-09-25T18:13:56.147203+00:00",
+  "created_utc": "2026-09-28T19:10:03.848082+00:00",
   "generator": "results/generate_plots.py",
-  "git_commit": "c45465a",
+  "git_commit": "c62d860",
   "sources": [
     "/home/leonard.starke@mediainterface.de/Dokumente/Uni/research-proj/results/knn_sweep/results_baseline.csv",
     "/home/leonard.starke@mediainterface.de/Dokumente/Uni/research-proj/results/knn_sweep/results_k4.csv",

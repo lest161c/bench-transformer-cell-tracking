@@ -1,8 +1,8 @@
 {
   "figure": "cnn_variant_ranking",
-  "created_utc": "2026-09-25T18:13:54.987910+00:00",
+  "created_utc": "2026-09-28T19:10:02.671480+00:00",
   "generator": "results/generate_plots.py",
-  "git_commit": "c45465a",
+  "git_commit": "c62d860",
   "sources": [],
   "values": {
     "labels": [

@@ -32,9 +32,18 @@ import matplotlib.ticker as mticker
 import numpy as np
 import pandas as pd
 from matplotlib.lines import Line2D
-from cycler import cycler
 import json
 from matplotlib.patches import Patch
+
+# ── Single style source (betterplots) ────────────────────────────────────────
+# Every figure in this script shares one style: betterplots applies the
+# Okabe–Ito palette, the guideline §5/§6 neutrals (text/grid/spine/legend),
+# despine, and the legend/grid defaults.  See docs/vis_guidelines.md.
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_REPO_ROOT / "betterplots"))
+from betterplots import palette, set_style
+set_style(usetex=False, colors="okabe-ito", despine=True,
+          font_size=8.5, label_size=8.5, tick_size=7.5, legend_font_size=7.5)
 
 warnings.filterwarnings("ignore")
 
@@ -49,14 +58,14 @@ FIGURES.mkdir(parents=True, exist_ok=True)
 # Slot assignment kept identical to curated/generate_report.py so the same
 # semantic role (e.g. "Dense baseline") gets the same colour in every figure
 # of the report.
-OI_BLACK     = "#000000"   # theory / reference
-OI_ORANGE    = "#E69F00"   # primary method / variant A
-OI_SKYBLUE   = "#56B4E9"   # variant B / sparse K=64
-OI_GREEN     = "#009E73"   # variant C / dense_flash
-OI_YELLOW    = "#F0E442"   # variant D
-OI_BLUE      = "#0072B2"   # secondary metric / dense baseline
-OI_VERMILION = "#D55E00"   # ablation / sparse K=16
-OI_PURPLE    = "#CC79A7"   # attention / gather / sparse K=32
+OI_BLACK     = palette.BLACK
+OI_ORANGE    = palette.ORANGE
+OI_SKYBLUE   = palette.SKYBLUE
+OI_GREEN     = palette.GREEN
+OI_YELLOW    = palette.YELLOW
+OI_BLUE      = palette.BLUE
+OI_VERMILION = palette.VERMILION
+OI_PURPLE    = palette.PURPLE
 
 PROBE_DISPLAY = {
     "rp": "Regionprops 7D",
@@ -67,41 +76,32 @@ PROBE_DISPLAY = {
     "cnn_frozen": "CNN NT-Xent (frozen)",
     "cnn_e2e": "CNN end-to-end",
 }
+# ── Probe family colours (betterplots palette) ────────────────────────────────
+# Same semantic assignment as the report body figures, but pulled from the
+# shared palette module so probe / CNN families match across scripts.
 PROBE_FAMILY_COLORS = {
-    "rp": OI_VERMILION,
-    "rp_fourier": OI_ORANGE,
-    "hoct2d": OI_GREEN,
-    "hoct2d_fourier": OI_SKYBLUE,
-    "dino": OI_BLUE,
-    "cnn_frozen": OI_PURPLE,
-    "cnn_e2e": OI_YELLOW,
+    key: palette.METHOD_COLORS[key]
+    for key in ("rp", "rp_fourier", "hoct2d", "hoct2d_fourier",
+                "dino", "cnn_frozen", "cnn_e2e")
 }
 
 
 # Cross-figure role aliases — every figure picks its colours from this table,
 # so a "Dense baseline" series is always OI_BLUE, etc.
-ROLE_DENSE_BASELINE = OI_BLUE
-ROLE_DENSE_FLASH    = OI_GREEN
-ROLE_K4             = OI_ORANGE
-ROLE_K8             = OI_GREEN
-ROLE_K16            = OI_VERMILION
-ROLE_K32            = OI_PURPLE
-ROLE_K64            = OI_SKYBLUE
-ROLE_FORWARD        = OI_BLUE
-ROLE_BACKWARD       = OI_VERMILION
-ROLE_NEUTRAL        = "#999999"
+ROLE_DENSE_BASELINE = palette.COLORS["dense_masked"]
+ROLE_DENSE_FLASH    = palette.COLORS["dense_flash"]
+ROLE_K4             = palette.K_COLORS[4]
+ROLE_K8             = palette.K_COLORS[8]
+ROLE_K16            = palette.K_COLORS[16]
+ROLE_K32            = palette.K_COLORS[32]
+ROLE_K64            = palette.K_COLORS[64]
+ROLE_FORWARD        = palette.COLORS["forward"]
+ROLE_BACKWARD       = palette.COLORS["backward"]
+ROLE_NEUTRAL       = palette.NEUTRAL
 
 # Default colour cycle for any plot that does not set explicit colours.
-OI_CYCLE = [
-    OI_BLUE,
-    OI_ORANGE,
-    OI_GREEN,
-    OI_VERMILION,
-    OI_PURPLE,
-    OI_SKYBLUE,
-    OI_YELLOW,
-    OI_BLACK,
-]
+OI_CYCLE = [palette.BLUE, palette.ORANGE, palette.GREEN, palette.VERMILION,
+            palette.PURPLE, palette.SKYBLUE, palette.YELLOW, palette.BLACK]
 
 # Color pairs for bar charts (darker fill, slightly lighter border)
 def bar_colors(base_color, alpha=0.75):
@@ -110,71 +110,6 @@ def bar_colors(base_color, alpha=0.75):
     rgba = to_rgba(base_color)
     fill = to_hex((rgba[0], rgba[1], rgba[2], alpha), keep_alpha=True)
     return fill, base_color
-
-# ── Trackastra matplotlibrc ──────────────────────────────────────────────────
-plt.rcParams.update({
-    # Font: serif matches LaTeX (Linux Libertine / standard)
-    "font.family": "serif",
-    "font.serif": ["Linux Libertine", "Libertine", "TeX Gyre Bonum", "DejaVu Serif", "Times New Roman", "Times", "serif"],
-    "font.size": 8.5,
-    "axes.titlesize": 9.0,
-    "axes.labelsize": 8.5,
-    "xtick.labelsize": 7.5,
-    "ytick.labelsize": 7.5,
-    "legend.fontsize": 7.0,
-    "legend.title_fontsize": 7.5,
-
-    # Figure
-    "figure.dpi": 300,
-    "savefig.dpi": 300,
-    "savefig.bbox": "tight",
-    "savefig.pad_inches": 0.05,
-
-    # Axes
-    "axes.spines.top": False,
-    "axes.spines.right": False,
-    "axes.edgecolor": "#888888",
-    "axes.linewidth": 0.6,
-    "axes.labelcolor": "#222222",
-    "axes.titlecolor": "#222222",
-    "axes.facecolor": "white",
-
-    # Grid
-    "axes.grid": True,
-    "axes.grid.axis": "y",        # horizontal grid only by default
-    "axes.grid.which": "major",
-    "grid.color": "#e0e0e0",
-    "grid.alpha": 0.6,
-    "grid.linewidth": 0.4,
-    "grid.linestyle": "-",
-
-    # Ticks
-    "xtick.color": "#888888",
-    "ytick.color": "#888888",
-    "xtick.direction": "out",
-    "ytick.direction": "out",
-    "xtick.major.size": 3,
-    "ytick.major.size": 3,
-    "xtick.major.width": 0.5,
-    "ytick.major.width": 0.5,
-
-    # Legend
-    "legend.frameon": True,
-    "legend.framealpha": 0.8,
-    "legend.fancybox": False,
-    "legend.edgecolor": "#cccccc",
-    "legend.facecolor": "white",
-    "legend.borderpad": 0.3,
-    "legend.labelspacing": 0.25,
-
-    # Lines
-    "lines.linewidth": 1.5,
-    "lines.markersize": 4,
-    "lines.markeredgewidth": 0.3,
-
-    # Color cycle
-    "axes.prop_cycle": cycler(color=OI_CYCLE),
-})
 
 # ── Helper ────────────────────────────────────────────────────────────────────
 def _short_git_commit():
@@ -243,7 +178,7 @@ def savefig(name, fig=None, dpi=300, meta=None):
 
 def add_horizontal_grid(ax):
     """Ensure only horizontal grid lines are shown."""
-    ax.grid(True, axis="y", color="#e0e0e0", alpha=0.6, linewidth=0.4)
+    ax.grid(True, axis="y", color="#cccccc", alpha=0.6, linewidth=0.4)
     ax.grid(False, axis="x")
 
 
@@ -253,12 +188,15 @@ def remove_top_right_spines(ax):
     ax.spines["right"].set_visible(False)
 
 
-def style_legend(ax, loc="best", framealpha=0.8, **kw):
-    """Apply consistent legend styling."""
-    kw.setdefault("frameon", True)
-    kw.setdefault("framealpha", framealpha)
-    kw.setdefault("edgecolor", "#cccccc")
-    kw.setdefault("facecolor", "white")
+def style_legend(ax, loc="best", **kw):
+    """Apply consistent legend styling for the figures that share ``set_style``.
+
+    Per ``docs/vis_guidelines.md`` §6 the legend frame is optional and
+    never filled.  ``frameon`` and ``framealpha`` are left at the
+    betterplots defaults (False / n/a) so the guideline-compliant look
+    comes from the single shared ``set_style`` call rather than from
+    this helper.
+    """
     kw.setdefault("fontsize", 7)
     ax.legend(loc=loc, **kw)
 
@@ -382,7 +320,7 @@ def plot_cnn_variant_ranking():
     ax.set_xlim(0.001, 0.2)
     add_horizontal_grid(ax)
     # Also add x-axis grid for log scale readability
-    ax.grid(True, axis="x", color="#e0e0e0", alpha=0.3, linewidth=0.3)
+    ax.grid(True, axis="x", color="#cccccc", alpha=0.3, linewidth=0.3)
     style_legend(ax, loc="lower right", fontsize=6.5)
 
     # Annotate values on bars
@@ -408,12 +346,46 @@ def plot_cnn_variant_ranking():
 def plot_edge_probe_bal_acc():
     """Grouped horizontal bar chart of edge-probe balanced accuracy.
 
-    Source: results/probes/unified_probe_results_cv10.json (10-fold CV, seed 42;
-    the SPEC 0006 refresh). Replaces the hardcoded 5-feature/5-fold version:
-    the probe script evolved since the Aug run (Fourier-PE variants, hoct2d
-    rename), so the old numbers are neither current nor reproducible.
+    Source: results/probes/unified_probe_results_cv10.json (10-fold CV,
+    seed 42; SPEC 0006) PLUS the 3-seed reruns (cv10_s43.json, cv10_s44.json)
+    when present: bars then show the 3-seed mean of the per-seed CV means,
+    error bars = std across seeds (gives the comparison a seed error bar).
     """
-    probe = json.loads(PROBE_JSON.read_text())["results"]
+    seed_paths = [
+        PROBE_JSON,
+        PROBE_JSON.parent / "unified_probe_results_cv10_s43.json",
+        PROBE_JSON.parent / "unified_probe_results_cv10_s44.json",
+    ]
+    seed_results = []
+    for path in seed_paths:
+        if path.exists():
+            seed_results.append(json.loads(path.read_text())["results"])
+    if not seed_results:
+        raise RuntimeError("no probe result JSONs found")
+
+    features = sorted(
+        {key for results in seed_results for key in results},
+        key=lambda feature: -np.mean(
+            [results[feature]["mlp"]["bal_acc_mean"]
+             for results in seed_results if feature in results]),
+    )
+
+    probe = {}
+    for feature in features:
+        probe[feature] = {}
+        for probe_type in ("mlp", "linear"):
+            seed_means = [
+                results[feature][probe_type]["bal_acc_mean"]
+                for results in seed_results
+                if feature in results and probe_type in results[feature]
+            ]
+            if not seed_means:
+                continue
+            probe[feature][probe_type] = {
+                "bal_acc_mean": float(np.mean(seed_means)),
+                "bal_acc_std": float(np.std(seed_means)),
+            }
+
     entries = []
     for feature in sorted(probe, key=lambda f: -probe[f]["mlp"]["bal_acc_mean"]):
         for probe_type, suffix in (("mlp", "MLP"), ("linear", "linear")):
@@ -434,8 +406,8 @@ def plot_edge_probe_bal_acc():
     y_pos = np.arange(len(labels))
     ax.barh(y_pos, values, xerr=errors, color=colors,
             edgecolor="white", linewidth=0.3, height=0.65, capsize=2,
-            error_kw={"linewidth": 0.6, "ecolor": "#666666"})
-    ax.axvline(x=baseline, color="#888888", linewidth=0.8, linestyle="--",
+            error_kw={"linewidth": 0.6, "ecolor": "#999999"})
+    ax.axvline(x=baseline, color="#999999", linewidth=0.8, linestyle="--",
                label="Random baseline = 0.500")
     ax.set_yticks(y_pos)
     ax.set_yticklabels(labels, fontsize=7)
@@ -489,7 +461,7 @@ def plot_edge_probe_f1():
     y_pos = np.arange(len(labels))
     ax.barh(y_pos, values, xerr=errors, color=colors,
             edgecolor="white", linewidth=0.3, height=0.65, capsize=2,
-            error_kw={"linewidth": 0.6, "ecolor": "#666666"})
+            error_kw={"linewidth": 0.6, "ecolor": "#999999"})
     ax.set_yticks(y_pos)
     ax.set_yticklabels(labels, fontsize=7)
     ax.invert_yaxis()
@@ -542,7 +514,7 @@ def plot_probe_significance():
                         color=OI_BLUE, markerfacecolor=OI_BLUE if significant else "white")
             ax.annotate(f"Holm p = {holm:.1e}", (hi, i), fontsize=6,
                         va="center", xytext=(4, 0), textcoords="offset points")
-        ax.axvline(0, color="#888888", linewidth=0.8, linestyle="--")
+        ax.axvline(0, color="#999999", linewidth=0.8, linestyle="--")
         ax.set_yticks(y_pos)
         ax.set_yticklabels([r[0] for r in rows], fontsize=7)
         ax.set_title(title, fontsize=8)
@@ -571,12 +543,30 @@ def plot_probe_significance():
     fig.savefig(svg_path, bbox_inches="tight", pad_inches=0.05)
 
 
-def plot_sparse_attention_speed():
+def plot_training_step_k_sweep():
     """
-    Line plot: N vs time_ms for different K values.
-    Source: benchmark_attn/results/speed_mem.csv (updated 2026-08-04, K ∈ {0,4,8,16,32,64},
-    N ∈ {128,256,512}).
+    Three-panel figure, one aspect of the sparse-attention K-sweep benchmark
+    per panel (owner decision 2026-09-28: the single 6-curve line plot was
+    unreadable because K ∈ {4,8,16} differ by ≤15% and braid into one band).
+    Source: benchmark_attn/results/speed_mem.csv, produced by
+    benchmark_training/scripts/benchmarks/benchmark_speed_mem.py — the FULL
+    training step (forward + backward + AdamW, fp32) on the A500, plus peak
+    GPU memory; K ∈ {0,4,8,16,32,64}, N ∈ {128,256,512}. NOT the attention
+    forward time alone (see fig:speed_vs_n for the H100 op-level benchmark).
     Fallback: bench-transformer-cell-tracking/benchmark_combined/results/speed_mem.csv (no K=64).
+
+    Panels:
+      (a) Scaling with N: absolute training-step time vs N. The K ∈ {4,8,16}
+          cluster is drawn as one gray min–max band; Dense, K=32, K=64 as
+          lines.
+      (b) Overhead vs dense: training-step-time ratio K/dense vs N; 1.0 = dense.
+      (c) Cost vs K: training-step time at the largest measured N as bars for
+          all six K values (the N is stated in the LaTeX caption, not hardcoded).
+
+    Figure stem: ``training_step_k_sweep`` — named for what the data is (the
+    full training step), not for the mislabeled "attention speed".
+    One shared figure legend (per-panel end labels collided with neighbouring
+    panels at the 3-panel width).
     """
     # Try updated local copy first, then the older benchmark_combined path
     path_local = BASE / "benchmark_attn" / "results" / "speed_mem.csv"
@@ -584,50 +574,129 @@ def plot_sparse_attention_speed():
 
     path = path_local if path_local.exists() else path_combined
     if not path.exists():
-        print("  ⚠ speed_mem.csv not found — skipping sparse_attention_speed.pdf")
+        print("  ⚠ speed_mem.csv not found — skipping training_step_k_sweep.pdf")
         return
 
     df = pd.read_csv(path)
-    df["K_label"] = df["K"].map({
-        0: "Dense (K=0)", 4: "K=4", 8: "K=8", 16: "K=16", 32: "K=32", 64: "K=64",
-    })
+    sequence_lengths = sorted(df["N"].unique())
+    largest_n = sequence_lengths[-1]
+    dense_time_by_n = df[df["K"] == 0].set_index("N")["time_ms"]
+    df["time_over_dense"] = df.apply(
+        lambda row: row["time_ms"] / dense_time_by_n[row["N"]], axis=1)
+    cluster_k_values = [4, 8, 16]  # cluster spread ≤15%; shown as one band in (a)/(b)
 
-    fig, ax = plt.subplots(figsize=figsize_wide(1.5))
+    fig, (ax_scaling, ax_overhead, ax_cost_k) = plt.subplots(
+        1, 3, figsize=(4.8, 2.0))
 
-    # Okabe–Ito palette: one hue per K value (colorblind-safe).
-    palette = {
-        "Dense (K=0)": ROLE_DENSE_BASELINE,
-        "K=4":  ROLE_K4,
-        "K=8":  ROLE_K8,
-        "K=16": ROLE_K16,
-        "K=32": ROLE_K32,
-        "K=64": ROLE_K64,
+    # ── Shared encodings ──────────────────────────────────────────────────────
+    dense_color = ROLE_DENSE_BASELINE
+    cluster_color = "#999999"
+    high_k_colors = {"K=32": ROLE_K32, "K=64": ROLE_K64}
+    line_widths = {"Dense": 1.6, "K=32": 1.0, "K=64": 1.0}
+
+    # K ∈ {4,8,16} spread ≤15% at every N (vs ~2–4× gaps to Dense/K=64);
+    # drawn as one min–max band.
+    # Bounds are needed in both panels' units: absolute time (a) and the
+    # ratio to dense (b).
+    cluster_time_by_n = df[df["K"].isin(cluster_k_values)].groupby("N")["time_ms"]
+    cluster_ratio_by_n = df[df["K"].isin(cluster_k_values)].groupby("N")["time_over_dense"]
+    cluster_time_lo = cluster_time_by_n.min()[sequence_lengths]
+    cluster_time_hi = cluster_time_by_n.max()[sequence_lengths]
+    cluster_ratio_lo = cluster_ratio_by_n.min()[sequence_lengths]
+    cluster_ratio_hi = cluster_ratio_by_n.max()[sequence_lengths]
+
+    def cluster_color_for_k(k_value):
+        """Map a K value to this figure's shared colour semantics."""
+        if k_value == 0:
+            return dense_color
+        if k_value in cluster_k_values:
+            return cluster_color
+        return high_k_colors[f"K={k_value}"]
+
+    def plot_lines_with_cluster_band(ax, y_by_label, cluster_lo, cluster_hi):
+        """
+        Draw the Dense/K=32/K=64 lines plus the K∈{4,8,16} min–max band.
+
+        y_by_label maps "Dense"/"K=32"/"K=64" to a list of y values ordered by
+        increasing N; ``cluster_lo``/``cluster_hi`` are the band bounds in the
+        same units as the y values. Returns nothing; draws onto ``ax``.
+        """
+        ax.fill_between(sequence_lengths, cluster_lo, cluster_hi,
+                        color=cluster_color, alpha=0.35, linewidth=0, zorder=1)
+        for line_label, line_color in {"Dense": dense_color, **high_k_colors}.items():
+            ax.plot(sequence_lengths, y_by_label[line_label],
+                    color=line_color, linewidth=line_widths[line_label],
+                    marker="o", markersize=2.8, zorder=3)
+
+    # ── (a) Scaling with N ────────────────────────────────────────────────────
+    time_by_label = {
+        line_label: df[df["K"] == k_value].sort_values("N")["time_ms"].tolist()
+        for line_label, k_value in [("Dense", 0), ("K=32", 32), ("K=64", 64)]
     }
-    styles = {
-        "Dense (K=0)": "-",
-        "K=4": "--",
-        "K=8": "-.",
-        "K=16": "-",
-        "K=32": "--",
-        "K=64": "-.",
+    plot_lines_with_cluster_band(ax_scaling, time_by_label, cluster_time_lo, cluster_time_hi)
+    ax_scaling.set_xlabel("Sequence length $N$")
+    ax_scaling.set_ylabel("Training-step time (ms)")
+    ax_scaling.set_title("(a) Scaling with $N$", fontsize=7)
+
+    # ── (b) Overhead vs dense ─────────────────────────────────────────────────
+    ratio_by_label = {
+        line_label: df[df["K"] == k_value].sort_values("N")["time_over_dense"].tolist()
+        for line_label, k_value in [("Dense", 0), ("K=32", 32), ("K=64", 64)]
     }
+    plot_lines_with_cluster_band(ax_overhead, ratio_by_label, cluster_ratio_lo, cluster_ratio_hi)
+    ax_overhead.set_xlabel("Sequence length $N$")
+    ax_overhead.set_ylabel("Time / dense (×)")
+    ax_overhead.set_title("(b) Overhead vs dense", fontsize=7)
 
-    for i, (k_label, grp) in enumerate(df.groupby("K_label")):
-        grp_sorted = grp.sort_values("N")
-        ax.plot(grp_sorted["N"], grp_sorted["time_ms"],
-                color=palette.get(k_label, OI_CYCLE[i % len(OI_CYCLE)]),
-                linestyle=styles.get(k_label, "-"),
-                linewidth=1.5 if "Dense" in k_label or "K=16" in k_label else 1.0,
-                marker="o", markersize=3.5, label=k_label)
+    # ── (c) Cost vs K at the largest measured N ───────────────────────────────
+    cost_at_largest_n = df[df["N"] == largest_n].sort_values("K")
+    bar_positions = np.arange(len(cost_at_largest_n))
+    ax_cost_k.bar(bar_positions, cost_at_largest_n["time_ms"],
+                  color=[cluster_color_for_k(k) for k in cost_at_largest_n["K"]],
+                  edgecolor="white", linewidth=0.3, width=0.65)
+    # Bar value annotations. Adjacent bars with near-equal heights (e.g. the
+    # K=4/K=8 pair at 123.6/127.7 ms) would have their labels touch, so a
+    # label is raised by ``bar_label_gap_ms`` whenever its bar top lies within
+    # ``bar_label_gap_ms`` of the previous bar's top — deterministic and
+    # data-driven.
+    bar_label_gap_ms = 10
+    previous_bar_time = None
+    for bar_position, bar_time in zip(bar_positions, cost_at_largest_n["time_ms"]):
+        label_y = bar_time + 3
+        if previous_bar_time is not None and bar_time - previous_bar_time < bar_label_gap_ms:
+            label_y += bar_label_gap_ms
+        ax_cost_k.text(bar_position, label_y, f"{bar_time:.0f}",
+                       ha="center", va="bottom", fontsize=5.5)
+        previous_bar_time = bar_time
+    ax_cost_k.set_xticks(bar_positions)
+    ax_cost_k.set_xticklabels([str(k) for k in cost_at_largest_n["K"]])
+    ax_cost_k.set_xlabel("Context size $K$")
+    ax_cost_k.set_ylabel("Training-step time (ms)")
+    ax_cost_k.set_ylim(0, 230)  # headroom for the bar value annotations
+    ax_cost_k.set_title("(c) Cost vs $K$", fontsize=7)
 
-    ax.set_xlabel("Sequence length N")
-    ax.set_ylabel("Time (ms)")
-    ax.set_xscale("log", base=2)
-    ax.set_xticks([128, 256, 512])
-    ax.get_xaxis().set_major_formatter(mticker.ScalarFormatter())
-    ax.set_xlim(100, 600)
-    add_horizontal_grid(ax)
-    style_legend(ax, loc="upper left", fontsize=6.5)
+    # Axes limits, grid, spines, and the single shared legend.
+    for ax in (ax_scaling, ax_overhead):
+        ax.set_xscale("log", base=2)
+        ax.set_xticks(sequence_lengths)
+        ax.get_xaxis().set_major_formatter(mticker.ScalarFormatter())
+        ax.set_xlim(100, 700)
+    for ax in (ax_scaling, ax_overhead, ax_cost_k):
+        add_horizontal_grid(ax)
+        remove_top_right_spines(ax)
+
+    legend_handles = [
+        Line2D([0], [0], color=dense_color, linewidth=1.6, marker="o",
+               markersize=3, label="Dense (K=0)"),
+        Patch(facecolor=cluster_color, alpha=0.35, label="K=4–16"),
+        Line2D([0], [0], color=ROLE_K32, linewidth=1.0, marker="o",
+               markersize=3, label="K=32"),
+        Line2D([0], [0], color=ROLE_K64, linewidth=1.0, marker="o",
+               markersize=3, label="K=64"),
+    ]
+    fig.legend(handles=legend_handles, loc="upper center", ncol=4,
+               frameon=False, fontsize=6, columnspacing=1.2, handlelength=1.6)
+    fig.subplots_adjust(top=0.82, wspace=0.55)
 
     meta = {
         "sources": [str(path)],
@@ -636,130 +705,174 @@ def plot_sparse_attention_speed():
             for _, row in df.iterrows()
         ],
     }
-    savefig("sparse_attention_speed.pdf", fig, meta=meta)
+    savefig("training_step_k_sweep.pdf", fig, meta=meta)
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  6. Sparse Attention — Peak Memory
-# ══════════════════════════════════════════════════════════════════════════════
-def plot_sparse_attention_memory():
+def plot_training_step_k_sweep_summary():
     """
-    Line plot: N vs mem_mb for different K values.
-    Sources:
-      * benchmark_attn/results/speed_mem.csv (updated 2026-08-04,
-        K ∈ {0,4,8,16,32,64}, N ∈ {128,256,512}) — dense baseline and
-        gather-KNN sparse variants (O(NK) memory).
-      * benchmark_attn/results/mask_creation_scaling.csv (job 4281334,
-        N ∈ {2048,4096,8192,16384}, K ∈ {16,64}) — mask-KNN scatter
-        construction memory: 8·N²·4 bytes (128 MB @2048 … 8 GB @16384).
-        The buffer is K-independent (same N×N Boolean mask for K=16 and
-        K=64), so a single measured line represents both K values.
-    Fallback: bench-transformer-cell-tracking/benchmark_combined/results/speed_mem.csv (no K=64).
+    Single-panel body summary of the K-sweep training-step benchmark:
+    training-step time ratio to dense vs sequence length N. The low-context
+    cluster K ∈ {4,8,16} is drawn as one gray min–max band (the variants agree
+    within ~15%), K=32 and K=64 as lines, dashed line at 1.0 = dense.
+    Compact companion to the three-panel ``training_step_k_sweep`` appendix
+    figure: the body panel carries the one headline (sparse-attention
+    overhead at training scale, largest at N=128 and shrinking as N grows),
+    per-configuration detail lives in the appendix.
+
+    Source: benchmark_attn/results/speed_mem.csv — the FULL training step
+    (forward + backward + AdamW, fp32) on the A500; NOT the attention
+    forward time alone. Fallback: bench-transformer-cell-tracking path.
     """
     path_local = BASE / "benchmark_attn" / "results" / "speed_mem.csv"
     path_combined = BASE / "bench-transformer-cell-tracking" / "benchmark_combined" / "results" / "speed_mem.csv"
 
     path = path_local if path_local.exists() else path_combined
     if not path.exists():
-        print("  ⚠ speed_mem.csv not found — skipping sparse_attention_memory.pdf")
+        print("  ⚠ speed_mem.csv not found — skipping training_step_k_sweep_summary.pdf")
         return
 
     df = pd.read_csv(path)
-    df["K_label"] = df["K"].map({
-        0: "Dense (K=0)", 4: "K=4", 8: "K=8", 16: "K=16", 32: "K=32", 64: "K=64",
-    })
+    sequence_lengths = sorted(df["N"].unique())
+    largest_n = sequence_lengths[-1]
+    dense_time_by_n = df[df["K"] == 0].set_index("N")["time_ms"]
+    df["time_over_dense"] = df.apply(
+        lambda row: row["time_ms"] / dense_time_by_n[row["N"]], axis=1)
+    cluster_k_values = [4, 8, 16]  # cluster spread ≤15%; shown as one band
 
-    fig, ax = plt.subplots(figsize=figsize_wide(1.5))
+    fig, ax = plt.subplots(figsize=figsize_wide(2.2))
 
-    palette = {
-        "Dense (K=0)": ROLE_DENSE_BASELINE,
-        "K=4":  ROLE_K4,
-        "K=8":  ROLE_K8,
-        "K=16": ROLE_K16,
-        "K=32": ROLE_K32,
-        "K=64": ROLE_K64,
-    }
-    styles = {
-        "Dense (K=0)": "-",
-        "K=4": "--",
-        "K=8": "-.",
-        "K=16": "-",
-        "K=32": "--",
-        "K=64": "-.",
-    }
+    cluster_ratio_by_n = df[df["K"].isin(cluster_k_values)].groupby("N")["time_over_dense"]
+    cluster_lo = cluster_ratio_by_n.min()[sequence_lengths]
+    cluster_hi = cluster_ratio_by_n.max()[sequence_lengths]
+    ax.fill_between(sequence_lengths, cluster_lo, cluster_hi,
+                    color="#999999", alpha=0.35, linewidth=0, zorder=1,
+                    label="K=4–16")
+    for k_value, k_color in [(32, ROLE_K32), (64, ROLE_K64)]:
+        variant_rows = df[df["K"] == k_value].sort_values("N")
+        ax.plot(sequence_lengths, variant_rows["time_over_dense"],
+                color=k_color, linewidth=1.0, marker="o", markersize=2.8,
+                zorder=3, label=f"K={k_value}")
+    ax.axhline(1.0, color=ROLE_DENSE_BASELINE, linewidth=1.2, linestyle="--",
+               alpha=0.7, zorder=2, label="Dense (K=0)")
 
-    for i, (k_label, grp) in enumerate(df.groupby("K_label")):
-        grp_sorted = grp.sort_values("N")
-        ax.plot(grp_sorted["N"], grp_sorted["mem_mb"],
-                color=palette.get(k_label, OI_CYCLE[i % len(OI_CYCLE)]),
-                linestyle=styles.get(k_label, "-"),
-                linewidth=1.5 if "Dense" in k_label or "K=16" in k_label else 1.0,
-                marker="s", markersize=3.5, label=k_label)
-
-    # Measured mask-construction memory (mask-KNN scatter path, job 4281334).
-    # The N×N Boolean mask buffer grows quadratically: 128 MB @2048, 512 MB
-    # @4096, 2 GB @8192, 8 GB @16384. This is the memory wall behind the
-    # report's claim that mask-KNN is memory-prohibitive at large N while
-    # gather-KNN (O(NK)) stays bounded.
-    mask_series_added = False
-    mask_path = BASE / "benchmark_attn" / "results" / "mask_creation_scaling.csv"
-    if mask_path.exists():
-        mask_df = pd.read_csv(mask_path)
-        # mem_mb is identical for K=16 and K=64 (same N² buffer) → keep one
-        # (N, mem_mb) pair per N so the line has 4 points, not 8 overlapping.
-        mask_df = (mask_df[mask_df["method"] == "mask_creation"]
-                          .drop_duplicates(subset=["N", "mem_mb"])
-                          .sort_values("N"))
-        ax.plot(mask_df["N"], mask_df["mem_mb"],
-                color=OI_BLACK, linestyle=":", linewidth=1.5,
-                marker="^", markersize=3.5,
-                label="mask-KNN mask creation (K=16/64)")
-        mask_series_added = True
-    else:
-        print("  ⚠ mask_creation_scaling.csv not found — plotting without mask series")
-
-    ax.set_xlabel("Sequence length N")
-    ax.set_ylabel("Memory (MB)")
+    ax.set_xlabel("Sequence length $N$")
+    ax.set_ylabel("Training-step time / dense (×)")
     ax.set_xscale("log", base=2)
-    if mask_series_added:
-        # Extend x-axis and switch y to log: the mask series spans 128–8192 MB,
-        # two decades above the 80–1600 MB gather/dense cluster at N ≤ 512.
-        ax.set_xticks([128, 256, 512, 2048, 4096, 8192, 16384])
-        ax.set_xlim(100, 20000)
-        ax.set_yscale("log")
-        ax.get_yaxis().set_major_formatter(mticker.ScalarFormatter())
-    else:
-        ax.set_xticks([128, 256, 512])
-        ax.set_xlim(100, 600)
+    ax.set_xticks(sequence_lengths)
     ax.get_xaxis().set_major_formatter(mticker.ScalarFormatter())
+    ax.set_xlim(100, 700)
+    ax.set_ylim(0.85, 1.1 * df["time_over_dense"].max())
     add_horizontal_grid(ax)
-    style_legend(ax, loc="upper left", fontsize=6.5)
+    remove_top_right_spines(ax)
+    style_legend(ax, loc="upper right", fontsize=6.5)
 
-    # Meta: record both the speed_mem.csv series (gather/dense lines) and the
-    # mask_creation_scaling.csv series (mask-KNN scatter line) since both
-    # appear in the figure.
-    sources = [str(path)]
-    values = [
-        {"K": int(row["K"]), "N": int(row["N"]), "mem_mb": float(row["mem_mb"])}
-        for _, row in df.iterrows()
+    meta = {
+        "sources": [str(path)],
+        "values": [
+            {"K": int(row["K"]), "N": int(row["N"]),
+             "time_over_dense": float(row["time_over_dense"])}
+            for _, row in df.iterrows()
+        ],
+    }
+    savefig("training_step_k_sweep_summary.pdf", fig, meta=meta)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  6. K-Sweep Training Benchmark — Peak Memory
+# ══════════════════════════════════════════════════════════════════════════════
+def plot_training_step_k_sweep_memory():
+    """
+    Single-panel figure: peak GPU memory vs N for the K-sweep training-step
+    benchmark (owner decision 2026-09-28, SPEC 0015: the former second panel
+    plotted the mask-KNN mask buffer, whose measured sizes equal the
+    analytic 8·N²·4 bytes exactly — a deterministic identity, not an
+    experiment — so the panel was redundant with its own caption and with
+    the body figure caption ``fig:memory_vs_n``; the mask-buffer fact now
+    lives in this figure's caption and in the appendix text).
+    Source: benchmark_attn/results/speed_mem.csv (updated 2026-08-04,
+    K ∈ {0,4,8,16,32,64}, N ∈ {128,256,512}) — dense baseline and
+    gather-KNN sparse variants (O(NK) memory). The memory numbers are peak
+    GPU memory of the FULL training step (forward + backward + AdamW,
+    fp32, A500), same benchmark as ``training_step_k_sweep``.
+    Fallback: bench-transformer-cell-tracking/benchmark_combined/results/speed_mem.csv (no K=64).
+
+    Encoding: dense, K=32, K=64 as lines; the K ∈ {4,8,16} cluster as one
+    gray min–max band (spread ≤28% in memory).
+
+    Figure stem: ``training_step_k_sweep_memory`` — named for what the data
+    is (full training-step memory), not "attention memory".
+    """
+    # Try updated local copy first, then the older benchmark_combined path
+    path_local = BASE / "benchmark_attn" / "results" / "speed_mem.csv"
+    path_combined = BASE / "bench-transformer-cell-tracking" / "benchmark_combined" / "results" / "speed_mem.csv"
+
+    path = path_local if path_local.exists() else path_combined
+    if not path.exists():
+        print("  ⚠ speed_mem.csv not found — skipping training_step_k_sweep_memory.pdf")
+        return
+
+    df = pd.read_csv(path)
+    sequence_lengths = sorted(df["N"].unique())
+    cluster_k_values = [4, 8, 16]  # cluster spread ≤28% in memory; shown as one band
+
+    fig, ax = plt.subplots(figsize=figsize_wide(2.2))
+
+    # ── Encodings (same vocabulary as plot_training_step_k_sweep) ────────────
+    dense_color = ROLE_DENSE_BASELINE
+    cluster_color = "#999999"
+    high_k_colors = {"K=32": ROLE_K32, "K=64": ROLE_K64}
+    line_widths = {"Dense": 1.6, "K=32": 1.0, "K=64": 1.0}
+
+    # K ∈ {4,8,16} spread ≤28% at every N (vs ~2× gaps to Dense/K=64); drawn
+    # as one min–max band.
+    cluster_mem_by_n = df[df["K"].isin(cluster_k_values)].groupby("N")["mem_mb"]
+    cluster_mem_lo = cluster_mem_by_n.min()[sequence_lengths]
+    cluster_mem_hi = cluster_mem_by_n.max()[sequence_lengths]
+    ax.fill_between(sequence_lengths, cluster_mem_lo, cluster_mem_hi,
+                    color=cluster_color, alpha=0.35, linewidth=0, zorder=1)
+    for line_label, k_value in [("Dense", 0), ("K=32", 32), ("K=64", 64)]:
+        variant_rows = df[df["K"] == k_value].sort_values("N")
+        ax.plot(sequence_lengths, variant_rows["mem_mb"],
+                color=dense_color if k_value == 0
+                else high_k_colors[line_label],
+                linewidth=line_widths[line_label],
+                marker="o", markersize=2.8, zorder=3)
+
+    ax.set_xlabel("Sequence length $N$")
+    ax.set_ylabel("Peak memory (MB)")
+    ax.set_xscale("log", base=2)
+    ax.set_xticks(sequence_lengths)
+    ax.get_xaxis().set_major_formatter(mticker.ScalarFormatter())
+    ax.set_xlim(100, 700)
+    ax.set_ylim(0, 1750)  # 0-baseline so relative gaps are not exaggerated
+    add_horizontal_grid(ax)
+    remove_top_right_spines(ax)
+    legend_handles = [
+        Line2D([0], [0], color=dense_color, linewidth=1.6, marker="o",
+               markersize=3, label="Dense (K=0)"),
+        Patch(facecolor=cluster_color, alpha=0.35, label="K=4–16"),
+        Line2D([0], [0], color=ROLE_K32, linewidth=1.0, marker="o",
+               markersize=3, label="K=32"),
+        Line2D([0], [0], color=ROLE_K64, linewidth=1.0, marker="o",
+               markersize=3, label="K=64"),
     ]
-    if mask_series_added:
-        sources.append(str(mask_path))
-        values.append({
-            "series": "mask_creation",
-            "points": [
-                {"N": int(row["N"]), "K": int(row["K"]), "mem_mb": float(row["mem_mb"])}
-                for _, row in mask_df.iterrows()
-            ],
-        })
-    meta = {"sources": sources, "values": values}
-    savefig("sparse_attention_memory.pdf", fig, meta=meta)
+    ax.legend(handles=legend_handles, loc="upper left", frameon=False,
+              fontsize=6.5, handlelength=1.6)
+
+    # Meta: record the speed_mem.csv series (gather/dense lines).
+    meta = {
+        "sources": [str(path)],
+        "values": [
+            {"K": int(row["K"]), "N": int(row["N"]), "mem_mb": float(row["mem_mb"])}
+            for _, row in df.iterrows()
+        ],
+    }
+    savefig("training_step_k_sweep_memory.pdf", fig, meta=meta)
     # SVG sibling for editing in report/figs/ (PDF remains the build asset).
-    if mask_series_added:
-        svg_path = FIGURES / "sparse_attention_memory.svg"
-        fig.savefig(svg_path, bbox_inches="tight", pad_inches=0.05)
-        size_kb = os.path.getsize(svg_path) / 1024
-        print(f"  ✓ sparse_attention_memory.svg  ({size_kb:.1f} KB)")
+    svg_path = FIGURES / "training_step_k_sweep_memory.svg"
+    fig.savefig(svg_path, bbox_inches="tight", pad_inches=0.05)
+    size_kb = os.path.getsize(svg_path) / 1024
+    print(f"  ✓ training_step_k_sweep_memory.svg  ({size_kb:.1f} KB)")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -816,7 +929,7 @@ def plot_pipeline_breakdown():
     ax2.set_ylabel("% of total inference time")
     ax2.set_ylim(0, 105)
     add_horizontal_grid(ax2)
-    style_legend(ax2, loc="upper right", fontsize=6)
+    style_legend(ax2, loc="center left", bbox_to_anchor=(1.02, 0.5), fontsize=6)
 
     fig.tight_layout(pad=0.8)
     meta = {
@@ -1020,14 +1133,14 @@ def plot_knn_tra_parity():
         diff = means[i] - dense_mean
         diff_str = f"{diff:+.4f}"
         ax.text(means[i] + 0.0003, y_pos[i] - 0.37, diff_str,
-                va="center", ha="left", fontsize=6, color="#888888",
+                va="center", ha="left", fontsize=6, color="#999999",
                 fontstyle="italic")
 
     # Main annotation: all within ±0.001 (top-right, above highest bar)
     ax.annotate("All KNN variants within $\\pm0.001$ TRA of dense",
                 xy=(0.991, len(labels) - 0.15), fontsize=7.5,
                 ha="left", va="bottom",
-                bbox=dict(boxstyle="round,pad=0.3", facecolor="#f0f4f8",
+                bbox=dict(boxstyle="round,pad=0.3", facecolor="#cccccc",
                           edgecolor=ROLE_DENSE_BASELINE, linewidth=0.6))
 
     # Legend (only for reference line and band)
@@ -1063,9 +1176,10 @@ def main():
         ("2/9", "CNN Variant Ranking", plot_cnn_variant_ranking),
         ("3/9", "Edge Probe — Balanced Accuracy", plot_edge_probe_bal_acc),
         ("4/9", "Edge Probe — F1 Score", plot_edge_probe_f1),
-        ("5/9", "Sparse Attention Speed", plot_sparse_attention_speed),
-        ("5a/9", "Probe Significance (forest)", plot_probe_significance),
-        ("6/9", "Sparse Attention Memory", plot_sparse_attention_memory),
+        ("5/9", "K-Sweep Training Step (3-panel)", plot_training_step_k_sweep),
+        ("5a/9", "K-Sweep Training Step (body summary)", plot_training_step_k_sweep_summary),
+        ("5b/9", "Probe Significance (forest)", plot_probe_significance),
+        ("6/9", "K-Sweep Training Memory", plot_training_step_k_sweep_memory),
         ("7/9", "Pipeline Breakdown", plot_pipeline_breakdown),
         ("8/9", "Backward Pass Comparison", plot_backward_pass),
         ("9/9", "KNN TRA Parity", plot_knn_tra_parity),

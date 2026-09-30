@@ -1,8 +1,8 @@
 {
   "figure": "probe_significance",
-  "created_utc": "2026-09-25T18:13:55.508405+00:00",
+  "created_utc": "2026-09-28T19:10:03.337616+00:00",
   "generator": "results/generate_plots.py",
-  "git_commit": "c45465a",
+  "git_commit": "c62d860",
   "sources": [
     "/home/leonard.starke@mediainterface.de/Dokumente/Uni/research-proj/results/probes/probe_paired_significance.json"
   ],

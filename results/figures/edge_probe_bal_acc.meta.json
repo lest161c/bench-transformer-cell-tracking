@@ -1,82 +1,82 @@
 {
   "figure": "edge_probe_bal_acc",
-  "created_utc": "2026-09-25T18:13:55.085991+00:00",
+  "created_utc": "2026-09-28T19:10:02.778194+00:00",
   "generator": "results/generate_plots.py",
-  "git_commit": "c45465a",
+  "git_commit": "c62d860",
   "sources": [
     "/home/leonard.starke@mediainterface.de/Dokumente/Uni/research-proj/results/probes/unified_probe_results_cv10.json"
   ],
   "values": [
     {
-      "label": "Regionprops 7D + Fourier PE MLP",
-      "mean": 0.9625824612032347,
-      "std": 0.023524846456837174,
-      "n_folds": 10
-    },
-    {
-      "label": "Regionprops 7D + Fourier PE linear",
-      "mean": 0.533023735325765,
-      "std": 0.03142418837723431,
-      "n_folds": 10
-    },
-    {
-      "label": "HOCT 2D + Fourier PE MLP",
-      "mean": 0.928721724982157,
-      "std": 0.09515169337217115,
-      "n_folds": 10
-    },
-    {
-      "label": "HOCT 2D + Fourier PE linear",
-      "mean": 0.5405792487197123,
-      "std": 0.024538883194997602,
-      "n_folds": 10
-    },
-    {
       "label": "DINOv2 (frozen) MLP",
-      "mean": 0.9225743190529905,
-      "std": 0.05111042659579912,
+      "mean": 0.9196945154750077,
+      "std": 0.004121518607452278,
       "n_folds": 10
     },
     {
       "label": "DINOv2 (frozen) linear",
-      "mean": 0.5372003353194142,
-      "std": 0.026629647004477588,
+      "mean": 0.5482199412985082,
+      "std": 0.01247094963934633,
+      "n_folds": 10
+    },
+    {
+      "label": "HOCT 2D + Fourier PE MLP",
+      "mean": 0.913194479951637,
+      "std": 0.02493247424257055,
+      "n_folds": 10
+    },
+    {
+      "label": "HOCT 2D + Fourier PE linear",
+      "mean": 0.544229121666588,
+      "std": 0.005558900718493486,
+      "n_folds": 10
+    },
+    {
+      "label": "Regionprops 7D + Fourier PE MLP",
+      "mean": 0.9042152793851872,
+      "std": 0.05565231146251573,
+      "n_folds": 10
+    },
+    {
+      "label": "Regionprops 7D + Fourier PE linear",
+      "mean": 0.5325838140857126,
+      "std": 0.0031867292182284224,
       "n_folds": 10
     },
     {
       "label": "HOCT 2D MLP",
-      "mean": 0.8644354007874042,
-      "std": 0.15279423038674092,
+      "mean": 0.8292858400835005,
+      "std": 0.06862453290156206,
       "n_folds": 10
     },
     {
       "label": "HOCT 2D linear",
-      "mean": 0.5476005832175759,
-      "std": 0.036692242700778976,
+      "mean": 0.5454929263610281,
+      "std": 0.0027046505390345343,
       "n_folds": 10
     },
     {
       "label": "Regionprops 7D MLP",
-      "mean": 0.8205698420422518,
-      "std": 0.09084209829440879,
+      "mean": 0.8019356797149203,
+      "std": 0.022720254950182574,
       "n_folds": 10
     },
     {
       "label": "Regionprops 7D linear",
-      "mean": 0.5552042300941735,
-      "std": 0.028932191794305936,
+      "mean": 0.5692058671720713,
+      "std": 0.020495014552539093,
       "n_folds": 10
     },
     {
       "label": "CNN NT-Xent (frozen) MLP",
-      "mean": 0.7752887803332784,
-      "std": 0.0778761691048781,
+      "mean": 0.7716972554459508,
+      "std": 0.008247708375800128,
       "n_folds": 10
     },
     {
       "label": "CNN NT-Xent (frozen) linear",
-      "mean": 0.5587759626726032,
-      "std": 0.03313122816667621,
+      "mean": 0.5632169901473646,
+      "std": 0.006761917203926437,
       "n_folds": 10
     },
     {

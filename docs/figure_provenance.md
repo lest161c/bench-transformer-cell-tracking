@@ -24,21 +24,22 @@ Total figures **on disk** under `report/resources/figures/`:
 
 | # | Figure file (PDF)        | Source script                                          | Source directory                          | Output dir written by script       |
 |---|--------------------------|--------------------------------------------------------|-------------------------------------------|-----------------------------------|
-| 1 | `01_speed_vs_n.pdf`      | `curated/generate_report.py`                            | `report/../`                             | `curated/figures/` then copied to `report/resources/figures/` |
-| 2 | `11_profiler_breakdown.pdf` | `curated/generate_report.py`                         | `report/../`                             | same as #1                       |
+| 1 | `01_speed_vs_n.pdf` (HTML report only, A500) + `01_speed_vs_n_h100.pdf` (single-panel body) + `01_speed_vs_n_h100_detail.pdf` (appendix detail) | `curated/generate_report.py` (`panel_speed_vs_n` / `panel_speed_vs_n_h100`, H100 redesign 2026-09-28; knn_relpos dropped from body, round-2 dataset-scale bar panel removed again on owner decision — SPEC 0017 rounds 2+5) | `benchmark_attn/results/full_bench_a500.csv` (HTML) / `full_bench_h100.csv` (report) | `curated/figures/` then copied to `report/figs/` |
+| 2 | `11_profiler_breakdown.pdf` | `curated/generate_report.py` (`panel_profiler_breakdown`, small-multiples redesign 2026-09-28) | hardcoded torch.profiler values (note in sidecar) | same as #1                       |
 | 3 | `13_ssl_negative.pdf`    | `curated/generate_report.py`                            | `report/../`                             | same as #1                       |
 | 4 | `15_amdahl_law.pdf`      | `report/scripts/generate_amdahl_figure.py`             | `report/scripts/`                        | `report/resources/figures/` (default) |
-| 5 | `sparse_attention_speed.pdf` | `results/generate_plots.py` (line 471)            | `results/`                               | `results/figures/` then copied to `report/resources/figures/` |
-| 6 | `sparse_attention_memory.pdf` | `results/generate_plots.py` (`plot_sparse_attention_memory`) | `results/` (speed_mem.csv) + `benchmark_attn/results/mask_creation_scaling.csv` (job 4281334, mask-KNN creation series) | same as #5, plus `.svg` sibling |
+| 5 | `training_step_k_sweep.pdf` + `training_step_k_sweep_summary.pdf` | `results/generate_plots.py` (`plot_training_step_k_sweep` 3-panel appendix + `plot_training_step_k_sweep_summary` body summary, redesign 2026-09-28) | `results/` (speed_mem.csv = full training step, fp32, A500) | `results/figures/` then copied to `report/figs/` |
+| 6 | `training_step_k_sweep_memory.pdf` | `results/generate_plots.py` (`plot_training_step_k_sweep_memory`, single-panel redesign 2026-09-28, SPEC 0015: gather scaling with K=4–16 band; the former mask-KNN panel was dropped as redundant — it plotted the deterministic identity 8·N²·4 bytes) | `results/` (speed_mem.csv); mask-creation numbers quoted in caption only (mask_creation_scaling.csv, job 4281334) | `results/figures/` then copied to `report/figs/`, plus `.svg` sibling |
 | 7 | `pipeline_breakdown.pdf` | `results/generate_plots.py` (line 594)                  | `results/`                               | same as #5                       |
 | 8 | `backward_pass.pdf`      | `results/generate_plots.py` (line 662)                  | `results/`                               | same as #5                       |
 
 Each script writes **both** PDF and SVG where applicable:
 
 - `curated/generate_report.py`: writes `curated/figures/{name}.pdf`
-  and `.svg` (line 71–72 in source).
+  and `.svg`; `panel_profiler_breakdown` additionally writes a
+  `.meta.json` sidecar (2026-09-28; other curated panels still lack one).
 - `results/generate_plots.py`: writes PDF only, 300 dpi (line 90,
-  141–146) — except `sparse_attention_memory`, which also writes an
+  141–146) — except `training_step_k_sweep_memory`, which also writes an
   SVG sibling since the job 4281334 mask-creation series was added.
 - `report/scripts/generate_amdahl_figure.py`: writes both PDF
   and SVG (line 97–98).
@@ -73,14 +74,15 @@ script that does this copy.
 
 | # | Figure file                | `.tex` source   | Line  | Where in PDF      |
 |---|----------------------------|-----------------|-------|-------------------|
-| 1 | `01_speed_vs_n.pdf`        | `evaluation.tex` | 12   | §Evaluation, fig 1 |
-| 2 | `11_profiler_breakdown.pdf` | `evaluation.tex` | 19   | §Evaluation, fig 2 |
+| 1 | `01_speed_vs_n_h100.pdf` | `evaluation.tex` | 12   | §Evaluation, fig 2 |
+| 2 | `11_profiler_breakdown.pdf` | `appendix.tex`  | 179  | Appendix §G, fig 5 |
 | 3 | `15_amdahl_law.pdf`        | `evaluation.tex` | 66   | §Evaluation, fig 3 |
 | 4 | `13_ssl_negative.pdf`      | `evaluation.tex` | 96   | §Evaluation, fig 4 |
-| 5 | `sparse_attention_speed.pdf` | `appendix.tex` | 144  | Appendix, fig A1  |
-| 6 | `sparse_attention_memory.pdf` | `appendix.tex` | 151  | Appendix, fig A2  |
-| 7 | `pipeline_breakdown.pdf`   | `appendix.tex` | 162   | Appendix, fig A3  |
-| 8 | `backward_pass.pdf`        | `appendix.tex` | 169   | Appendix, fig A4  |
+| 5 | `training_step_k_sweep_summary.pdf` | `evaluation.tex` | 20 | §Evaluation, fig 1 |
+| 6 | `training_step_k_sweep.pdf` | `appendix.tex`  | 216  | Appendix §I, fig 7 |
+| 7 | `training_step_k_sweep_memory.pdf` | `appendix.tex` | 223 | Appendix §I, fig 8 |
+| 8 | `pipeline_breakdown.pdf`   | `appendix.tex`  | 162  | Appendix §J, fig 10 |
+| 9 | `backward_pass.pdf`        | `appendix.tex`  | 169  | Appendix §J, fig 11 |
 
 ## 6. Orphan figures (on disk, **not** in report PDF)
 
@@ -189,8 +191,11 @@ figure is saved, so no separate command is needed.
 | `edge_probe_bal_acc`         | `["results/probes/unified_probe_results_cv10.json"]`                   | `n_folds=10`; 14 bars (7 features × linear/mlp)                                 |
 | `edge_probe_f1`              | same                                                                    | `n_folds=10`; 14 bars                                                           |
 | `probe_significance`         | `["results/probes/probe_paired_significance.json"]`                    | `n_frame_pairs=29`; 12 rows (6 features × bal_acc/f1)                           |
-| `sparse_attention_speed`     | `["benchmark_attn/results/speed_mem.csv"]`                             | 18 (K,N,time_ms) rows                                                           |
-| `sparse_attention_memory`    | speed_mem.csv + mask_creation_scaling.csv                              | gather/dense rows + mask_creation series dict                                   |
+| `training_step_k_sweep`      | `["benchmark_attn/results/speed_mem.csv"]`                             | 18 (K,N,time_ms) rows; 3-panel redesign 2026-09-28 (band for K∈{4,8,16}, ratio panel, K-sweep bars). Data = FULL training step (fwd+bwd+AdamW, fp32, A500), previously mislabeled "attention forward time" |
+| `training_step_k_sweep_summary` | `["benchmark_attn/results/speed_mem.csv"]`                          | same 18 rows as ratios to dense (body summary panel)                             |
+| `training_step_k_sweep_memory` | speed_mem.csv                            | gather/dense rows (18 rows); mask-creation numbers quoted in caption only (single-panel redesign 2026-09-28, SPEC 0015)                                    |
+| `11_profiler_breakdown`      | `[]` (values hardcoded from torch.profiler run, note in sidecar)       | 3 methods × 2–4 operations, time_us each (sidecar added 2026-09-28)              |
+| `01_speed_vs_n_h100` + `01_speed_vs_n_h100_detail` | `["benchmark_attn/results/full_bench_h100.csv"]` | 7 plotted series (5 methods + gather K=16 centre line + gather K-band; knn_relpos and the round-2 N=128 bar entry dropped — SPEC 0017 rounds 2+5) + 9 detail series; single-panel body redesign + appendix detail 2026-09-28; appendix reworked round 1 to overview + 3 aspects, round 2 (owner: still crowded, coincident curves carry no information) to TWO panels — overview (6 curves, log-y) + gather-SDPA K-sweep; backends/rel-pos/mask-KNN-K facts stated numerically in the caption (SPEC 0018 + amendment) |
 | `pipeline_breakdown`         | `[]`                                                                    | `note`: "hardcoded in generator"                                                |
 | `backward_pass`              | `["benchmark_attn/results/sparse_backward_results.csv"]`               | rows for N=512, K=16                                                            |
 | `knn_tra_parity`             | 5× `results/knn_sweep/results_{baseline,k4,k16,k32,k64}.csv`           | 5 rows of mean/std TRA                                                          |

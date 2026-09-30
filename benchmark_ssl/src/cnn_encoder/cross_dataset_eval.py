@@ -38,8 +38,13 @@ from pathlib import Path
 import numpy as np
 
 # ── Paths ────────────────────────────────────────────────────────────────────
-TRK = Path("/data/cat/ws/lest161c-cell_tracking/lest161c-ssl_cell_tracking-1778979601/trackastra")
-BENCH = Path("/data/cat/ws/lest161c-cell_tracking/lest161c-ssl_cell_tracking-1778979601/bench-transformer-cell-tracking")
+# Workspace roots are env-overridable: the cluster workspace was renamed from
+# .../lest161c-cell_tracking/lest161c-ssl_cell_tracking-1778979601/ to
+# /data/cat/ws/lest161c-ssl_cell_tracking/, so the old absolute defaults died.
+TRK = Path(os.environ.get(
+    "TRK_ROOT", "/data/cat/ws/lest161c-ssl_cell_tracking/trackastra"))
+BENCH = Path(os.environ.get(
+    "BENCH_ROOT", "/data/cat/ws/lest161c-ssl_cell_tracking/bench-transformer-cell-tracking"))
 DATA_ROOT = Path("/data/cat/ws/mawe985g-data/data/celltracking/deepcell")
 OUTPUT_ROOT = TRK / "results" / "cross_dataset" / "deepcell"
 
@@ -68,6 +73,12 @@ def main():
         "--variant", type=str, default=None,
         help="Process only this variant label (e.g. 'baseline'). "
              "Default: process all CHECKPOINTS.",
+    )
+    parser.add_argument(
+        "--no-built-in", action="store_true",
+        help="Skip the built-in CHECKPOINTS; evaluate only the "
+             "--checkpoints-file entries (their DeepCell metrics already "
+             "exist from the July run).",
     )
     parser.add_argument(
         "--checkpoints-file", type=str, default=None,
@@ -103,6 +114,12 @@ def main():
     # JSON file. Default behavior (no --checkpoints-file) is exactly the
     # historical CHECKPOINTS list.
     all_checkpoints = list(CHECKPOINTS)
+    if args.no_built_in:
+        # Evaluate ONLY the --checkpoints-file entries: the built-in CNN
+        # variants' DeepCell numbers already exist (July run), so re-running
+        # them is wasted GPU time and the July run dirs may no longer
+        # resolve in a renamed workspace.
+        all_checkpoints = []
     if args.checkpoints_file is not None:
         with open(args.checkpoints_file) as file_handle:
             extra = json.load(file_handle)
