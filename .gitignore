@@ -63,6 +63,9 @@ weeklyreport_*.md
 
 # Generated artifacts directories
 results/
+
+# Agentic research bookkeeping (local only; never committed to keep repo lean)
+/docs/agent-state/
 papers/
 knowledge-graph/
 benchmark_backward/
@@ -101,6 +104,8 @@ reports/
 results/
 results_final/
 scripts/
+!benchmark_training/scripts/
+!benchmark_training/scripts/**
 suggestions/
 third_party/
 trackastra/
