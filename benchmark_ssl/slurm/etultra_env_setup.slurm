@@ -14,7 +14,7 @@ cd "$FORK_DIR" && git fetch origin && git checkout cy/pretrained_feats_train
 "$UV" venv --clear --python 3.12 .venv-etultra
 PY=.venv-etultra/bin/python
 "$UV" pip install --python "$PY" --no-cache -e ".[pretrained_feats]"
-"$UV" pip install --python "$PY" "traccuracy==0.3.0" motmetrics gitpython psutil "zarr<3"
+"$UV" pip install --python "$PY" "traccuracy==0.3.0" motmetrics gitpython psutil seaborn "zarr<3"
 "$UV" pip install --python "$PY" git+https://github.com/bentaculum/Trackastra-et-Ultra.git
 "$PY" -c "import torch, zarr; print('torch', torch.__version__, 'zarr', zarr.__version__)"
 "$PY" -c "from trackastra_pretrained_feats import FeatureExtractor; from trackastra_pretrained_feats.pretrained_features import AVAILABLE_PRETRAINED_BACKBONES as B; print('BACKBONES:', sorted(B))"
