@@ -20,6 +20,9 @@ Import this module before ``scripts/train.py`` builds its argparse parser; the
 import itself registers the backbone. See ``benchmark_ssl/docs/etultra_bridge.md``.
 """
 
+import tempfile
+from pathlib import Path
+
 import numpy as np
 import torch
 
@@ -41,9 +44,27 @@ BACKBONE_FEAT_DIM = 128
 class ForkScaledCNNDynaCLRFeatures(ScaledCNNDynaCLRFeatures):
     """Adapter matching the fork's construction and coordinate conventions."""
 
-    def __init__(self, *args, model_folder=None, checkpoint_path=None, **kwargs):
-        """Forward the fork's ``model_folder`` to the parent's ``checkpoint_path``."""
-        super().__init__(*args, checkpoint_path=checkpoint_path or model_folder, **kwargs)
+    def __init__(self, image_size=None, save_path=None, model_folder=None,
+                 checkpoint_path=None, **kwargs):
+        """Map the fork's ``model_folder`` to the checkpoint; force a writable cache.
+
+        The base extractor creates ``save_path``. During evaluation the fork passes
+        a path inside the read-only dataset directory, so fall back to a temp dir
+        (this adapter keeps normalised frames in memory and does not use the cache).
+        """
+        if save_path is None:
+            save_path = Path(tempfile.gettempdir()) / "etultra_dynaclr_features"
+        else:
+            try:
+                Path(save_path).mkdir(parents=True, exist_ok=True)
+            except OSError:
+                save_path = Path(tempfile.gettempdir()) / "etultra_dynaclr_features"
+        super().__init__(
+            image_size=image_size,
+            save_path=save_path,
+            checkpoint_path=checkpoint_path or model_folder,
+            **kwargs,
+        )
 
     def precompute_image_embeddings(self, images, **kwargs):
         """Delegate to the parent and expose an ``embeddings`` placeholder.
