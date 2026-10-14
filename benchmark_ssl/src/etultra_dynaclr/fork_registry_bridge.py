@@ -20,6 +20,7 @@ Import this module before ``scripts/train.py`` builds its argparse parser; the
 import itself registers the backbone. See ``benchmark_ssl/docs/etultra_bridge.md``.
 """
 
+import os
 import tempfile
 from pathlib import Path
 
@@ -59,10 +60,18 @@ class ForkScaledCNNDynaCLRFeatures(ScaledCNNDynaCLRFeatures):
                 Path(save_path).mkdir(parents=True, exist_ok=True)
             except OSError:
                 save_path = Path(tempfile.gettempdir()) / "etultra_dynaclr_features"
+        checkpoint_path = (
+            checkpoint_path or model_folder or os.environ.get("DYNACLR_CHECKPOINT")
+        )
+        if checkpoint_path is None:
+            raise ValueError(
+                "No encoder checkpoint: pass --pretrained_model_path / model_folder "
+                "or set the DYNACLR_CHECKPOINT environment variable."
+            )
         super().__init__(
             image_size=image_size,
             save_path=save_path,
-            checkpoint_path=checkpoint_path or model_folder,
+            checkpoint_path=checkpoint_path,
             **kwargs,
         )
 

@@ -13,6 +13,7 @@ SEED="${2:?usage: train_etultra_dynaclr.slurm <config.yaml> <seed> [cachedir]}"
 CACHEDIR="${3:-$BENCH/.cache/etultra_seed${SEED}}"
 mkdir -p "$CACHEDIR"
 cd "$BENCH/cyril_trackastra"
+export DYNACLR_CHECKPOINT="$BENCH/benchmark_ssl/results/checkpoints/cnn_bn100k_step100000.pt"
 export PYTHONPATH="$BENCH/benchmark_ssl/src:${PYTHONPATH:-}"
 "$BENCH/cyril_trackastra/.venv-etultra/bin/python" \
   "$BENCH/benchmark_ssl/slurm/run_train.py" -c "$CONFIG" --seed "$SEED" \
