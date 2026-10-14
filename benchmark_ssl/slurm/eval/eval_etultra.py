@@ -17,7 +17,9 @@ Usage:
 
 With no seeds given, seeds 0, 1, 2 are expected. For each expected seed the
 newest run directory is used, so a stale directory from a killed run is ignored.
-The fork checkout is expected at FORK_ROOT.
+The metric code from his `cy/metrics` branch is vendored next to this script
+(metrics.py, metrics_utils.py); the fork's installed packages are used for
+model loading and tracking.
 """
 
 import sys
@@ -29,7 +31,7 @@ import yaml
 import etultra_dynaclr.fork_registry_bridge  # noqa: F401  registers dynaclr-scaledcnn
 
 FORK_ROOT = Path("/data/cat/ws/lest161c-ssl_cell_tracking/bench-transformer-cell-tracking/cyril_trackastra")
-sys.path.insert(0, str(FORK_ROOT / "scripts" / "eval"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from metrics_utils import compute_from_config  # noqa: E402
 
