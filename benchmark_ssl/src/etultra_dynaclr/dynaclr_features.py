@@ -146,16 +146,20 @@ class ScaledCNNDynaCLRFeatures(FeatureExtractor):
             half = PATCH_SIZE // 2
             cy = max(0, min(height - 1, int(round(float(coord[0])))))
             cx = max(0, min(width - 1, int(round(float(coord[1])))))
-            top, left = cy - half, cx - half
-            bottom, right = top + PATCH_SIZE, left + PATCH_SIZE
-            pad_top, pad_bottom = max(0, -top), max(0, bottom - height)
-            pad_left, pad_right = max(0, -left), max(0, right - width)
-            crop = frame[max(0, top):min(height, bottom), max(0, left):min(width, right)]
+            # Keep the 64x64 window inside the frame where possible and shift it
+            # inward at borders; only zero-pad when the frame itself is smaller
+            # than the window. Reflect padding is avoided: it raises when the pad
+            # size reaches the (small) frame dimension (e.g. DeepCell aug frames).
+            top = min(max(0, cy - half), max(0, height - PATCH_SIZE))
+            left = min(max(0, cx - half), max(0, width - PATCH_SIZE))
+            crop = frame[top:top + PATCH_SIZE, left:left + PATCH_SIZE]
             if crop.numel() == 0:
                 crop = torch.zeros(PATCH_SIZE, PATCH_SIZE)
-            if pad_top or pad_bottom or pad_left or pad_right:
+            pad_bottom = max(0, PATCH_SIZE - crop.shape[-2])
+            pad_right = max(0, PATCH_SIZE - crop.shape[-1])
+            if pad_bottom or pad_right:
                 crop = torch.nn.functional.pad(
-                    crop[None, None], (pad_left, pad_right, pad_top, pad_bottom), mode="reflect"
+                    crop[None, None], (0, pad_right, 0, pad_bottom)
                 )[0, 0]
             crop = crop[:PATCH_SIZE, :PATCH_SIZE][None, None]
             with torch.no_grad():
