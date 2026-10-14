@@ -2,24 +2,25 @@
 
 Why: SPEC 0032 reproduces Achard's trained-Trackastra benchmark with the
 DynaCLR encoder. Each seed writes its own timestamped run directory under a
-shared outdir; this script selects exactly one run per seed, runs his
+shared outdir; this script selects one run per seed, runs his
 ``compute_from_config`` (greedy tracking + traccuracy metrics) over each, and
-aggregates the per-video metrics.
+aggregates through his own ``aggregate_metrics`` so the numbers are computed the
+same way as in the thesis.
 
-Aggregation convention (matches the thesis: a per-model point estimate is the
-mean across test videos, and the reported spread is over the runs):
-- per-video table: every (run, video) row produced by his ``metrics``;
-- per-run table: the mean over each run's test videos;
-- mean/std table: mean and std across the selected runs.
+Aggregation (matches his pipeline and the thesis convention):
+- per-frame ``metrics()`` rows are collapsed per video by ``aggregate_metrics``
+  (sums AOGM/edge counts, means the ratios);
+- the per-video table is the result of that collapse;
+- the per-run table is the mean over each run's test videos;
+- the mean/std table is mean and std across the selected runs.
 
 Usage:
     python eval_etultra.py <train_outdir> <config_yaml> <eval_outdir> [seed ...]
 
-With no seeds given, seeds 0, 1, 2 are expected. For each expected seed the
+With no seeds given, seeds 0, 1, 2 are expected; for each expected seed the
 newest run directory is used, so a stale directory from a killed run is ignored.
-The metric code from his `cy/metrics` branch is vendored next to this script
-(metrics.py, metrics_utils.py); the fork's installed packages are used for
-model loading and tracking.
+His ``cy/metrics`` code is vendored next to this script (metrics.py,
+metrics_utils.py).
 """
 
 import sys
@@ -30,10 +31,9 @@ import yaml
 
 import etultra_dynaclr.fork_registry_bridge  # noqa: F401  registers dynaclr-scaledcnn
 
-FORK_ROOT = Path("/data/cat/ws/lest161c-ssl_cell_tracking/bench-transformer-cell-tracking/cyril_trackastra")
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from metrics_utils import compute_from_config  # noqa: E402
+from metrics_utils import aggregate_metrics, compute_from_config  # noqa: E402
 
 DEFAULT_SEEDS = (0, 1, 2)
 
@@ -59,6 +59,20 @@ def select_runs(train_outdir: Path, expected_seeds) -> list[Path]:
     return [newest_by_seed[seed] for seed in expected_seeds if seed in newest_by_seed]
 
 
+def _video_rows(eval_root: Path) -> list[pd.DataFrame]:
+    """Collapse each run/video ``metrics.csv`` with his ``aggregate_metrics``."""
+    rows = []
+    for csv_path in sorted(eval_root.glob("*/tracked_*/metrics/metrics.csv")):
+        parts = csv_path.relative_to(eval_root).parts
+        run_name = parts[0]
+        video = parts[1].replace("tracked_", "")
+        agg = aggregate_metrics(pd.read_csv(csv_path))
+        agg.insert(0, "video", video)
+        agg.insert(0, "run", run_name)
+        rows.append(agg)
+    return rows
+
+
 def evaluate(train_outdir: Path, config_path: str, eval_root: Path, seeds) -> None:
     """Run his metrics for the selected runs and aggregate."""
     eval_root.mkdir(parents=True, exist_ok=True)
@@ -72,16 +86,12 @@ def evaluate(train_outdir: Path, config_path: str, eval_root: Path, seeds) -> No
             config_dir=config_path, model_dir=run_dir, outdir=eval_root / run_dir.name
         )
 
-    frames = []
-    for csv_path in eval_root.glob("**/metrics/metrics.csv"):
-        metrics_df = pd.read_csv(csv_path)
-        metrics_df["run"] = csv_path.relative_to(eval_root).parts[0]
-        frames.append(metrics_df)
-    if not frames:
+    rows = _video_rows(eval_root)
+    if not rows:
         print("NO_METRICS")
         sys.exit(1)
 
-    per_video = pd.concat(frames, ignore_index=True)
+    per_video = pd.concat(rows, ignore_index=True)
     per_video.to_csv(eval_root / "summary_per_video.csv", index=False)
 
     numeric = per_video.select_dtypes(include="number").copy()
