@@ -155,8 +155,8 @@ class ScaledCNNDynaCLRFeatures(FeatureExtractor):
                 crop = torch.zeros(PATCH_SIZE, PATCH_SIZE)
             if pad_top or pad_bottom or pad_left or pad_right:
                 crop = torch.nn.functional.pad(
-                    crop, (pad_left, pad_right, pad_top, pad_bottom), mode="reflect"
-                )
+                    crop[None, None], (pad_left, pad_right, pad_top, pad_bottom), mode="reflect"
+                )[0, 0]
             crop = crop[:PATCH_SIZE, :PATCH_SIZE][None, None]
             with torch.no_grad():
                 embedding = self.encoder(crop).squeeze(0)
