@@ -23,10 +23,12 @@ His ``cy/metrics`` code is vendored next to this script (metrics.py,
 metrics_utils.py).
 """
 
+import os
 import sys
 from pathlib import Path
 
 import pandas as pd
+import torch
 import yaml
 
 import etultra_dynaclr.fork_registry_bridge  # noqa: F401  registers dynaclr-scaledcnn
@@ -36,6 +38,27 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from metrics_utils import aggregate_metrics, compute_from_config  # noqa: E402
 
 DEFAULT_SEEDS = (0, 1, 2)
+
+
+def _install_feature_ablation() -> None:
+    """Zero or shuffle pretrained features for a feature-usage control (S3)."""
+    mode = os.environ.get("DYNACLR_ABLATE")
+    if not mode:
+        return
+    from etultra_dynaclr.fork_registry_bridge import ForkScaledCNNDynaCLRFeatures
+
+    original = ForkScaledCNNDynaCLRFeatures.compute_region_features
+
+    def ablated(self, coords=None, masks=None, timepoints=None, labels=None):
+        feats = original(self, coords=coords, masks=masks, timepoints=timepoints, labels=labels)
+        if mode == "zero":
+            return torch.zeros_like(feats)
+        if mode == "shuffle":
+            return feats[torch.randperm(feats.shape[0])]
+        return feats
+
+    ForkScaledCNNDynaCLRFeatures.compute_region_features = ablated
+    print(f"FEATURE_ABLATION={mode}")
 
 
 def _run_seed(run_dir: Path) -> int | None:
@@ -75,6 +98,7 @@ def _video_rows(eval_root: Path) -> list[pd.DataFrame]:
 
 def evaluate(train_outdir: Path, config_path: str, eval_root: Path, seeds) -> None:
     """Run his metrics for the selected runs and aggregate."""
+    _install_feature_ablation()
     eval_root.mkdir(parents=True, exist_ok=True)
     run_dirs = select_runs(train_outdir, seeds)
     if not run_dirs:
