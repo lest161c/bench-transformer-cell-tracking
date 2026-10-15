@@ -1,8 +1,24 @@
 #!/usr/bin/env python3
 """Evaluate a CV-trained Trackastra checkpoint on its held-out condition.
 
-Used by run_cv.slurm. Finds all experiment subdirectories under the held-out
-condition and runs TRA/AOGM metrics on each.
+Used by run_cv.slurm and run_eval_multiseed.slurm. Finds all experiment
+subdirectories under the held-out condition and runs TRA/AOGM metrics on each.
+
+Soundness features (SPEC 0039; the K-sweep eval produced byte-identical
+results across independently trained checkpoints, so the eval path must make
+wrong-checkpoint and leaked-era evaluations impossible or at least loudly
+recorded):
+
+* **Era guard**: the run's ``train_config.yaml`` must NOT contain the
+  held-out condition in its ``input_train``/``input_val`` paths — otherwise
+  the checkpoint has seen the data it is being evaluated on. Override only
+  with ``--allow-leaked-era`` (for deliberately re-measuring the historical
+  leaked campaign).
+* **Pre-flight**: the run dir must contain ``model.pt``.
+* **Provenance sidecar**: every invocation writes
+  ``<output>.provenance.json`` recording which checkpoint (path + md5), which
+  parameters and which library versions produced the numbers. The results
+  JSON format (``{experiment: {TRA, AOGM}}``) is unchanged.
 
 Usage:
     python eval_cv.py --run-dir <run_dir> --heldout <cond> --data-root <root> \
@@ -10,15 +26,199 @@ Usage:
 """
 
 import argparse
+import hashlib
 import json
+import platform
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
 
 
+def md5_of_file(path: Path) -> str:
+    """Return the md5 hex digest of a file, read in 1 MiB chunks.
+
+    Parameters
+    ----------
+    path : Path
+        File to hash.
+
+    Returns
+    -------
+    str
+        Hex digest.
+    """
+    digest = hashlib.md5()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def read_trackastra_git_commit(run_dir: Path) -> str | None:
+    """Read the ``git_commit`` field from the run's train_config.yaml.
+
+    Parameters
+    ----------
+    run_dir : Path
+        Trackastra run directory containing train_config.yaml.
+
+    Returns
+    -------
+    str | None
+        The commit hash, or None when the file or field is absent.
+    """
+    config_path = run_dir / "train_config.yaml"
+    if not config_path.is_file():
+        return None
+    for line in config_path.read_text(errors="replace").splitlines():
+        if line.startswith("git_commit:"):
+            return line.split(":", 1)[1].strip()
+    return None
+
+
+def find_heldout_condition_in_config(run_dir: Path, heldout: str) -> list[str]:
+    """Return the config lines that mention the held-out condition.
+
+    Only meaningful lines are considered (input path lists and their
+    continuation lines); the distinctive condition tokens make false positives
+    from unrelated fields unlikely.
+
+    Parameters
+    ----------
+    run_dir : Path
+        Trackastra run directory containing train_config.yaml.
+    heldout : str
+        Held-out condition token (e.g. ``"trpL"``).
+
+    Returns
+    -------
+    list[str]
+        The offending lines (empty when the condition does not appear).
+    """
+    config_path = run_dir / "train_config.yaml"
+    if not config_path.is_file():
+        return []
+    offending = []
+    for line in config_path.read_text(errors="replace").splitlines():
+        stripped = line.strip()
+        if heldout in stripped and stripped.startswith(("-", "input_train", "input_val")):
+            offending.append(stripped)
+    return offending
+
+
+def library_versions() -> dict[str, str | None]:
+    """Return the library versions relevant to reproducibility.
+
+    Returns
+    -------
+    dict[str, str | None]
+        python/torch/numpy versions; torch and traccuracy fall back to None
+        when not importable at this point of the invocation.
+    """
+    versions: dict[str, str | None] = {"python": platform.python_version()}
+    try:
+        import torch
+
+        versions["torch"] = torch.__version__
+    except ImportError:
+        versions["torch"] = None
+    try:
+        from importlib.metadata import version as dist_version
+
+        versions["traccuracy"] = dist_version("traccuracy")
+    except Exception:
+        versions["traccuracy"] = None
+    versions["numpy"] = np.__version__
+    return versions
+
+
+def build_provenance(
+    run_dir: Path,
+    heldout: str,
+    data_root: str,
+    max_distance: int,
+    device: str,
+    experiment_count: int,
+    failed_count: int,
+    started_at: datetime,
+    finished_at: datetime,
+    output_path: Path,
+    summary_path: Path,
+    script_path: Path,
+) -> dict:
+    """Build the provenance record for one eval invocation.
+
+    Parameters
+    ----------
+    run_dir : Path
+        The evaluated Trackastra run directory.
+    heldout : str
+        Held-out condition name.
+    data_root : str
+        Data root passed on the command line.
+    max_distance : int
+        Maximum link distance passed to the tracker.
+    device : str
+        Compute device used.
+    experiment_count : int
+        Number of experiments found under the held-out condition.
+    failed_count : int
+        Number of experiments that failed (tracking or metrics).
+    started_at, finished_at : datetime
+        UTC timestamps of the invocation.
+    output_path, summary_path : Path
+        The files this invocation writes.
+    script_path : Path
+        Path of this script (hashed into the record).
+
+    Returns
+    -------
+    dict
+        JSON-serializable provenance record.
+    """
+    checkpoint_records = []
+    for path in sorted(run_dir.glob("*.pt")) + sorted((run_dir / "checkpoints").glob("*")):
+        if path.is_file():
+            checkpoint_records.append({"path": str(path), "md5": md5_of_file(path)})
+    return {
+        "run_dir": str(run_dir),
+        "checkpoint_files": checkpoint_records,
+        "trackastra_git_commit": read_trackastra_git_commit(run_dir),
+        "heldout_condition": heldout,
+        "data_root": data_root,
+        "max_distance": max_distance,
+        "mode": "greedy",
+        "device": device,
+        "n_experiments": experiment_count,
+        "n_failed": failed_count,
+        "started_utc": started_at.isoformat(),
+        "finished_utc": finished_at.isoformat(),
+        "outputs": [str(output_path), str(summary_path)],
+        "eval_script": {"path": str(script_path), "md5": md5_of_file(script_path)},
+        "library_versions": library_versions(),
+        "era_guard_overridden": era_guard_overridden,
+    }
+
+
+# Module-level flag set by main() so the provenance record can report whether
+# the era guard was bypassed for this invocation.
+era_guard_overridden = False
+
+
 def main():
+    """Run the guarded evaluation and write results plus provenance.
+
+    Returns
+    -------
+    None
+        Exits with status 1 on pre-flight failures (missing run dir or model,
+        era-guard violation, missing held-out directory).
+    """
+    global era_guard_overridden
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-dir", type=str, required=True)
     parser.add_argument("--heldout", type=str, required=True,
@@ -29,10 +229,39 @@ def main():
     parser.add_argument("--device", choices=["cuda", "cpu"], default="cuda")
     parser.add_argument("--max-distance", type=int, default=50,
                         help="Max distance for candidate graph edges")
+    parser.add_argument("--allow-leaked-era", action="store_true",
+                        help="Evaluate even when train_config.yaml contains the "
+                             "held-out condition (deliberate re-measurement of "
+                             "the historical leaked campaign; recorded in the "
+                             "provenance sidecar)")
     args = parser.parse_args()
 
     run_dir = Path(args.run_dir)
     data_root = Path(args.data_root)
+    output_path = Path(args.output)
+    script_path = Path(__file__).resolve()
+    started_at = datetime.now(timezone.utc)
+
+    # ── Pre-flight ────────────────────────────────────────────────────
+    if not run_dir.is_dir():
+        print(f"ERROR: Run directory not found: {run_dir}")
+        sys.exit(1)
+    if not (run_dir / "model.pt").is_file():
+        print(f"ERROR: {run_dir} contains no model.pt — refusing to evaluate "
+              f"an incomplete or wrongly-bound run dir")
+        sys.exit(1)
+
+    # ── Era guard ─────────────────────────────────────────────────────
+    offending_lines = find_heldout_condition_in_config(run_dir, args.heldout)
+    if offending_lines and not args.allow_leaked_era:
+        print(f"ERROR: era guard — train_config.yaml of {run_dir} contains the "
+              f"held-out condition {args.heldout!r} in its training paths; this "
+              f"checkpoint has SEEN the data it would be evaluated on:")
+        for line in offending_lines[:5]:
+            print(f"    {line}")
+        print("Re-run with --allow-leaked-era to override (recorded in provenance).")
+        sys.exit(1)
+    era_guard_overridden = bool(offending_lines)
 
     heldout_dir = data_root / args.heldout
     if not heldout_dir.exists():
@@ -113,8 +342,8 @@ def main():
                 results[exp_dir.name] = {"error": str(exc)}
 
     # Save results
-    Path(args.output).parent.mkdir(parents=True, exist_ok=True)
-    with open(args.output, "w") as f:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w") as f:
         json.dump(results, f, indent=2)
 
     # Summary
@@ -139,10 +368,34 @@ def main():
         print(f"  mean AOGM: {summary['mean_AOGM']:.1f} ± {summary['std_AOGM']:.1f}")
 
         # Save summary alongside results
-        summary_path = Path(args.output).with_name("summary.json")
+        summary_path = output_path.with_name("summary.json")
         with open(summary_path, "w") as f:
             json.dump(summary, f, indent=2)
-        print(f"\nSaved: {args.output}  +  {summary_path}")
+        print(f"\nSaved: {output_path}  +  {summary_path}")
+    else:
+        summary_path = output_path.with_name("summary.json")
+
+    # Provenance sidecar (written for every invocation, success or partial)
+    finished_at = datetime.now(timezone.utc)
+    failed_count = sum(1 for r in results.values() if "error" in r)
+    provenance = build_provenance(
+        run_dir=run_dir,
+        heldout=args.heldout,
+        data_root=str(data_root),
+        max_distance=args.max_distance,
+        device=args.device,
+        experiment_count=len(exp_dirs),
+        failed_count=failed_count,
+        started_at=started_at,
+        finished_at=finished_at,
+        output_path=output_path,
+        summary_path=summary_path,
+        script_path=script_path,
+    )
+    provenance_path = output_path.with_suffix(output_path.suffix + ".provenance.json")
+    with open(provenance_path, "w") as f:
+        json.dump(provenance, f, indent=2)
+    print(f"Provenance: {provenance_path}")
 
 
 if __name__ == "__main__":

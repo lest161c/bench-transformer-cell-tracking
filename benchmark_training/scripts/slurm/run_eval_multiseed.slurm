@@ -7,16 +7,17 @@
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=90G
-#SBATCH --array=0-14
+#SBATCH --array=0-20
 #SBATCH --output=logs/eval_multiseed-%A_%a.out
 #SBATCH --error=logs/eval_multiseed-%A_%a.err
 #
-# Multi-seed K-sweep evaluation: 15 (config, seed) checkpoints × 6 conditions
-# -> 90 condition evaluations, each producing one output file under the run
+# Multi-seed K-sweep evaluation: 21 (config, seed) checkpoints × 6 conditions
+# -> 126 condition evaluations, each producing one output file under the run
 # directory. Feeds the report's per-config mean+-std table (SPEC 0008).
 #
 # PURPOSE
-#   Convert the 15-model multi-seed training sweep (run_knn_sweep.slurm) into
+#   Convert the 21-model multi-seed training sweep (run_knn_sweep.slurm; the
+#   K=2/8 variants were trained via VARIANTS_OVERRIDE, SPEC 0027) into
 #   per-condition TRA/AOGM metrics, one output file per condition in the run
 #   directory. Aggregated into the per-config mean+-std table that replaces
 #   the single-seed claims in the report.
@@ -54,10 +55,20 @@
 #   per-condition "CSV" files (eval_<COND>.csv) contain JSON. Downstream
 #   aggregation must parse JSON, not CSV.
 #
-# RESUMABLE
-#   If $RUN/eval_<COND>.csv already exists and is non-empty, that condition
-#   is skipped on resubmission. Re-running the same array task only fills
-#   in missing conditions.
+# RESUMABLE (SPEC 0039)
+#   A condition is skipped only when BOTH eval_<COND>.csv and its provenance
+#   sidecar (eval_<COND>.csv.provenance.json, written by eval_cv.py) exist AND
+#   the sidecar's checkpoint md5 matches the md5 of the run's current
+#   model.pt. Otherwise the stale csv is deleted and the condition is
+#   re-evaluated. This makes it impossible for a resubmission to silently keep
+#   results of unknown provenance (the defect that corrupted the 2026-10 sweep).
+#
+# ERA GUARD (SPEC 0039)
+#   The resolved run dir's train_config.yaml must NOT contain the held-out
+#   condition trpL in its training paths. The pre-2026-10-07 (leaked) campaign
+#   dirs share the (variant, seed) naming with the fixed ones; binding an eval
+#   task to a leaked dir would poison the held-out column. eval_cv.py enforces
+#   the same check independently.
 #
 # Usage:
 #   sbatch scripts/slurm/run_eval_multiseed.slurm
@@ -68,10 +79,12 @@ source "$HOME/.bench.env"
 source "$REPO_ROOT/slurm/load_cluster_env.sh"
 
 # ─── Array index -> (VARIANT, SEED) ─────────────────────────────────
-# Mirrors run_knn_sweep.slurm exactly: VARIANTS=(baseline k4 k16 k32 k64),
-# SEEDS=(42 43 44), VARIANT_IDX = ID / NUM_SEEDS, SEED_IDX = ID % NUM_SEEDS.
+# Variant order matches the aggregator CONFIGS and the report table
+# (baseline, k2, k4, k8, k16, k32, k64); seeds minor
+# (k2/k8 trained via run_knn_sweep.slurm VARIANTS_OVERRIDE, SPEC 0027).
+# VARIANT_IDX = ID / NUM_SEEDS, SEED_IDX = ID % NUM_SEEDS.
 
-VARIANTS=(baseline k4 k16 k32 k64)
+VARIANTS=(baseline k2 k4 k8 k16 k32 k64)
 SEEDS=(42 43 44)
 NUM_SEEDS=${#SEEDS[@]}
 
@@ -97,15 +110,25 @@ echo ""
 # newest holds a completed model. Pick the NEWEST candidate containing
 # model.pt; error clearly if none exists.
 
+echo "  Candidates (newest first):"
 RUN=""
 for candidate in $(ls -dt "$TRK"/runs/*_knn_sweep_${VARIANT}_s${SEED} 2>/dev/null); do
-    if [ -f "$candidate/model.pt" ]; then
+    if [ ! -f "$candidate/model.pt" ]; then
+        echo "    [incomplete] $candidate"
+        continue
+    fi
+    if grep -qE "^[[:space:]]*-[[:space:]]*/.*trpL" "$candidate/train_config.yaml" 2>/dev/null; then
+        echo "    [LEAKED ERA] $candidate (train_config.yaml contains trpL paths — skipped)"
+        continue
+    fi
+    echo "    [model]      $candidate"
+    if [ -z "$RUN" ]; then
         RUN="$candidate"
-        break
     fi
 done
 if [ -z "$RUN" ]; then
-    echo "ERROR: no completed run dir (with model.pt) for ${VARIANT}_s${SEED}"
+    echo "ERROR: no completed fixed-era run dir (with model.pt, no trpL in config)"
+    echo "       for ${VARIANT}_s${SEED}. Bind manually after inspecting candidates."
     exit 1
 fi
 echo "  Run dir: ${RUN}"
@@ -118,9 +141,21 @@ CONDITIONS=(rpsM recA pheA metA cib trpL)
 
 for COND in "${CONDITIONS[@]}"; do
     OUT="$RUN/eval_${COND}.csv"
+    PROV="$OUT.provenance.json"
     if [ -s "$OUT" ]; then
-        echo "  Skip $COND (already evaluated: ${OUT})"
-        continue
+        # Skip only when the recorded provenance matches the current model.pt
+        # (SPEC 0039); otherwise the file is stale/unknown and gets re-evaluated.
+        CURRENT_MD5=$(md5sum "$RUN/model.pt" | cut -d' ' -f1)
+        RECORDED_MD5=$("$PY" -c "
+import json
+print(json.load(open('$PROV'))['checkpoint_files'][0]['md5'])
+" 2>/dev/null || echo "")
+        if [ -n "$RECORDED_MD5" ] && [ "$RECORDED_MD5" = "$CURRENT_MD5" ]; then
+            echo "  Skip $COND (provenance matches current model: ${PROV})"
+            continue
+        fi
+        echo "  Stale $COND (missing or mismatched provenance) — re-evaluating"
+        rm "$OUT"
     fi
     echo "=== Eval ${RUN_NAME} on ${COND} ==="
     "$PY" "$BENCH/benchmark_training/scripts/eval_cv.py" \
