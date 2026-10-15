@@ -116,6 +116,12 @@ def evaluate(train_outdir: Path, config_path: str, eval_root: Path, seeds) -> No
         sys.exit(1)
 
     per_video = pd.concat(rows, ignore_index=True)
+    # Reproducible AOGM decomposition (CTC weights used by his metrics.py):
+    # AOGM-A = fp_edges + 1.5*fn_edges + ws_edges ; AOGM-D = fp_nodes + 10*fn_nodes + 5*ns_nodes.
+    per_video["AOGM-A"] = per_video["fp_edges"] + 1.5 * per_video["fn_edges"] + per_video["ws_edges"]
+    per_video["AOGM-D"] = (
+        per_video["fp_nodes"] + 10 * per_video["fn_nodes"] + 5 * per_video["ns_nodes"]
+    )
     per_video.to_csv(eval_root / "summary_per_video.csv", index=False)
 
     numeric = per_video.select_dtypes(include="number").copy()
