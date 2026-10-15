@@ -64,11 +64,14 @@
 #   results of unknown provenance (the defect that corrupted the 2026-10 sweep).
 #
 # ERA GUARD (SPEC 0039)
-#   The resolved run dir's train_config.yaml must NOT contain the held-out
-#   condition trpL in its training paths. The pre-2026-10-07 (leaked) campaign
-#   dirs share the (variant, seed) naming with the fixed ones; binding an eval
-#   task to a leaked dir would poison the held-out column. eval_cv.py enforces
-#   the same check independently.
+#   Held-out scope only (trpL): the resolved run dir's train_config.yaml must
+#   NOT contain trpL in its training paths. The pre-2026-10-07 (leaked)
+#   campaign dirs share the (variant, seed) naming with the fixed ones;
+#   binding an eval task to a leaked dir would poison the held-out column.
+#   Candidates from a leaked era are skipped loudly and the newest fixed-era
+#   dir is bound instead. The five in-sample conditions run with
+#   --scope insample (guard skipped, membership recorded). eval_cv.py
+#   enforces the held-out guard independently.
 #
 # Usage:
 #   sbatch scripts/slurm/run_eval_multiseed.slurm
@@ -142,6 +145,10 @@ CONDITIONS=(rpsM recA pheA metA cib trpL)
 for COND in "${CONDITIONS[@]}"; do
     OUT="$RUN/eval_${COND}.csv"
     PROV="$OUT.provenance.json"
+    # Scope per condition (SPEC 0039): trpL is the genuinely held-out
+    # condition (excluded from K-sweep training); the other five are the
+    # in-sample scope, so the era guard must not fire for them.
+    if [ "$COND" = "trpL" ]; then SCOPE="heldout"; else SCOPE="insample"; fi
     if [ -s "$OUT" ]; then
         # Skip only when the recorded provenance matches the current model.pt
         # (SPEC 0039); otherwise the file is stale/unknown and gets re-evaluated.
@@ -157,10 +164,11 @@ print(json.load(open('$PROV'))['checkpoint_files'][0]['md5'])
         echo "  Stale $COND (missing or mismatched provenance) — re-evaluating"
         rm "$OUT"
     fi
-    echo "=== Eval ${RUN_NAME} on ${COND} ==="
+    echo "=== Eval ${RUN_NAME} on ${COND} (${SCOPE}) ==="
     "$PY" "$BENCH/benchmark_training/scripts/eval_cv.py" \
         --run-dir "$RUN" \
         --heldout "$COND" \
+        --scope "$SCOPE" \
         --data-root "$DATA_DIR/vanvliet" \
         --output "$OUT" \
         --device cuda

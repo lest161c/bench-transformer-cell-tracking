@@ -9,11 +9,13 @@ results across independently trained checkpoints, so the eval path must make
 wrong-checkpoint and leaked-era evaluations impossible or at least loudly
 recorded):
 
-* **Era guard**: the run's ``train_config.yaml`` must NOT contain the
-  held-out condition in its ``input_train``/``input_val`` paths — otherwise
-  the checkpoint has seen the data it is being evaluated on. Override only
-  with ``--allow-leaked-era`` (for deliberately re-measuring the historical
-  leaked campaign).
+* **Era guard**: for ``--scope heldout`` (the default), the run's
+  ``train_config.yaml`` must NOT contain the evaluated condition in its
+  ``input_train``/``input_val`` paths — otherwise the checkpoint has seen the
+  data it is being evaluated on. Override only with ``--allow-leaked-era``
+  (for deliberately re-measuring the historical leaked campaign). For
+  ``--scope insample`` (the K-sweep in-training conditions) the guard is
+  skipped and the membership recorded in the provenance sidecar.
 * **Pre-flight**: the run dir must contain ``model.pt``.
 * **Provenance sidecar**: every invocation writes
   ``<output>.provenance.json`` recording which checkpoint (path + md5), which
@@ -138,6 +140,8 @@ def library_versions() -> dict[str, str | None]:
 def build_provenance(
     run_dir: Path,
     heldout: str,
+    scope: str,
+    condition_in_training: bool,
     data_root: str,
     max_distance: int,
     device: str,
@@ -156,7 +160,12 @@ def build_provenance(
     run_dir : Path
         The evaluated Trackastra run directory.
     heldout : str
-        Held-out condition name.
+        Evaluated condition name.
+    scope : str
+        ``"heldout"`` or ``"insample"`` — whether the condition is claimed to
+        be unseen by the checkpoint.
+    condition_in_training : bool
+        Whether the condition appears in the run's train_config.yaml paths.
     data_root : str
         Data root passed on the command line.
     max_distance : int
@@ -164,7 +173,7 @@ def build_provenance(
     device : str
         Compute device used.
     experiment_count : int
-        Number of experiments found under the held-out condition.
+        Number of experiments found under the condition.
     failed_count : int
         Number of experiments that failed (tracking or metrics).
     started_at, finished_at : datetime
@@ -188,6 +197,8 @@ def build_provenance(
         "checkpoint_files": checkpoint_records,
         "trackastra_git_commit": read_trackastra_git_commit(run_dir),
         "heldout_condition": heldout,
+        "scope": scope,
+        "condition_in_training": condition_in_training,
         "data_root": data_root,
         "max_distance": max_distance,
         "mode": "greedy",
@@ -234,6 +245,13 @@ def main():
                              "held-out condition (deliberate re-measurement of "
                              "the historical leaked campaign; recorded in the "
                              "provenance sidecar)")
+    parser.add_argument("--scope", choices=["heldout", "insample"], default="heldout",
+                        help="heldout: the condition must NOT appear in the run's "
+                             "training config (era guard active — the CV/K-sweep "
+                             "held-out columns). insample: the condition is "
+                             "expected to be in training (K-sweep in-sample "
+                             "columns); the era guard is skipped and the "
+                             "membership is recorded in the provenance sidecar")
     args = parser.parse_args()
 
     run_dir = Path(args.run_dir)
@@ -251,9 +269,10 @@ def main():
               f"an incomplete or wrongly-bound run dir")
         sys.exit(1)
 
-    # ── Era guard ─────────────────────────────────────────────────────
+    # ── Era guard (held-out scope only — see --scope) ─────────────────
     offending_lines = find_heldout_condition_in_config(run_dir, args.heldout)
-    if offending_lines and not args.allow_leaked_era:
+    condition_in_training = bool(offending_lines)
+    if args.scope == "heldout" and offending_lines and not args.allow_leaked_era:
         print(f"ERROR: era guard — train_config.yaml of {run_dir} contains the "
               f"held-out condition {args.heldout!r} in its training paths; this "
               f"checkpoint has SEEN the data it would be evaluated on:")
@@ -381,6 +400,8 @@ def main():
     provenance = build_provenance(
         run_dir=run_dir,
         heldout=args.heldout,
+        scope=args.scope,
+        condition_in_training=condition_in_training,
         data_root=str(data_root),
         max_distance=args.max_distance,
         device=args.device,
