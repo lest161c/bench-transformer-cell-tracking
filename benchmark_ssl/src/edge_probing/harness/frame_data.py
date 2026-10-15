@@ -15,6 +15,7 @@ This module is pure data plumbing: it has no knowledge of probes, features,
 or training.
 """
 
+from collections import Counter
 from pathlib import Path
 
 import numpy as np
@@ -56,11 +57,18 @@ def load_tracklets(man_track_path):
     return tracklets
 
 
-def scan_consecutive_pairs(data_root, conditions, max_pairs):
+def scan_consecutive_pairs(data_root, conditions, max_pairs, max_pairs_per_condition=0):
     """Find consecutive frame pairs. Returns list of (mask_anchor, mask_query,
-    img_anchor, img_query, man_track_path, condition, experiment)."""
+    img_anchor, img_query, man_track_path, condition, experiment).
+
+    ``max_pairs`` is the global cap (early return once reached, scan order =
+    condition order). ``max_pairs_per_condition`` optionally caps each
+    condition separately so every condition contributes pairs (used by the
+    condition-split mode); 0 disables the per-condition cap.
+    """
     dr = Path(data_root)
     pairs = []
+    per_cond = Counter()
     for cond in conditions:
         for exp in sorted(dr.glob(f"{cond}/*")):
             if not exp.is_dir():
@@ -84,12 +92,24 @@ def scan_consecutive_pairs(data_root, conditions, max_pairs):
                     ip1 = img_dir / f"t{f1:06d}.tif"
                     ip2 = img_dir / f"t{f2:06d}.tif"
                     if ip1.exists() and ip2.exists():
+                        if max_pairs_per_condition:
+                            # Count only usable pairs (>= 3 cells per frame)
+                            # toward the per-condition cap: sequences like trpL
+                            # start with a single cell, and taking the first N
+                            # pairs unchecked would collect only sparse frames.
+                            n1 = len(np.unique(imread(str(masks[i])))) - 1
+                            n2 = len(np.unique(imread(str(masks[i + 1])))) - 1
+                            if min(n1, n2) < 3:
+                                continue
+                        if max_pairs_per_condition and per_cond[cond] >= max_pairs_per_condition:
+                            break
                         pairs.append((
                             str(masks[i]), str(masks[i + 1]),
                             str(ip1), str(ip2),
                             str(man_track_txt),
                             cond, exp.name,
                         ))
+                        per_cond[cond] += 1
                     if len(pairs) >= max_pairs:
                         return pairs
     return pairs

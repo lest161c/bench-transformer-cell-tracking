@@ -44,6 +44,7 @@ import torch
 from src.edge_probing.harness.evaluation import (
     FEATURE_CONFIGS,
     evaluate_feature,
+    evaluate_feature_condition_split,
 )
 from src.edge_probing.harness.feature_extractors import PROJECT_ROOT, device
 from src.edge_probing.harness.frame_data import scan_consecutive_pairs
@@ -128,7 +129,17 @@ def parse_args(argv=None):
     parser.add_argument("--no-cache", action="store_true",
                    help="Skip loading/saving feature cache")
     parser.add_argument("--cv-folds", type=int, default=0,
-                   help="Number of CV folds (0 = use original train/val split)")
+                   help="Number of CV folds over frame pairs (0 = legacy condition split)")
+    parser.add_argument("--condition-split", action="store_true",
+                   help="K-sweep-style split: train on in-sample conditions, evaluate "
+                        "pooled on in-sample vs held-out pairs (overrides CV mode)")
+    parser.add_argument("--in-conditions", type=str, default="rpsM,recA,pheA,metA,cib",
+                   help="Comma-separated in-sample conditions for --condition-split")
+    parser.add_argument("--heldout-conditions", type=str, default="trpL",
+                   help="Comma-separated held-out conditions for --condition-split")
+    parser.add_argument("--max-pairs-per-condition", type=int, default=0,
+                   help="Cap frame pairs per condition (condition-split mode; "
+                        "0 = single global cap via --max-pairs, scan-order dependent)")
     parser.add_argument("--shuffle-baseline", action="store_true",
                    help="Also run on shuffled features as overfitting baseline")
     parser.add_argument("--val-frac", type=float, default=0.2,
@@ -181,7 +192,8 @@ def main():
 
     # Scan pairs
     logger.info("Scanning consecutive frame pairs...")
-    all_pairs = scan_consecutive_pairs(args.data_root, conditions, args.max_pairs)
+    all_pairs = scan_consecutive_pairs(args.data_root, conditions, args.max_pairs,
+                                       max_pairs_per_condition=getattr(args, "max_pairs_per_condition", 0))
     logger.info(f"Found {len(all_pairs)} consecutive frame pairs")
 
     # Log condition breakdown
@@ -194,17 +206,49 @@ def main():
         sys.exit(1)
 
     # Run each feature type
+    condition_split = getattr(args, "condition_split", False)
+    in_conditions = [c.strip() for c in args.in_conditions.split(",")]
+    heldout_conditions = [c.strip() for c in args.heldout_conditions.split(",")]
     all_results = {}
     for fkey in features_to_run:
         try:
-            result = evaluate_feature(fkey, all_pairs, args, checkpoint_path)
+            if condition_split:
+                result = evaluate_feature_condition_split(
+                    fkey, all_pairs, args, checkpoint_path,
+                    use_cache=(not args.no_cache),
+                    in_conditions=in_conditions,
+                    heldout_conditions=heldout_conditions,
+                )
+            else:
+                result = evaluate_feature(fkey, all_pairs, args, checkpoint_path, use_cache=(not args.no_cache))
             all_results[fkey] = result
         except Exception as exc:
             logger.error(f"Error running {fkey}: {exc}", exc_info=True)
             all_results[fkey] = None
 
     # Print results
-    rows = print_results_table(all_results)
+    if condition_split:
+        print()
+        print("=" * 100)
+        print(f"Condition-split edge probing — in-sample {in_conditions} vs held-out {heldout_conditions}")
+        print("=" * 100)
+        print(f"{'Feature':<28} {'Probe':<8} {'in bal_acc':>10} {'in F1':>8} "
+              f"{'out bal_acc':>11} {'out F1':>8} {'pairs in/out':>13}")
+        for fkey, result in all_results.items():
+            display = FEATURE_CONFIGS[fkey]['display']
+            if result is None:
+                print(f"{display:<28} {'—':<8} SKIP")
+                continue
+            for ptype in ("linear", "mlp"):
+                if ptype not in result:
+                    continue
+                r = result[ptype]
+                print(f"{display:<28} {ptype:<8} "
+                      f"{r['insample']['bal_acc']:>10.4f} {r['insample']['f1']:>8.4f} "
+                      f"{r['heldout']['bal_acc']:>11.4f} {r['heldout']['f1']:>8.4f} "
+                      f"{r['n_pairs']['insample']:>6d}/{r['n_pairs']['heldout']:<6d}")
+    else:
+        rows = print_results_table(all_results)
 
     # Save results
     if args.output:

@@ -20,6 +20,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+import torch.nn as nn
 from torch.utils.data import DataLoader
 from sklearn.model_selection import KFold
 
@@ -42,9 +43,15 @@ from src.edge_probing.harness.probes import LinearProbe, MLPProbe, CNNProbeE2E
 from src.edge_probing.harness.training import compute_metrics, score_dataset, train_probe
 from src.edge_probing.harness.registry import FEATURE_REGISTRY
 
+from src.models.scaled_cnn import checkpoint_uses_batch_norm
+
 logger = logging.getLogger("edge_probing.evaluation")
 TRAIN_CONDITIONS = ["rpsM", "recA", "pheA", "metA"]
 VAL_CONDITIONS = ["cib", "trpL"]
+# Low-quality-flagged experiment, excluded from every K-sweep evaluation
+# scope (report Section 2.11); the condition-split probe evaluation mirrors
+# that exclusion.
+EXCLUDED_EXPERIMENTS = {"150303-08_BAD"}
 
 # Per-feature run configuration consumed by evaluate_feature() (and by
 # print_results_table() in results.py). Mirrors the canonical catalog in
@@ -89,7 +96,7 @@ FEATURE_CONFIGS = {
 }
 
 
-def build_frame_pairs(pairs, max_pairs, feature_type, checkpoint_path=None):
+def build_frame_pairs(pairs, max_pairs, feature_type, checkpoint_path=None, use_cache=True):
     """
     Build per-frame-pair data for a given feature type.
 
@@ -133,8 +140,9 @@ def build_frame_pairs(pairs, max_pairs, feature_type, checkpoint_path=None):
     cnn_frozen_model = None
     if feature_type == 'cnn_frozen':
         logger.info("  Loading ScaledCNN (large) with NT-Xent checkpoint...")
-        cnn_frozen_model = ScaledCNN(scale='large', out_dim=128).to(device)
         checkpoint_state = torch.load(checkpoint_path, map_location=device)
+        batch_norm = checkpoint_state.get("batch_norm", checkpoint_uses_batch_norm(checkpoint_state["model_state_dict"]))
+        cnn_frozen_model = ScaledCNN(scale='large', out_dim=128, batch_norm=batch_norm).to(device)
         cnn_frozen_model.load_state_dict(checkpoint_state["model_state_dict"])
         cnn_frozen_model.eval()
         logger.info(f"  Loaded checkpoint: {checkpoint_path}")
@@ -248,8 +256,11 @@ def build_frame_pairs(pairs, max_pairs, feature_type, checkpoint_path=None):
             # Check cache first
             frame_anchor_num = int(Path(mask_path_anchor).stem.replace("man_track", ""))
             frame_query_num = int(Path(mask_path_query).stem.replace("man_track", ""))
-            cached_anchor, cached_labels_anchor = load_cached_features(condition, experiment, frame_anchor_num, feature_type, labels_anchor)
-            cached_query, cached_labels_query = load_cached_features(condition, experiment, frame_query_num, feature_type, labels_query)
+            cached_anchor, cached_labels_anchor = (None, None)
+            cached_query, cached_labels_query = (None, None)
+            if use_cache:
+                cached_anchor, cached_labels_anchor = load_cached_features(condition, experiment, frame_anchor_num, feature_type, labels_anchor)
+                cached_query, cached_labels_query = load_cached_features(condition, experiment, frame_query_num, feature_type, labels_query)
 
             if cached_anchor is not None and cached_query is not None:
                 feats_anchor = torch.from_numpy(cached_anchor).float()
@@ -277,8 +288,9 @@ def build_frame_pairs(pairs, max_pairs, feature_type, checkpoint_path=None):
                 labels_query_aligned = labels_query
 
                 # Cache
-                save_cached_features(condition, experiment, frame_anchor_num, feature_type, feats_anchor_np, labels_anchor)
-                save_cached_features(condition, experiment, frame_query_num, feature_type, feats_query_np, labels_query)
+                if use_cache:
+                    save_cached_features(condition, experiment, frame_anchor_num, feature_type, feats_anchor_np, labels_anchor)
+                    save_cached_features(condition, experiment, frame_query_num, feature_type, feats_query_np, labels_query)
 
         elif feature_type == 'cnn_e2e':
             # Just store patches; model is trained jointly
@@ -504,7 +516,295 @@ def run_cross_validation(frame_pair_datasets, probe_name, feat_dim, args,
     }
 
 
-def evaluate_feature(feature_type, all_pairs, args, checkpoint_path):
+def _pool_to_gpu(datasets):
+    """Concatenate per-pair feature datasets into one GPU tensor triple.
+
+    Preserves the pair order of ``concatenate_datasets`` so sequential-batch
+    evaluation matches the DataLoader path. Returns (anchor, query, target)
+    GPU tensors, or None for an empty pool.
+    """
+    if not datasets:
+        return None
+    anchors, queries, targets = [], [], []
+    for ds in datasets:
+        anchors.append(ds.pairs_anchor)
+        queries.append(ds.pairs_query)
+        targets.append(ds.labels)
+    return (torch.cat(anchors).float().to(device),
+            torch.cat(queries).float().to(device),
+            torch.cat(targets).float().to(device))
+
+
+def _train_probe_gpu(probe, train_pool, val_pool, epochs=200, lr=1e-3,
+                     patience=10, eval_every=1, seed=0, batch_size=128):
+    """GPU-resident equivalent of ``train_probe`` for feature-based probes.
+
+    Reproduces the reference training loop's semantics — Adam + BCEWithLogits,
+    class-balanced batches drawn with replacement (same 1/n_pos, 1/n_neg
+    weighting as ``make_balanced_dataloader``), sequential eval batches of the
+    same size with per-batch metric averaging, early stopping on validation
+    balanced accuracy with best-state restore — without the per-batch CPU
+    DataLoader round-trips that leave the GPU idle on these tiny probes.
+    """
+    import warnings
+
+    x_a, x_q, y = train_pool
+    v_a, v_q, v_y = val_pool
+    probe = probe.to(device)
+    optimizer = torch.optim.Adam(probe.parameters(), lr=lr)
+    criterion = nn.BCEWithLogitsLoss()
+    batch = batch_size
+
+    n_pos = float(y.sum())
+    n_neg = float(len(y) - n_pos)
+    if n_pos > 0 and n_neg > 0:
+        weights_cpu = torch.where(y.cpu() > 0.5,
+                                  torch.full_like(y.cpu(), 1.0 / n_pos),
+                                  torch.full_like(y.cpu(), 1.0 / n_neg))
+    else:
+        weights_cpu = None
+
+    generator = torch.Generator(device="cpu").manual_seed(int(seed))
+    n = len(y)
+    best_val_bal_acc = 0.0
+    best_state = None
+    patience_counter = 0
+    history = []
+
+    def _eval_pass():
+        metrics_list = []
+        with torch.no_grad():
+            for i in range(0, len(v_y), batch):
+                scores = probe(v_a[i:i + batch], v_q[i:i + batch])
+                bal_acc, f1, prec, rec = compute_metrics(scores, v_y[i:i + batch])
+                metrics_list.append({"bal_acc": bal_acc, "f1": f1,
+                                     "precision": prec, "recall": rec})
+        return metrics_list
+
+    for epoch in range(epochs):
+        probe.train()
+        train_losses = []
+        if weights_cpu is not None:
+            idx = torch.multinomial(weights_cpu, n, replacement=True,
+                                    generator=generator).to(device)
+        else:
+            idx = torch.randperm(n, generator=generator).to(device)
+        for i in range(0, n, batch):
+            sel = idx[i:i + batch]
+            scores = probe(x_a[sel], x_q[sel])
+            loss = criterion(scores, y[sel])
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            train_losses.append(loss.item())
+
+        if epoch % eval_every == 0 or epoch == epochs - 1:
+            probe.eval()
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                metrics_list = _eval_pass()
+            avg_train_loss = float(np.mean(train_losses))
+            avg_val_bal_acc = float(np.mean([m["bal_acc"] for m in metrics_list]))
+            avg_val_f1 = float(np.mean([m["f1"] for m in metrics_list]))
+            history.append({
+                "epoch": epoch,
+                "train_loss": avg_train_loss,
+                "val_loss": float("nan"),
+                "val_bal_acc": avg_val_bal_acc,
+                "val_f1": avg_val_f1,
+            })
+            if avg_val_bal_acc > best_val_bal_acc:
+                best_val_bal_acc = avg_val_bal_acc
+                patience_counter = 0
+                best_state = {k: v.detach().clone() for k, v in probe.state_dict().items()}
+            else:
+                patience_counter += eval_every
+                if patience_counter >= patience:
+                    logger.info(f"      Early stopping at epoch {epoch}")
+                    break
+
+    if best_state is not None:
+        probe.load_state_dict(best_state)
+    probe.eval()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        final_metrics_list = _eval_pass()
+    return {
+        "final_bal_acc": float(np.mean([m["bal_acc"] for m in final_metrics_list])),
+        "final_f1": float(np.mean([m["f1"] for m in final_metrics_list])),
+        "final_precision": float(np.mean([m["precision"] for m in final_metrics_list])),
+        "final_recall": float(np.mean([m["recall"] for m in final_metrics_list])),
+        "history": history,
+    }
+
+
+def evaluate_feature_condition_split(feature_type, all_pairs, args, checkpoint_path,
+                                     use_cache=True, in_conditions=None,
+                                     heldout_conditions=None):
+    """K-sweep-style condition split: in-sample vs held-out probe evaluation.
+
+    Mirrors the tracking evaluation of the multi-seed K-sweep (in-sample =
+    the five training conditions, held-out = ``trpL``): the probe is trained
+    on frame pairs from the in-sample conditions only — with a random
+    internal train/val split (``args.val_frac``) used exclusively for early
+    stopping, never touching the held-out conditions — and the trained probe
+    is then scored pooled on (a) the full in-sample pair pool and (b) the
+    full held-out pair pool.
+
+    Args:
+        feature_type: feature key from FEATURE_CONFIGS / FEATURE_REGISTRY.
+        all_pairs: list of consecutive frame-pair tuples from
+            ``scan_consecutive_pairs``.
+        args: argparse Namespace (``standardize``, ``lr``, batch sizes,
+            ``epochs``, ``patience``, ``eval_every``, ``val_frac``,
+            ``seed``).
+        checkpoint_path: frozen-CNN checkpoint path for 'cnn_frozen' (or None).
+        use_cache: whether to use the per-frame feature cache.
+        in_conditions: in-sample condition names (default: the five K-sweep
+            training conditions).
+        heldout_conditions: held-out condition names (default: ``trpL``).
+
+    Returns:
+        Dict mapping probe key -> {"insample": {...}, "heldout": {...},
+        "n_pairs": {...}, "standardized": bool}, or None if skipped.
+    """
+    import random
+
+    if feature_type not in FEATURE_REGISTRY:
+        raise ValueError(f"Unknown feature_type: {feature_type}")
+    feature_config = FEATURE_CONFIGS[feature_type]
+    in_conditions = in_conditions or ["rpsM", "recA", "pheA", "metA", "cib"]
+    heldout_conditions = heldout_conditions or ["trpL"]
+    logger.info(f"\n{'=' * 60}")
+    logger.info(f"Feature: {feature_config['display']} ({feature_config['feat_dim']}D) "
+                f"[condition split: in={in_conditions} heldout={heldout_conditions}]")
+    logger.info(f"{'=' * 60}")
+
+    edge_data, _ = build_frame_pairs(
+        all_pairs, args.max_pairs, feature_type, checkpoint_path, use_cache=use_cache
+    )
+    if len(edge_data) < 2:
+        logger.warning(f"  Not enough data ({len(edge_data)}), skipping")
+        return None
+
+    in_data = [d for d in edge_data
+               if d["condition"] in in_conditions and d["experiment"] not in EXCLUDED_EXPERIMENTS]
+    out_data = [d for d in edge_data
+                if d["condition"] in heldout_conditions and d["experiment"] not in EXCLUDED_EXPERIMENTS]
+    logger.info(f"  Pairs: in-sample {len(in_data)} / held-out {len(out_data)}")
+    if not in_data or not out_data:
+        logger.warning("  Need at least one in-sample and one held-out pair, skipping")
+        return None
+
+    # Internal train/val split of the in-sample pool (early stopping only;
+    # the held-out conditions are never used for model selection).
+    shuffled = list(in_data)
+    random.Random(args.seed).shuffle(shuffled)
+    n_val = max(1, int(args.val_frac * len(shuffled)))
+    val_data, train_data = shuffled[:n_val], shuffled[n_val:]
+
+    train_datasets = flatten_to_pairs(train_data)
+    val_datasets = flatten_to_pairs(val_data)
+    insample_datasets = flatten_to_pairs(in_data)
+    heldout_datasets = flatten_to_pairs(out_data)
+    if not train_datasets or not val_datasets:
+        logger.warning("  Empty train or internal-val pool, skipping")
+        return None
+
+    # Leakage-safe standardization: fit on the train split only.
+    standardized = bool(feature_type != 'cnn_e2e' and getattr(args, "standardize", True))
+    if standardized:
+        feat_mean, feat_std = fit_feature_standardizer(train_datasets)
+        train_datasets = apply_feature_standardizer(train_datasets, feat_mean, feat_std)
+        val_datasets = apply_feature_standardizer(val_datasets, feat_mean, feat_std)
+        insample_datasets = apply_feature_standardizer(insample_datasets, feat_mean, feat_std)
+        heldout_datasets = apply_feature_standardizer(heldout_datasets, feat_mean, feat_std)
+
+    results = {}
+    for probe_name in ("Linear", "MLP"):
+        if args.probe not in ("both", probe_name.lower()):
+            continue
+        feat_dim = feature_config['feat_dim']
+        is_e2e = (feature_type == 'cnn_e2e')
+        lr = args.lr if probe_name == "Linear" else args.lr / 10
+        batch_size = args.batch_size_linear if probe_name == "Linear" else args.batch_size_mlp
+
+        train_dataset = concatenate_datasets(train_datasets)
+        val_dataset = concatenate_datasets(val_datasets)
+        if is_e2e:
+            collate = lambda batch: (  # noqa: E731
+                torch.stack([s[0] for s in batch]),
+                torch.stack([s[1] for s in batch]),
+                torch.stack([s[2] for s in batch]),
+            )
+            train_loader = DataLoader(train_dataset, batch_size=batch_size,
+                                      shuffle=True, collate_fn=collate)
+            val_loader = DataLoader(val_dataset, batch_size=batch_size,
+                                    shuffle=False, collate_fn=collate)
+            model = CNNProbeE2E(scale='large', out_dim=128,
+                                probe_type="linear" if probe_name == "Linear" else "mlp")
+            train_probe(model, train_loader, val_loader,
+                        epochs=args.epochs, lr=lr,
+                        patience=args.patience, eval_every=args.eval_every,
+                        is_e2e=True)
+        else:
+            # GPU-resident fast path: identical optimizer, balanced-sampler
+            # distribution, batch sizes, and per-batch eval semantics as the
+            # DataLoader path, without the per-batch CPU round-trips.
+            model = LinearProbe(feat_dim) if probe_name == "Linear" else MLPProbe(feat_dim)
+            _train_probe_gpu(model,
+                             _pool_to_gpu(train_datasets),
+                             _pool_to_gpu(val_datasets),
+                             epochs=args.epochs, lr=lr,
+                             patience=args.patience, eval_every=args.eval_every,
+                             seed=args.seed, batch_size=batch_size)
+
+        ptype = probe_name.lower()
+        pooled = {}
+        for scope, datasets in (("insample", insample_datasets),
+                                ("heldout", heldout_datasets)):
+            pool = concatenate_datasets(datasets)
+            scores, targets = score_dataset(model, pool, is_e2e=is_e2e)
+            bal_acc, f1, prec, rec = compute_metrics(scores, targets)
+            pooled[scope] = {
+                "bal_acc": float(bal_acc),
+                "f1": float(f1),
+                "precision": float(prec),
+                "recall": float(rec),
+                "n_candidates": int(len(targets)),
+                "n_positive": int(targets.sum().item()),
+            }
+
+        per_pair = []
+        for dataset in heldout_datasets:
+            pair_scores, pair_targets = score_dataset(model, dataset, is_e2e=is_e2e)
+            pair_bal_acc, pair_f1, _, _ = compute_metrics(pair_scores, pair_targets)
+            per_pair.append({
+                "pair_id": getattr(dataset, "pair_id", None),
+                "n_candidates": int(len(pair_targets)),
+                "n_positive": int(pair_targets.sum().item()),
+                "bal_acc": float(pair_bal_acc),
+                "f1": float(pair_f1),
+            })
+
+        results[ptype] = {
+            "insample": pooled["insample"],
+            "heldout": pooled["heldout"],
+            "n_pairs": {"insample": len(insample_datasets),
+                        "heldout": len(heldout_datasets),
+                        "train": len(train_datasets),
+                        "val": len(val_datasets)},
+            "standardized": standardized,
+            "heldout_pair_results": per_pair,
+        }
+        logger.info(f"    {probe_name}: in-sample bal_acc={pooled['insample']['bal_acc']:.4f} "
+                    f"f1={pooled['insample']['f1']:.4f} | held-out "
+                    f"bal_acc={pooled['heldout']['bal_acc']:.4f} f1={pooled['heldout']['f1']:.4f}")
+
+    return results or None
+
+
+def evaluate_feature(feature_type, all_pairs, args, checkpoint_path, use_cache=True):
     """Run full evaluation for a single feature type. Returns dict of results.
 
     In CV mode (``args.cv_folds > 0``) runs K-fold cross-validation over all
@@ -532,7 +832,7 @@ def evaluate_feature(feature_type, all_pairs, args, checkpoint_path):
     # ── Build frame-pair data ────────────────────────────────────────────
     start_time = time.time()
     edge_data, cnn_model = build_frame_pairs(
-        all_pairs, args.max_pairs, feature_type, checkpoint_path
+        all_pairs, args.max_pairs, feature_type, checkpoint_path, use_cache=use_cache
     )
     logger.info(f"  Built {len(edge_data)} frame pairs in {time.time() - start_time:.1f}s")
 

@@ -403,13 +403,15 @@ def extract_hoct2d_fourier(mask, img, frame_idx=0, n_freqs=8, cutoff=128.0):
 
 class ScaledCNN(nn.Module):
     """ConvNet for 64x64 grayscale patches. Output: 128-dim embedding."""
-    def __init__(self, scale='large', out_dim=128):
+    def __init__(self, scale='large', out_dim=128, batch_norm=False):
         """Initialize the ScaledCNN feature extractor.
 
         Args:
             scale: architecture size — 'small', 'medium', or 'large'
                 (controls the list of per-convolution channel widths).
             out_dim: dimensionality of the output embedding per patch.
+            batch_norm: insert a BatchNorm2d after each convolution (required for
+                checkpoints saved with batch_norm=True, e.g. the DynaCLR encoder).
         """
         super().__init__()
         if scale == 'small':
@@ -422,7 +424,10 @@ class ScaledCNN(nn.Module):
         layers = []
         in_channels = 1
         for out_channels in channel_widths:
-            layers += [nn.Conv2d(in_channels, out_channels, 3, padding=1), nn.ReLU(), nn.MaxPool2d(2)]
+            if batch_norm:
+                layers += [nn.Conv2d(in_channels, out_channels, 3, padding=1), nn.BatchNorm2d(out_channels), nn.ReLU(), nn.MaxPool2d(2)]
+            else:
+                layers += [nn.Conv2d(in_channels, out_channels, 3, padding=1), nn.ReLU(), nn.MaxPool2d(2)]
             in_channels = out_channels
         self.conv = nn.Sequential(*layers)
         spatial = PATCH_SIZE // (2 ** len(channel_widths))
