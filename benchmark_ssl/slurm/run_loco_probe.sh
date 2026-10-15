@@ -34,18 +34,20 @@
 
 set -uo pipefail
 
-BSSL="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$BSSL"
-
 if [ -n "${SLURM_JOB_ID:-}" ]; then
-    # Cluster: venv python, corporate-data vanvliet copy.
+    # Cluster: slurm copies the script to its spool dir, so BASH_SOURCE does
+    # not resolve to the repo (documented in slurm/load_cluster_env.sh) —
+    # anchor on $BENCH from ~/.bench.env instead.
     source "$HOME/.bench.env"
+    BSSL="$BENCH/benchmark_ssl"
     PY="$BSSL/.venv/bin/python"
     DATA_ROOT="$DATA_DIR/vanvliet"
 else
+    BSSL="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
     PY=python3
     DATA_ROOT="$(cd "$BSSL/.." && pwd)/data/vanvliet"
 fi
+cd "$BSSL" || exit 1
 
 OUTDIR="results/probes/condition_split"
 mkdir -p "$OUTDIR"
