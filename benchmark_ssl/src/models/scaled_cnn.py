@@ -18,8 +18,9 @@ class ScaledCNN(nn.Module):
         scale: 'small' (~20K params), 'medium' (~100K params), 'large' (~200K params)
         out_dim: embedding dimension (default 128)
     """
-    def __init__(self, scale='large', out_dim=128):
-        """Build the CNN; `scale` selects the channel widths per layer."""
+    def __init__(self, scale='large', out_dim=128, batch_norm=False):
+        """Build the CNN; `scale` selects the channel widths per layer and
+        `batch_norm` inserts a BatchNorm2d after each convolution."""
         super().__init__()
         if scale == 'small':
             ch = [8, 16, 32]           # 3 conv layers
@@ -31,7 +32,13 @@ class ScaledCNN(nn.Module):
         layers = []
         in_ch = 1
         for channel_dim in ch:
-            layers += [nn.Conv2d(in_ch, channel_dim, 3, padding=1), nn.ReLU(), nn.MaxPool2d(2)]
+            if batch_norm:
+                layers += [nn.Conv2d(in_ch, channel_dim, 3, padding=1),
+                           nn.BatchNorm2d(channel_dim),
+                           nn.ReLU(),
+                           nn.MaxPool2d(2)]
+            else:
+                layers += [nn.Conv2d(in_ch, channel_dim, 3, padding=1), nn.ReLU(), nn.MaxPool2d(2)]
             in_ch = channel_dim
         self.conv = nn.Sequential(*layers)
         # After pooling: small/medium: 64 → 32 → 16 → 8,  large: 64 → 32 → 16 → 8 → 4
@@ -42,6 +49,10 @@ class ScaledCNN(nn.Module):
             nn.ReLU(),
             nn.Linear(256, out_dim),
         )
+
+    def forward(self, patches):
+        """patches: (N, 1, 64, 64) → embeddings: (N, out_dim)."""
+        return self.fc(self.conv(patches))
 
         self._init_weights()
 
@@ -54,3 +65,21 @@ class ScaledCNN(nn.Module):
     def forward(self, patches):
         """patches: (N, 1, 64, 64) → embeddings: (N, out_dim)"""
         return self.fc(self.conv(patches))
+
+
+def checkpoint_uses_batch_norm(state_dict):
+    """Detect whether a ScaledCNN state dict was saved with BatchNorm layers.
+
+    Single source of truth for checkpoint-architecture detection: BatchNorm
+    layers add `running_mean`/`running_var`/`num_batches_tracked` parameters
+    that the plain convolutional layout never contains. Callers should prefer
+    an explicit `batch_norm` field in the checkpoint metadata when present and
+    use this helper only as the fallback for legacy checkpoints.
+
+    Args:
+        state_dict: model state dict (mapping of parameter names to tensors).
+
+    Returns:
+        bool: True if the state dict contains BatchNorm parameters.
+    """
+    return any("running_mean" in name for name in state_dict)
