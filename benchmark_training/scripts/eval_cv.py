@@ -39,6 +39,15 @@ from pathlib import Path
 import numpy as np
 
 
+# Owner decision D-11 (OWNER_DECISIONS_2026-10-08.md): the deliberately
+# bad-flagged vanvliet experiment is excluded from every evaluation scope, in
+# both the K-sweep and CV protocols, so all reported columns stay like-for-like.
+# Mirrors the EXCLUDED_SEQUENCES constant in
+# report/scripts/aggregate_multiseed_eval.py; the CV trpL fold contains this
+# sequence, so the exclusion must also happen here for summary.json to match.
+EXCLUDED_SEQUENCES = ("150303-08_BAD",)
+
+
 def md5_of_file(path: Path) -> str:
     """Return the md5 hex digest of a file, read in 1 MiB chunks.
 
@@ -146,6 +155,7 @@ def build_provenance(
     max_distance: int,
     device: str,
     experiment_count: int,
+    excluded_present: list[str],
     failed_count: int,
     started_at: datetime,
     finished_at: datetime,
@@ -174,6 +184,9 @@ def build_provenance(
         Compute device used.
     experiment_count : int
         Number of experiments found under the condition.
+    excluded_present : list[str]
+        Owner-excluded sequences (EXCLUDED_SEQUENCES) that were present under
+        the condition and dropped from evaluation.
     failed_count : int
         Number of experiments that failed (tracking or metrics).
     started_at, finished_at : datetime
@@ -204,6 +217,8 @@ def build_provenance(
         "mode": "greedy",
         "device": device,
         "n_experiments": experiment_count,
+        "excluded_sequences": list(EXCLUDED_SEQUENCES),
+        "excluded_present": excluded_present,
         "n_failed": failed_count,
         "started_utc": started_at.isoformat(),
         "finished_utc": finished_at.isoformat(),
@@ -287,12 +302,19 @@ def main():
         print(f"ERROR: Held-out directory not found: {heldout_dir}")
         sys.exit(1)
 
-    # Find all experiment subdirectories
-    exp_dirs = sorted(d for d in heldout_dir.iterdir()
-                      if d.is_dir() and (d / "TRA").exists())
+    # Find all experiment subdirectories, dropping owner-excluded sequences
+    # (D-11) so the CV summary uses the same sequence population as every
+    # other table. `excluded_present` records what was dropped for provenance.
+    all_exp_dirs = sorted(d for d in heldout_dir.iterdir()
+                          if d.is_dir() and (d / "TRA").exists())
+    exp_dirs = [d for d in all_exp_dirs if d.name not in EXCLUDED_SEQUENCES]
+    excluded_present = [d.name for d in all_exp_dirs
+                        if d.name in EXCLUDED_SEQUENCES]
 
     print(f"Held-out: {args.heldout}")
     print(f"Experiments: {len(exp_dirs)}")
+    if excluded_present:
+        print(f"Excluded (D-11): {', '.join(excluded_present)}")
     for d in exp_dirs:
         print(f"  {d.name}")
     print(f"Model: {run_dir}")
@@ -406,6 +428,7 @@ def main():
         max_distance=args.max_distance,
         device=args.device,
         experiment_count=len(exp_dirs),
+        excluded_present=excluded_present,
         failed_count=failed_count,
         started_at=started_at,
         finished_at=finished_at,
