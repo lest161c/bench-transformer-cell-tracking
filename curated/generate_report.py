@@ -194,6 +194,7 @@ def panel_speed_vs_n():
 # ═══════════════════════════════════════════════════════════════
 H100_CSV = ROOT / 'benchmark_attn' / 'results' / 'full_bench_v2_h100_cache_on.csv'
 B64_CSV = ROOT / 'benchmark_attn' / 'results' / 'full_bench_b64_h100_cache_on.csv'
+B64_CSV_OFF = ROOT / 'benchmark_attn' / 'results' / 'full_bench_b64_h100_cache_off.csv'
 DECOMP_CSV = ROOT / 'benchmark_attn' / 'results' / 'cudnn_vs_fa2_mask_decomposition.csv'
 H100_CACHE_OFF_CSV = ROOT / 'benchmark_attn' / 'results' / 'full_bench_v2_h100_cache_off.csv'
 
@@ -363,13 +364,19 @@ def panel_speed_vs_n_h100():
     """
     Two report figures from the VERIFIED H100 v2 grid (SPEC 0022 jobs
     4375584 + 4377261; dist_cache=on; backend labels probe-verified,
-    stray-transpose bug fixed). Error rows (error='skip_k_ge_n') are
-    excluded before plotting.
+    stray-transpose bug fixed) and the B=64 saturation grid
+    (``full_bench_b64_h100_cache_on.csv``, dist_cache=on). Error rows —
+    including OOM and CUDA launch-configuration failures — are excluded
+    before plotting, so each curve is a gap-free run of successful
+    measurements and ends where a configuration fails.
 
     Body figure ``01_speed_vs_n_h100.pdf`` — single panel, five series
     (SPEC 0026 T1): dense_flash (K=0), dense_masked (K=0), mask_knn
-    (K=16), gather_sdpa (K=16), flex_attn (K=0). Log-log axes
-    (time_ms vs N).
+    (K=16), gather_sdpa (K=16), flex_attn (K=0), each drawn at B=1
+    (dashed, v2 grid, N up to 8192) and B=64 (solid, B=64 grid, x-axis up
+    to 32768). The B=64 grid renames mask_knn→sparse_mask and
+    gather_sdpa→sparse_gather_sdpa; the colour per method is unchanged.
+    Log-log axes (time_ms vs N).
 
     Okabe–Ito slot assignment (vis_guidelines §1; colourblind-safe,
     print-safe, one hue per series):
@@ -380,7 +387,8 @@ def panel_speed_vs_n_h100():
         flex_attn    → OI_PURPLE   #CC79A7  (attention-overlay slot)
 
     Legend labels: H100_LABELS (CamelCase display names shared with
-    panel_memory_vs_n), so both H100 panels cannot drift apart.
+    panel_memory_vs_n), so both H100 panels cannot drift apart. A second,
+    small line-style legend distinguishes B=1 (dashed) from B=64 (solid).
 
     Appendix figure ``01_speed_vs_n_h100_detail.pdf`` — (a) forward-time
     ratio vs CachedDistAttention for the other four architectures (linear
@@ -397,6 +405,10 @@ def panel_speed_vs_n_h100():
     df = df[df['error'].isna() & (df['L'] == 1)].copy()
     df['N'] = df['N'].astype(int)
 
+    df_b64 = pd.read_csv(B64_CSV)
+    df_b64 = df_b64[df_b64['error'].isna() & (df_b64['L'] == 1)].copy()
+    df_b64['N'] = df_b64['N'].astype(int)
+
     series_specs = [
         ('dense_flash',  0, OI_BLACK),
         ('dense_masked', 0, OI_VERMILION),
@@ -404,38 +416,64 @@ def panel_speed_vs_n_h100():
         ('gather_sdpa', 16, OI_ORANGE),
         ('flex_attn',    0, OI_PURPLE),
     ]
+    # The B=64 campaign uses the renamed method keys for the KNN variants.
+    b64_methods = {
+        'dense_flash':  'dense_flash',
+        'dense_masked': 'dense_masked',
+        'mask_knn':     'sparse_mask',
+        'gather_sdpa':  'sparse_gather_sdpa',
+        'flex_attn':    'flex_attn',
+    }
+
     fig, ax_ranking = plt.subplots(figsize=(5.6, 2.4))
+    method_handles = []
+    meta_values = []
     for method, k, colour in series_specs:
-        grp = df[(df.method == method) & (df.K == k)].sort_values('N')
-        ax_ranking.plot(grp.N, grp.time_ms, 'o-', ms=2.2, lw=0.8,
-                         color=colour, zorder=3, label=H100_LABELS[method])
+        series_name = method if k == 0 else f'{method}_K{k}'
+        for batch, source_df, source_method, linestyle in (
+                (1, df, method, '--'),
+                (64, df_b64, b64_methods[method], '-')):
+            group = _h100_series(source_df, source_method, k)
+            ax_ranking.plot(group.N, group.time_ms, 'o' + linestyle,
+                            ms=2.2, lw=0.8, color=colour, zorder=3)
+            meta_values.append({
+                'series': series_name,
+                'batch': batch,
+                'points': [{'N': int(row.N), 'time_ms': float(row.time_ms)}
+                           for row in group.itertuples()],
+            })
+        method_handles.append(mlines.Line2D(
+            [], [], color=colour, lw=0.8, marker='o', ms=2.2,
+            label=H100_LABELS[method]))
     ax_ranking.set_xscale('log', base=2)
     ax_ranking.set_yscale('log')
-    ax_ranking.set_yticks([0.2, 0.5, 1.0, 2.0, 5.0])
+    ax_ranking.set_yticks([0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0])
     ax_ranking.get_yaxis().set_major_formatter(mticker.ScalarFormatter())
     ax_ranking.get_yaxis().set_minor_formatter(mticker.NullFormatter())
-    ax_ranking.set_xticks([128, 256, 512, 1024, 2048, 4096, 8192])
+    ax_ranking.set_xticks([128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768])
     ax_ranking.get_xaxis().set_major_formatter(mticker.ScalarFormatter())
     ax_ranking.get_xaxis().set_minor_formatter(mticker.NullFormatter())
     ax_ranking.set_xlabel('Sequence length $N$')
     ax_ranking.set_ylabel('Forward time (ms)')
     ax_ranking.set_title('Attention forward time vs sequence length')
-    ax_ranking.legend(fontsize=6, frameon=False)
+    method_legend = ax_ranking.legend(handles=method_handles, fontsize=6,
+                                      frameon=False, loc='upper left')
+    ax_ranking.add_artist(method_legend)
+    style_handles = [
+        mlines.Line2D([], [], color=OI_BLACK, lw=0.8, linestyle='--',
+                      label='B=1'),
+        mlines.Line2D([], [], color=OI_BLACK, lw=0.8, linestyle='-',
+                      label='B=64'),
+    ]
+    ax_ranking.legend(handles=style_handles, fontsize=6, frameon=False,
+                      loc='lower right', title='Batch', title_fontsize=6)
     fig.tight_layout()
 
     body_meta = {
-        'sources': [str(H100_CSV)],
-        'values': [
-            {'series': f'{method}' + (f'_K{k}' if k is not None else ''),
-             'points': [{'N': int(row.N), 'time_ms': float(row.time_ms)}
-                        for row in _h100_series(df, method, k).itertuples()]}
-            for method, k in [('dense_flash', None), ('dense_masked', None),
-                              ('mask_knn', 16), ('gather_sdpa', 16),
-                              ('flex_attn', None)]
-        ],
+        'sources': [str(H100_CSV), str(B64_CSV)],
+        'values': meta_values,
     }
-    write_meta_sidecar('01_speed_vs_n_h100', body_meta)
-    save('01_speed_vs_n_h100')
+    save('01_speed_vs_n_h100', body_meta)
 
     # ── Appendix: detail figure (2-panel) ──────────────────────────────
     fig, axes = plt.subplots(1, 2, figsize=(4.8, 2.5))
@@ -810,8 +848,22 @@ def panel_b64_saturation():
 
     Returns the saved figure name for the html report list.
     """
-    b64 = pd.read_csv(B64_CSV)
-    b64 = b64[b64['error'].isna() & (b64['L'] == 1) & (b64['batch'] == 64)].copy()
+    b64_on = pd.read_csv(B64_CSV)
+    b64_off = pd.read_csv(B64_CSV_OFF)
+    # Rows whose dist_cache column is 'na' (dense_flash, flex_attn) do not
+    # depend on the cache regime; for those the two runs are pooled and a
+    # row measured 'ok' in either run is used (the cache-on run recorded
+    # allocator-state OOMs at N >= 16384 that the cache-off run measured).
+    # All other methods keep their own regime's rows only.
+    pooled_na = pd.concat([b64_on, b64_off])
+    pooled_na = pooled_na[(pooled_na['error'].isna()) & (pooled_na['dist_cache'] == 'na')]
+    pooled_na = pooled_na.groupby(['method', 'K', 'N', 'L', 'batch'],
+                                  as_index=False).time_ms.min()
+    b64 = pd.concat([
+        b64_on[b64_on['error'].isna() & (b64_on['dist_cache'] != 'na')],
+        pooled_na,
+    ])
+    b64 = b64[(b64['L'] == 1) & (b64['batch'] == 64)].copy()
     b64['N'] = b64['N'].astype(int)
     v2 = pd.read_csv(H100_CSV)
     v2 = v2[v2['error'].isna() & (v2['L'] == 1)].copy()
@@ -823,6 +875,7 @@ def panel_b64_saturation():
         ('DenseFlash', OI_BLACK, 'dense_flash', 'dense_flash', None),
         ('DenseMasked (CachedDist)', OI_VERMILION, 'dense_masked', 'dense_masked', None),
         ('SparseMask $K{=}16$', OI_SKYBLUE, 'sparse_mask', 'mask_knn', 16),
+        ('FlexAttention', OI_PURPLE, 'flex_attn', 'flex_attn', None),
     ]
     fig, (ax_time, ax_ratio) = plt.subplots(1, 2, figsize=(8.4, 2.6))
 
@@ -850,7 +903,7 @@ def panel_b64_saturation():
                                          label=f'{label}, B={batch}'))
     ax_time.set_xscale('log', base=2)
     ax_time.set_yscale('log')
-    ax_time.set_xticks([128, 256, 512, 1024, 2048, 4096, 8192])
+    ax_time.set_xticks([128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768])
     ax_time.get_xaxis().set_major_formatter(mticker.ScalarFormatter())
     ax_time.get_xaxis().set_minor_formatter(mticker.NullFormatter())
     ax_time.set_xlabel('Sequence length $N$')
@@ -889,10 +942,26 @@ def panel_b64_saturation():
             meta_series.append({'series': 'sparse_mask16/dense_flash',
                                 'batch': batch,
                                 'points': [{'N': p[0], 'ratio': p[1]} for p in pts_sm]})
+    # FlexAttention vs DenseFlash ratio: the mask-capable survivor at the
+    # top of the range (masked + gathered variants OOM at B=64, N>=16384).
+    for batch, df in ((1, v2), (64, b64)):
+        ref_flash = df[(df.method == 'dense_flash')].groupby(
+            'N', as_index=False).time_ms.min().set_index('N')
+        rows = df[(df.method == 'flex_attn')].groupby(
+            'N', as_index=False).time_ms.min().sort_values('N')
+        pts = [(int(row.N), float(row.time_ms / ref_flash.loc[row.N, 'time_ms']))
+               for row in rows.itertuples() if row.N in ref_flash.index]
+        if pts:
+            ax_ratio.plot([p[0] for p in pts], [p[1] for p in pts], 'o-',
+                          ms=2.2, lw=0.9, color=OI_PURPLE, zorder=3,
+                          label=f'FlexAttention / DenseFlash, B={batch}')
+            meta_series.append({'series': 'flex/dense_flash',
+                                'batch': batch,
+                                'points': [{'N': p[0], 'ratio': p[1]} for p in pts]})
     ax_ratio.axhline(1.0, color='#999999', lw=0.8, linestyle='--', zorder=1)
     ax_ratio.set_xscale('log', base=2)
     ax_ratio.set_ylim(0, 16)
-    ax_ratio.set_xticks([128, 256, 512, 1024, 2048, 4096, 8192])
+    ax_ratio.set_xticks([128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768])
     ax_ratio.get_xaxis().set_major_formatter(mticker.ScalarFormatter())
     ax_ratio.get_xaxis().set_minor_formatter(mticker.NullFormatter())
     ax_ratio.set_xlabel('Sequence length $N$')
