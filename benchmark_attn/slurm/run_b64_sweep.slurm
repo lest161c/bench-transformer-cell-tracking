@@ -9,7 +9,7 @@
 #SBATCH --output=logs/b64_sweep_%j.out
 #SBATCH --error=logs/b64_sweep_%j.err
 
-# run_b64_sweep.slurm — Attention benchmark grid at B=64 (SPEC 0049).
+# run_b64_sweep.slurm — Attention benchmark grid at B=64.
 # Mirrors run_full_bench_v2.slurm but runs batch B=64 (v2 ran B=1, hardcoded
 # before the --batch flag existed) and extends N to 16384/32768. L=1 and
 # B=1 are kept out per owner decision 2026-10-23: L=1 matches v2, and the
@@ -65,7 +65,7 @@ source "$REPO_ROOT/slurm/load_cluster_env.sh"
 cd "$BENCH/benchmark_attn" || exit 1
 mkdir -p logs results
 
-echo "=== Attention benchmark grid B=64 (SPEC 0045) ==="
+echo "=== Attention benchmark grid B=64 ==="
 echo "Grid: --batch 64 --Ns 128..32768 --Ks 2,4,8,16,32,64,128 --layers 1"
 echo "Timing: --repeats 3 --warmup 10 --rep 50 --seed 42 (forward only, fp16)"
 echo "Methods: all registered (10, incl. flex_attn)"
