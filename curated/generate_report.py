@@ -405,8 +405,27 @@ def panel_speed_vs_n_h100():
     df = df[df['error'].isna() & (df['L'] == 1)].copy()
     df['N'] = df['N'].astype(int)
 
-    df_b64 = pd.read_csv(B64_CSV)
-    df_b64 = df_b64[df_b64['error'].isna() & (df_b64['L'] == 1)].copy()
+    df_b64_on = pd.read_csv(B64_CSV)
+    df_b64_off = pd.read_csv(B64_CSV_OFF)
+    # The cache regime is part of the measurement for every method whose
+    # dist_cache column is 'on'/'off'; those rows are taken from the
+    # cache-on run only. Rows with dist_cache == 'na' (dense_flash,
+    # flex_attn) are regime-independent, so the two runs are pooled for
+    # them with ok-row preference: the cache-on run recorded
+    # allocator-state OOMs at N >= 16384 that the cache-off run measured
+    # (dense_flash 79.0/320.5 ms, flex 264.7/1101.7 ms at 16384/32768),
+    # which is what carries these two curves to the top of the x-range.
+    pooled_na = pd.concat([df_b64_on, df_b64_off])
+    pooled_na = pooled_na[(pooled_na['error'].isna()) &
+                          (pooled_na['dist_cache'] == 'na')]
+    pooled_na = pooled_na.groupby(['method', 'K', 'N', 'L', 'batch'],
+                                  as_index=False).time_ms.min()
+    df_b64 = pd.concat([
+        df_b64_on[df_b64_on['error'].isna() &
+                  (df_b64_on['dist_cache'] != 'na')],
+        pooled_na,
+    ])
+    df_b64 = df_b64[df_b64['L'] == 1].copy()
     df_b64['N'] = df_b64['N'].astype(int)
 
     series_specs = [
@@ -451,6 +470,7 @@ def panel_speed_vs_n_h100():
     ax_ranking.get_yaxis().set_major_formatter(mticker.ScalarFormatter())
     ax_ranking.get_yaxis().set_minor_formatter(mticker.NullFormatter())
     ax_ranking.set_xticks([128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768])
+    ax_ranking.set_xlim(128, 32768)
     ax_ranking.get_xaxis().set_major_formatter(mticker.ScalarFormatter())
     ax_ranking.get_xaxis().set_minor_formatter(mticker.NullFormatter())
     ax_ranking.set_xlabel('Sequence length $N$')
