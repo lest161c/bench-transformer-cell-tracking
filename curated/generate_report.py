@@ -5,9 +5,18 @@ All colours follow the Okabe–Ito scientific palette defined in
 Heatmaps use ``palette.DIVERGING_CMAP`` (vermilion↔white↔blue); K uses
 the categorical Okabe–Ito slots (``palette.K_COLORS``). No Flat UI /
 web-design colours.
+
+Run (from the repository root; needs matplotlib/seaborn/pandas)::
+
+    python curated/generate_report.py
+
+Regenerates every panel under ``curated/figures/`` (SVG + ``.meta.json``
+sidecar naming the source data). Each panel function documents its data source
+in its docstring; see ``REPRODUCIBILITY.md`` for the full map.
 """
 
 import os, sys, math, json
+import inspect
 import pandas as pd
 import numpy as np
 import seaborn as sns
@@ -62,8 +71,8 @@ LABELS = {
     'sparse_k16': 'Sparse K=16 (gather)',
     'sparse_k64': 'Sparse K=64 (gather)',
     'sparse_gather': 'Sparse K=16 (gather)',
-    'mask_knn': 'KNN Mask (scatter)',
-    'baseline': 'Baseline (K=-1)',
+    'mask_knn': 'SparseMask (scatter)',
+    'baseline': 'Dense Baseline',
     'k4': 'Sparse K=4',
     'k16': 'Sparse K=16',
     'k32': 'Sparse K=32',
@@ -71,23 +80,31 @@ LABELS = {
     # full_bench_a500.csv method names (fig 01)
     'dense_masked_fb': 'Dense Masked (baseline)',
     'dense_flash_fb': 'Dense FlashAttn (no mask)',
-    'gather-KNN_K=4': 'Gather-KNN K=4',
-    'gather-KNN_K=16': 'Gather-KNN K=16',
-    'mask-KNN_K=4': 'Mask-KNN K=4',
-    'mask-KNN_K=16': 'Mask-KNN K=16',
+    'gather-KNN_K=4': 'SparseGather K=4',
+    'gather-KNN_K=16': 'SparseGather K=16',
+    'mask-KNN_K=4': 'SparseMask K=4',
+    'mask-KNN_K=16': 'SparseMask K=16',
     'NSA': 'NSA',
     'KNN-RelPos_K=4': 'KNN-RelPos K=4',
     'KNN-RelPos_K=16': 'KNN-RelPos K=16',
 }
 
 
-def save(name):
-    """Save the current figure as both SVG and PDF under ``curated/figures/``.
+def save(name, meta=None):
+    """Save the current figure as both SVG and PDF under ``curated/figures/``
+    and auto-write its meta sidecar (J-06 phase 2).
 
     The LaTeX report includes the figures via ``\\includegraphics{*.pdf}``,
     so the PDF is the source of truth that ships with the report; the SVG
     is kept alongside for editing in Inkscape / Illustrator and for the
     HTML report.
+
+    Provenance: every figure gets a ``<name>.meta.json`` sidecar (same
+    convention as ``results/generate_plots.py``). If the panel passes no
+    explicit ``meta``, the calling panel function's name and docstring are
+    captured automatically — panels document their data sources in their
+    docstrings, so the sidecar stays correct without per-panel boilerplate.
+    An explicit ``meta`` dict must contain ``"sources"`` and ``"values"``.
     """
     svg_path = FIGS / f'{name}.svg'
     pdf_path = FIGS / f'{name}.pdf'
@@ -97,6 +114,17 @@ def save(name):
     plt.gcf().savefig(pdf_path, bbox_inches='tight')
     plt.close()
     print(f'  {svg_path.name}  +  {pdf_path.name}')
+    if meta is None:
+        frame = inspect.currentframe().f_back
+        panel_name = frame.f_code.co_name
+        panel = frame.f_globals.get(panel_name)
+        meta = {
+            'sources': (f'{panel_name}() in curated/generate_report.py; '
+                        'data sources documented in its docstring'),
+            'values': f'plotted values defined in {panel_name}() source',
+            'panel_docstring': (inspect.getdoc(panel) or '') if panel else '',
+        }
+    write_meta_sidecar(name, meta)
     return pdf_path.name
 
 
@@ -158,24 +186,25 @@ def panel_speed_vs_n():
 
 # ═══════════════════════════════════════════════════════════════
 # 1b. Attention Benchmark on the H100 (fig:speed_vs_n + appendix detail)
-#     Uses benchmark_attn/results/full_bench_h100.csv — the corrected H100
-#     benchmark behind the report's evaluation claims (0.199 vs 0.334 ms at
-#     N=128, crossover N≈4000; job 3920627 lineage, KNN-index cost included).
-#     The previous report copy of this figure had no generator in the repo;
-#     this panel makes it reproducible and splits summary vs detail.
+#     Uses benchmark_attn/results/full_bench_v2_h100_cache_on.csv — the
+#     VERIFIED v2 H100 grid (SPEC 0022, jobs 4375584 + 4377261; backend
+#     labels probe-verified, stray-transpose bug fixed). dist_cache=on
+#     throughout. Error rows (error='skip_k_ge_n') are excluded before
+#     plotting. flex_attn has K=0 only; the other methods sweep K∈{2..128}.
 # ═══════════════════════════════════════════════════════════════
-H100_CSV = ROOT / 'benchmark_attn' / 'results' / 'full_bench_h100.csv'
+H100_CSV = ROOT / 'benchmark_attn' / 'results' / 'full_bench_v2_h100_cache_on.csv'
+B64_CSV = ROOT / 'benchmark_attn' / 'results' / 'full_bench_b64_h100_cache_on.csv'
+DECOMP_CSV = ROOT / 'benchmark_attn' / 'results' / 'cudnn_vs_fa2_mask_decomposition.csv'
+H100_CACHE_OFF_CSV = ROOT / 'benchmark_attn' / 'results' / 'full_bench_v2_h100_cache_off.csv'
 
 H100_COLORS = palette.COLORS
 
 H100_LABELS = {
-    'dense_flash':  'Dense FlashAttention',
-    'dense_masked': 'Dense masked',
-    'mask_knn':     'Mask-KNN ($K{=}16$)',
-    'gather_sdpa':  'Gather-KNN SDPA ($K{\\in}4$–$64$)',
-    'knn_relpos':   'KNN + rel. pos. bias ($K{=}16$)',
-    'nsa':          'NSA',
-    'minimax':      'MiniMax',
+    'dense_flash':  'DenseFlash',
+    'dense_masked': 'CachedDistAttention',
+    'mask_knn':     'SparseMask ($K{=}16$)',
+    'gather_sdpa':  'SparseGather ($K{=}16$)',
+    'flex_attn':    'FlexAttention',
 }
 
 
@@ -204,28 +233,6 @@ def _h100_band(df, method, k_low=4, k_high=64):
     return rows.index.to_numpy(), rows['min'].values, rows['max'].values
 
 
-def _h100_style_axis(ax, y_top):
-    """
-    Shared log-log styling for the H100 panels (compact report size).
-
-    Explicit decimal y-ticks: matplotlib's default log formatter renders
-    sub-1 ticks as "4×10⁻¹"-style artifacts on zoomed ranges.
-    """
-    ax.set_xscale('log', base=2)
-    ax.set_yscale('log')
-    ax.set_xticks([128, 256, 512, 1024, 2048, 4096, 8192])
-    ax.get_xaxis().set_major_formatter(mticker.ScalarFormatter())
-    ax.get_yaxis().set_major_formatter(mticker.ScalarFormatter())
-    ax.tick_params(labelsize=6)
-    ax.set_xlabel('Sequence length $N$', fontsize=8)
-    ax.set_ylabel('Forward time (ms)', fontsize=8)
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    ax.grid(axis='y', which='major', color='#cccccc', linewidth=0.5)
-    ax.set_ylim(0.08, y_top)
-    ax.set_axisbelow(True)
-
-
 def _readable_text_color(hex_color):
     """
     Darken a series colour until it is legible as 5.5 pt text on white.
@@ -248,253 +255,243 @@ def _readable_text_color(hex_color):
           for channel in (red, green, blue)))
 
 
+ARCH_COLORS = {
+    'dense_flash': OI_BLACK,
+    'gather_sdpa': OI_ORANGE,
+    'mask_knn': OI_SKYBLUE,
+    'flex_attn': OI_PURPLE,
+}
+
+ARCH_LEGEND_LABELS = {
+    'dense_flash': 'DenseFlash',
+    'gather_sdpa': 'SparseGather (SDPA)',
+    'mask_knn': 'SparseMask (scatter)',
+    'flex_attn': 'FlexAttention',
+}
+
+# K grid extended per SPEC 0022 H-03: K=2 bottom-line sanity, K=8 fills the
+# 4–16 gap.  K-sweep figure predates the K=2/8 grid extension.
+K_COLORS_DETAIL = {
+    2: OI_VERMILION,
+    4: OI_SKYBLUE,
+    8: OI_BLUE,
+    16: OI_GREEN,
+    32: OI_YELLOW,
+    64: OI_PURPLE,
+}
+
+
+def draw_ratio_reference(ax):
+    """Dashed horizontal line at ratio 1 (the dense-masked baseline)."""
+    ax.axhline(1.0, color=OI_BLACK, lw=1.0, linestyle='--', zorder=2)
+
+
+def plot_ratio_series(ax, df, method, k, colour, collector, label):
+    """
+    One series of time-ratio-vs-dense-masked points on ``ax``.
+
+    Ratio per N: method time (min over duplicate rows via
+    :func:`_h100_series`) divided by the dense-masked time at the same N
+    (from the same filtered v2-grid frame ``df``). Appends the computed
+    points to ``collector`` for the figure's meta sidecar.
+    """
+    reference = _h100_series(df, 'dense_masked', None).set_index('N')
+    series = _h100_series(df, method, k)
+    ratios = []
+    for row in series.itertuples():
+        if row.N in reference.index:
+            ratio = float(row.time_ms / reference.loc[row.N, 'time_ms'])
+            ratios.append({'N': int(row.N), 'ratio': ratio})
+    if not ratios:
+        return
+    ax.plot([point['N'] for point in ratios],
+            [point['ratio'] for point in ratios],
+            'o-', ms=2.0, lw=0.8, color=colour, zorder=3, label=label)
+    collector.append({'series': label, 'points': ratios})
+
+
+def style_ratio_axis(ax, title, ylim=(0, 1.5), yticks=(0.1, 0.5, 1.0)):
+    """Shared styling for the detail-figure ratio panels.
+
+    Linear ratio axis with decimal ticks (defaults 0.1 / 0.5 / 1.0): the
+    ratios cluster in a narrow band around 1.0, where a log axis
+    compresses the decision-relevant region and its default formatter
+    renders ticks as "6x10^0"-style artifacts. Panel (b) overrides both
+    limits and ticks because its K=64 sweep reaches ratios of ~2.25.
+    """
+    ax.set_xscale('log', base=2)
+    ax.set_ylim(*ylim)
+    ax.set_yticks(list(yticks))
+    ax.set_xticks([128, 256, 512, 1024, 2048, 4096, 8192])
+    ax.get_xaxis().set_major_formatter(mticker.ScalarFormatter())
+    ax.get_xaxis().set_minor_formatter(mticker.NullFormatter())
+    ax.tick_params(labelsize=6)
+    ax.set_xlabel(title, fontsize=7)
+    ax.set_ylabel('Time ratio vs CachedDistAttention', fontsize=7)
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.grid(axis='y', which='major', color='#cccccc', linewidth=0.5)
+    ax.set_axisbelow(True)
+
+
+def style_time_axis(ax, title):
+    """Shared styling for the detail-figure absolute-time panels (log-log).
+
+    Explicit decimal ticks (0.3/1/3/5 ms) avoid the default log
+    formatter's "3x10^0"-style artifacts on this zoomed range; minor
+    ticks stay unlabeled for the same reason.
+    """
+    ax.set_xscale('log', base=2)
+    ax.set_yscale('log')
+    ax.set_ylim(0.2, 6.5)
+    ax.set_yticks([0.3, 1.0, 3.0, 5.0])
+    ax.set_xticks([128, 256, 512, 1024, 2048, 4096, 8192])
+    ax.get_xaxis().set_major_formatter(mticker.ScalarFormatter())
+    ax.get_xaxis().set_minor_formatter(mticker.NullFormatter())
+    ax.get_yaxis().set_major_formatter(mticker.ScalarFormatter())
+    ax.get_yaxis().set_minor_formatter(mticker.NullFormatter())
+    ax.tick_params(labelsize=6)
+    ax.set_xlabel(title, fontsize=7)
+    ax.set_ylabel('Forward time (ms)', fontsize=7)
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.grid(axis='y', which='major', color='#cccccc', linewidth=0.5)
+    ax.set_axisbelow(True)
+
+
 def panel_speed_vs_n_h100():
     """
-    Two report figures from the H100 attention benchmark (owner decisions
-    2026-09-28: SPEC 0012 split, SPEC 0017 communication round, round 5
-    owner decision to drop the dataset-scale panel).
+    Two report figures from the VERIFIED H100 v2 grid (SPEC 0022 jobs
+    4375584 + 4377261; dist_cache=on; backend labels probe-verified,
+    stray-transpose bug fixed). Error rows (error='skip_k_ge_n') are
+    excluded before plotting.
 
-    Body figure ``01_speed_vs_n_h100.pdf`` — single panel, method ranking
-    across the full measured range N=128..8192. Four story-carrying series:
-    dense_flash, dense_masked, mask_knn at K=16, and the gather-KNN (SDPA)
-    min–max band over K∈{4–64} (the three backends agree within 20%).
-    knn_relpos is omitted — it coincides with gather_sdpa within ±1%
-    (appendix detail (d)). NSA and MiniMax use their palette colours
-    (blue / yellow) with direct end labels instead of legend entries.
-    No shaded regions: the crossover where sparse undercuts dense masked
-    is marked only by a dashed line at N ≈ 4000 (bracketed by the N=2048
-    and N=4096 measurements); the dataset-scale headline (dense masked
-    1.7× faster than mask-KNN at N=128: 0.199 vs 0.334 ms) lives in the
-    body text and the figure caption — the owner judged a dedicated
-    dataset-scale panel redundant after the bar-chart round.
+    Body figure ``01_speed_vs_n_h100.pdf`` — single panel, five series
+    (SPEC 0026 T1): dense_flash (K=0), dense_masked (K=0), mask_knn
+    (K=16), gather_sdpa (K=16), flex_attn (K=0). Log-log axes
+    (time_ms vs N).
 
-    Appendix figure ``01_speed_vs_n_h100_detail.pdf`` — round-2 redesign
-    2026-09-28 (SPEC 0018 amendment; owner: the round-1 2×2 still felt
-    crowded and its coincidence panels carried no information). 1×2:
-    (a) overview ranking of the architectures (dense flash, dashed
-    dense-masked 1.0 reference, gather-SDPA K=16, mask-KNN K=16, NSA,
-    MiniMax; log-y so MiniMax ~65× and dense flash 0.07× share one view);
-    (b) gather-KNN (SDPA) context-size sweep, the only K-sensitive family.
-    gather-fused/gather-matmul (within 20% of SDPA) and KNN+rel-pos
-    (within ±1% of SDPA) are stated numerically in the caption instead of
-    being drawn as coincident curves. One visual grammar: solid lines +
-    colour only; single dashed reference identified by the legend entry
-    "Dense masked (= 1)"; one figure-level legend (6 architecture + 4 K
-    entries); no bands, no axvspan, no leader lines, no markers beyond
-    the shared 'o', no dash-pattern encodings.
+    Okabe–Ito slot assignment (vis_guidelines §1; colourblind-safe,
+    print-safe, one hue per series):
+        dense_flash  → OI_BLACK    #000000  (baseline curve slot)
+        dense_masked → OI_VERMILION #D55E00  (ablation/loss slot)
+        mask_knn     → OI_SKYBLUE  #56B4E9  (variant-B slot)
+        gather_sdpa  → OI_ORANGE   #E69F00  (variant-A slot, "ours")
+        flex_attn    → OI_PURPLE   #CC79A7  (attention-overlay slot)
+
+    Legend labels: H100_LABELS (CamelCase display names shared with
+    panel_memory_vs_n), so both H100 panels cannot drift apart.
+
+    Appendix figure ``01_speed_vs_n_h100_detail.pdf`` — (a) forward-time
+    ratio vs CachedDistAttention for the other four architectures (linear
+    decimal ticks); (b) the SparseGather (SDPA) K-sweep in ABSOLUTE forward
+    time with the CachedDistAttention reference (log-log). Panel (b)
+    deliberately shows absolute times, not ratios: the reference is
+    step-shaped (launch plateau ~0.25 ms through N=2048, quadratic dominance
+    from 4096), so ratio normalization manufactures a spike (K=64 at N=2048,
+    ratio 2.25) on a perfectly smooth O(N.K) curve, while absolute times
+    expose the O(N.K) scaling and the crossover with CachedDistAttention's
+    quadratic term directly.
     """
     df = pd.read_csv(H100_CSV)
     df = df[df['error'].isna() & (df['L'] == 1)].copy()
     df['N'] = df['N'].astype(int)
 
+    series_specs = [
+        ('dense_flash',  0, OI_BLACK),
+        ('dense_masked', 0, OI_VERMILION),
+        ('mask_knn',    16, OI_SKYBLUE),
+        ('gather_sdpa', 16, OI_ORANGE),
+        ('flex_attn',    0, OI_PURPLE),
+    ]
     fig, ax_ranking = plt.subplots(figsize=(5.6, 2.4))
-
-    # ── (a) Full-range ranking ────────────────────────────────────────────
-    gather_rows = df[df.method == 'gather_sdpa']
-    gather_band = gather_rows.groupby('N').time_ms.agg(['min', 'max']).sort_index()
-    ax_ranking.fill_between(gather_band.index, gather_band['min'],
-                            gather_band['max'], color=H100_COLORS['gather_sdpa'],
-                            alpha=0.25, linewidth=0, zorder=1,
-                            label=H100_LABELS['gather_sdpa'])
-    gather_k16 = _h100_series(df, 'gather_sdpa', 16)
-    ax_ranking.plot(gather_k16.N, gather_k16.time_ms, 'o-', ms=2.2, lw=0.8,
-                    color=H100_COLORS['gather_sdpa'], zorder=2)
-    # Context lines (NSA, MiniMax): palette colours, direct end label.
-    # Marker style matches the other series so every plotted point reads
-    # as a measurement (all three series are measured at all seven N).
-    for method, label_offset, label_va in [('minimax', (5, 0), 'center'),
-                                           ('nsa', (5, 3), 'bottom')]:
-        rows = _h100_series(df, method)
-        ax_ranking.plot(rows.N, rows.time_ms, 'o-', ms=2.2, lw=0.8,
-                        color=H100_COLORS[method], zorder=2)
-        ax_ranking.annotate(method, (8192, rows.time_ms.iloc[-1]),
-                            xytext=label_offset, textcoords='offset points',
-                            fontsize=5.5,
-                            color=_readable_text_color(H100_COLORS[method]),
-                            va=label_va, annotation_clip=False)
-    for method, k, line_width in [('dense_flash', None, 1.0),
-                                  ('dense_masked', None, 1.5),
-                                  ('mask_knn', 16, 1.5)]:
-        rows = _h100_series(df, method, k)
-        ax_ranking.plot(rows.N, rows.time_ms, 'o-', ms=2.2, lw=line_width,
-                        color=H100_COLORS[method], zorder=3,
-                        label=H100_LABELS[method])
-    # Crossover marker: the plotted sparse variants undercut dense masked
-    # above N≈4000 (bracketed by the N=2048 and N=4096 measurements).
-    ax_ranking.axvline(4000, color='#999999', lw=0.8, ls='--', zorder=2)
-    _h100_style_axis(ax_ranking, 500)
-    ax_ranking.set_yticks([0.1, 1, 10, 100])
-    ax_ranking.set_xlim(100, 16384)
-    ax_ranking.set_title('All methods, full range', fontsize=8)
-
-    # Legend above the panel — never overlaps any curve.
-    handles, labels = ax_ranking.get_legend_handles_labels()
-    fig.legend(handles=handles, loc='upper center', ncol=4, frameon=False,
-               fontsize=6, columnspacing=0.9, handlelength=1.4)
-    fig.subplots_adjust(top=0.80)
+    for method, k, colour in series_specs:
+        grp = df[(df.method == method) & (df.K == k)].sort_values('N')
+        ax_ranking.plot(grp.N, grp.time_ms, 'o-', ms=2.2, lw=0.8,
+                         color=colour, zorder=3, label=H100_LABELS[method])
+    ax_ranking.set_xscale('log', base=2)
+    ax_ranking.set_yscale('log')
+    ax_ranking.set_yticks([0.2, 0.5, 1.0, 2.0, 5.0])
+    ax_ranking.get_yaxis().set_major_formatter(mticker.ScalarFormatter())
+    ax_ranking.get_yaxis().set_minor_formatter(mticker.NullFormatter())
+    ax_ranking.set_xticks([128, 256, 512, 1024, 2048, 4096, 8192])
+    ax_ranking.get_xaxis().set_major_formatter(mticker.ScalarFormatter())
+    ax_ranking.get_xaxis().set_minor_formatter(mticker.NullFormatter())
+    ax_ranking.set_xlabel('Sequence length $N$')
+    ax_ranking.set_ylabel('Forward time (ms)')
+    ax_ranking.set_title('Attention forward time vs sequence length')
+    ax_ranking.legend(fontsize=6, frameon=False)
+    fig.tight_layout()
 
     body_meta = {
         'sources': [str(H100_CSV)],
-        'values': (
-            [{'series': f'{method}' + (f'_K{k}' if k is not None else ''),
-              'points': [{'N': int(row.N), 'time_ms': float(row.time_ms)}
-                         for row in _h100_series(df, method, k).itertuples()]}
-             for method, k in [('dense_flash', None), ('dense_masked', None),
-                               ('mask_knn', 16), ('nsa', None),
-                               ('minimax', None),
-                               ('gather_sdpa', 16)]]
-            + [{'series': 'gather_sdpa_K_band',
-                'points': [{'N': int(n), 'time_min_ms': float(row['min']),
-                            'time_max_ms': float(row['max'])}
-                           for n, row in gather_band.iterrows()]}]
-        ),
+        'values': [
+            {'series': f'{method}' + (f'_K{k}' if k is not None else ''),
+             'points': [{'N': int(row.N), 'time_ms': float(row.time_ms)}
+                        for row in _h100_series(df, method, k).itertuples()]}
+            for method, k in [('dense_flash', None), ('dense_masked', None),
+                              ('mask_knn', 16), ('gather_sdpa', 16),
+                              ('flex_attn', None)]
+        ],
     }
     write_meta_sidecar('01_speed_vs_n_h100', body_meta)
     save('01_speed_vs_n_h100')
 
-    # ── Appendix: detail figure, round-2 redesign (2026-09-28, SPEC 0018
-    # amendment; owner feedback on the round-1 2×2: still crowded, and the
-    # coincident-curve panels carry no information because the coincidence
-    # IS the finding):
-    #   * TWO panels — (a) overview ranking + crossover with one curve per
-    #     architecture, (b) gather-KNN (SDPA) context-size sweep, the only
-    #     family where K visibly matters;
-    #   * panel (a) keeps 6 curves: dense flash, the dashed dense-masked
-    #     1.0 reference, gather-SDPA K=16, mask-KNN K=16, NSA, MiniMax;
-    #     gather-fused / gather-matmul (within 20% of SDPA) and KNN+rel-pos
-    #     (within ±1% of SDPA) are NOT drawn — they would only braid
-    #     coincident lines — and are stated numerically in the caption;
-    #   * same one-visual-grammar rules as round 1: solid lines + colour
-    #     only, single dashed reference identified by its legend entry,
-    #     one figure-level legend (6 architecture + 4 K entries).
-    dense_time_by_n = _h100_series(df, 'dense_masked').set_index('N').time_ms
-
-    def dense_ratio(rows):
-        """Convert a (N, time_ms) series to its ratio to dense masked."""
-        return rows.time_ms / rows.N.map(dense_time_by_n)
-
-    def plot_ratio_series(ax, method, k, color, sidecar_name):
-        """
-        Plot one method's time ratio to dense masked as a solid line.
-
-        ``k=None`` plots every measured row of the method (dense flash,
-        NSA and MiniMax have no K variants); a K value restricts the
-        series to that context size. Called by the two detail panels;
-        appends the plotted ratios to ``detail_series`` under
-        ``sidecar_name`` unless that series is already recorded (the
-        K=16 series is shared between the overview and the K-sweep
-        panel).
-        """
-        if sidecar_name in {series['series'] for series in detail_series}:
-            return
-        rows = _h100_series(df, method, k)
-        ratio = dense_ratio(rows)
-        ax.plot(rows.N, ratio, lw=1.0, color=color, zorder=3)
-        detail_series.append(
-            {'series': sidecar_name,
-             'points': [{'N': int(row.N), 'ratio': float(ratio_value)}
-                        for row, ratio_value
-                        in zip(rows.itertuples(), ratio)]})
-
-    def draw_ratio_reference(ax):
-        """
-        Dashed dense-masked reference line at ratio 1.0 across [100, 8192].
-
-        The line stops at N=8192 (the last measured point) so it carries no
-        claims beyond the data. Its meaning is carried by the shared legend
-        entry "Dense masked (= 1)", so no in-axes annotation is needed.
-        """
-        ax.plot([100, 8192], [1.0, 1.0], color=OI_BLACK, linestyle='--',
-                lw=1.0, zorder=2)
-
-    def style_ratio_axis(ax, panel_title, log_y=False):
-        """Shared axes styling for the ratio detail panels."""
-        ax.set_xscale('log', base=2)
-        if log_y:
-            # Panel (a) spans dense flash (0.07×) to MiniMax (65×).
-            ax.set_yscale('log')
-            ax.set_yticks([0.1, 1.0, 10.0, 100.0])
-            ax.set_ylim(0.05, 120)
-        else:
-            ax.set_ylim(0.35, 3.2)
-            ax.set_yticks([0.5, 1.0, 1.5, 2.0, 2.5, 3.0])
-        ax.set_xticks([128, 512, 2048, 8192])
-        ax.get_xaxis().set_major_formatter(mticker.ScalarFormatter())
-        ax.get_yaxis().set_major_formatter(mticker.ScalarFormatter())
-        ax.tick_params(labelsize=6)
-        ax.set_xlabel('Sequence length $N$', fontsize=7.5)
-        ax.set_ylabel('Time / dense masked (×)', fontsize=7.5)
-        ax.set_xlim(100, 13000)
-        ax.spines['top'].set_visible(False)
-        ax.spines['right'].set_visible(False)
-        ax.grid(axis='y', which='major', color='#cccccc', linewidth=0.5)
-        ax.set_axisbelow(True)
-        ax.set_title(panel_title, fontsize=7)
-
-    # Colour slots for the overview panel: every method keeps its canonical
-    # METHOD_COLORS slot. Two slots are shared with the K colours of panel
-    # (b) (ORANGE = gather-SDPA here vs K=4 there; SKYBLUE = mask-KNN vs
-    # K=32), which the two-group legend and the caption resolve.
-    ARCH_COLORS = {
-        'dense_flash': OI_GREEN,
-        'gather_sdpa': OI_ORANGE,
-        'mask_knn': OI_SKYBLUE,
-        'nsa': OI_BLUE,
-        'minimax': OI_YELLOW,
-    }
-    ARCH_LEGEND_LABELS = {
-        'dense_flash': 'Dense flash (no mask)',
-        'gather_sdpa': 'Gather-KNN SDPA',
-        'mask_knn': 'Mask-KNN',
-        'nsa': 'NSA',
-        'minimax': 'MiniMax',
-    }
-    K_COLORS_DETAIL = {4: OI_ORANGE, 16: OI_VERMILION,
-                       32: OI_SKYBLUE, 64: OI_PURPLE}
-
-    fig_detail, axes_detail = plt.subplots(1, 2, figsize=(4.8, 2.5))
+    # ── Appendix: detail figure (2-panel) ──────────────────────────────
+    fig, axes = plt.subplots(1, 2, figsize=(4.8, 2.5))
     detail_series = []
 
-    # (a) Overview: one curve per architecture vs the dense-masked baseline.
-    ax = axes_detail[0]
+    # (a) Overview: every architecture as time ratio vs CachedDistAttention;
+    # CachedDistAttention itself is the dashed line at ratio 1, so it gets no
+    # separate curve.
+    ax = axes[0]
     draw_ratio_reference(ax)
-    detail_series.append(
-        {'series': 'dense_masked_reference',
-         'points': [{'N': int(n), 'ratio': 1.0} for n in dense_time_by_n.index]})
-    for method, k in [('dense_flash', None), ('gather_sdpa', 16),
-                      ('mask_knn', 16), ('nsa', None), ('minimax', None)]:
-        plot_ratio_series(ax, method, k, ARCH_COLORS[method],
-                          f'{method}_K16' if k is not None else method)
-    style_ratio_axis(ax, '(a) All architectures vs dense masked', log_y=True)
+    for method, k, colour in series_specs:
+        if method == 'dense_masked':
+            continue
+        plot_ratio_series(ax, df, method, k, colour, detail_series,
+                          f'{method}_K{k}' if k is not None else method)
+    style_ratio_axis(ax, '(a) All architectures vs CachedDistAttention')
 
-    # (b) Gather-KNN (SDPA): context size K — the one family where K matters
-    # (spread above N=2048); colour encodes K, all lines solid.
-    ax = axes_detail[1]
-    draw_ratio_reference(ax)
-    for k in (4, 16, 32, 64):
-        plot_ratio_series(ax, 'gather_sdpa', k, K_COLORS_DETAIL[k],
-                          f'gather_sdpa_K{k}')
-    style_ratio_axis(ax, '(b) Gather-KNN (SDPA): context size $K$')
+    # (b) SparseGather (SDPA) context-size sweep in absolute forward time
+    # with the CachedDistAttention reference curve.
+    ax = axes[1]
+    reference = _h100_series(df, 'dense_masked').sort_values('N')
+    ax.plot(reference.N, reference.time_ms, '--', color=OI_BLACK, lw=1.0,
+            zorder=3)
+    detail_series.append({
+        'series': 'dense_masked_reference',
+        'points': [{'N': int(row.N), 'time_ms': float(row.time_ms)}
+                   for row in reference.itertuples()]})
+    for k in (2, 4, 8, 16, 32, 64):
+        series = _h100_series(df, 'gather_sdpa', k).sort_values('N')
+        ax.plot(series.N, series.time_ms, 'o-', ms=2.0, lw=0.8,
+                color=K_COLORS_DETAIL[k], zorder=3)
+        detail_series.append({
+            'series': f'gather_sdpa_K{k}',
+            'points': [{'N': int(row.N), 'time_ms': float(row.time_ms)}
+                       for row in series.itertuples()]})
+    style_time_axis(ax, '(b) SparseGather (SDPA): context size $K$')
 
-    # One shared legend above the panels (vis_guidelines §6): architecture
-    # slots first, then the K colours that panel (b) uses.
+    # One shared legend above the panels (vis_guidelines §6): the
+    # CachedDistAttention reference (dashed in both panels), the architecture
+    # colours of panel (a), then the K colours of panel (b).
     legend_handles = [
         mlines.Line2D([], [], color=OI_BLACK, lw=1.0, linestyle='--',
-                      label='Dense masked (= 1)'),
+                      label='CachedDistAttention'),
     ] + [
         mlines.Line2D([], [], color=ARCH_COLORS[method], lw=1.0,
                       label=ARCH_LEGEND_LABELS[method])
-        for method in ('dense_flash', 'gather_sdpa', 'mask_knn',
-                       'nsa', 'minimax')
+        for method in ('dense_flash', 'gather_sdpa', 'mask_knn', 'flex_attn')
     ] + [
         mlines.Line2D([], [], color=K_COLORS_DETAIL[k], lw=1.0,
                       label=f'$K{{=}}{k}$')
-        for k in (4, 16, 32, 64)
+        for k in (2, 4, 8, 16, 32, 64)
     ]
-    fig_detail.legend(handles=legend_handles, loc='upper center', ncol=5,
-                      frameon=False, fontsize=5.5, columnspacing=0.9,
-                      handlelength=1.6)
-    fig_detail.tight_layout(rect=(0, 0, 1, 0.86))
+    fig.legend(handles=legend_handles, loc='upper center', ncol=5,
+               frameon=False, fontsize=5.5, columnspacing=0.9,
+               handlelength=1.6)
+    fig.tight_layout(rect=(0, 0, 1, 0.88))
 
     detail_meta = {
         'sources': [str(H100_CSV)],
@@ -565,25 +562,121 @@ def panel_mask_vs_gather():
 # 4. Memory vs Sequence Length
 # ═══════════════════════════════════════════════════════════════
 def panel_memory_vs_n():
-    df = pd.read_csv(ROOT / 'benchmark_sparse_results.csv')
-    df = df[df.L == 1].copy()
-    df = df[df.status == 'ok']
-    df['label'] = df.apply(lambda r: f"sparse_k{r.K}" if r.method.startswith('sparse')
-                           else r.method, axis=1)
-    fig, ax = plt.subplots(figsize=(8, 5))
-    for lbl, grp in df.groupby('label'):
-        grp = grp.sort_values('N')
-        ax.plot(grp.N, grp.mem_mb, 'o-', label=LABELS.get(lbl, lbl),
-                color=COLORS.get(lbl, '#999999'), linewidth=2, markersize=6)
+    """
+    Report figure ``04_memory_vs_n.pdf`` (SPEC 0026 T2) — incremental peak
+    GPU memory vs sequence length from the VERIFIED H100 v2 grid
+    (dist_cache=on; error rows excluded). Log-log axes expose the O(N^2)
+    scaling of the masked regime (dense_masked, mask_knn — the N x N mask
+    and score workspace dominate) against the O(N) flash line
+    (dense_flash: ~5 fp16 token tensors). flex_attn stays linear as well
+    and coincides with dense_flash within 0.3 MB at every measured N (its
+    compiled block-sparse mask avoids the N x N score materialization), so
+    the pair is drawn interleaved for visibility: solid black dense_flash
+    line underneath, dashed purple flex_attn on top (the dash gaps expose
+    the black line beneath) and larger open black dense_flash markers.
+    Legend labels come from H100_LABELS (CamelCase display names shared
+    with the speed panel), not raw method keys.
+    mask_knn's memory is K-independent
+    (~1 GB at N=8192 for every K in 2..128).
+    """
+    df = pd.read_csv(H100_CSV)
+    df = df[df['error'].isna() & (df['L'] == 1)].copy()
+    df['N'] = df['N'].astype(int)
+
+    series_specs = [
+        ('dense_masked', 0, OI_VERMILION, '-',  2.2, 3),
+        ('mask_knn',    16, OI_SKYBLUE,   '-',  2.2, 3),
+        ('gather_sdpa', 16, OI_ORANGE,    '-',  2.2, 3),
+        ('dense_flash',  0, OI_BLACK,     '-',  3.4, 3),
+        ('flex_attn',    0, OI_PURPLE,    '--', 2.2, 4),
+    ]
+    fig, ax = plt.subplots(figsize=(5.6, 2.4))
+    for method, k, colour, linestyle, marker_size, zorder in series_specs:
+        grp = df[(df.method == method) & (df.K == k)].sort_values('N')
+        marker_style = (dict(mfc='white', mec=colour, mew=0.7)
+                        if method == 'dense_flash' else {})
+        ax.plot(grp.N, grp.memory_mb, linestyle=linestyle, marker='o',
+                ms=marker_size, lw=0.8, color=colour, zorder=zorder,
+                label=H100_LABELS[method], **marker_style)
     ax.set_xscale('log', base=2)
     ax.set_yscale('log')
-    ax.set_xlabel('Sequence length $N$ (cells per frame)')
-    ax.set_ylabel('GPU Memory (MB)')
-    ax.legend(fontsize=8)
-    ax.set_xticks([128, 256, 512, 2048, 8192])
+    ax.set_xticks([128, 256, 512, 1024, 2048, 4096, 8192])
     ax.get_xaxis().set_major_formatter(mticker.ScalarFormatter())
+    ax.get_xaxis().set_minor_formatter(mticker.NullFormatter())
+    ax.set_xlabel('Sequence length $N$')
+    ax.set_ylabel('GPU Memory (MB)')
+    ax.set_title('GPU Memory vs Sequence Length')
+    ax.legend(fontsize=6, frameon=False)
     fig.tight_layout()
-    return save('04_memory_vs_n')
+
+    body_meta = {
+        'sources': [str(H100_CSV)],
+        'values': [
+            {'series': method,
+             'points': [{'N': int(row.N), 'memory_mb': float(row.memory_mb)}
+                        for row in df[(df.method == method) & (df.K == k)]
+                                     .sort_values('N').itertuples()]}
+            for method, k in [('dense_flash', 0), ('dense_masked', 0),
+                              ('mask_knn', 16), ('gather_sdpa', 16),
+                              ('flex_attn', 0)]
+        ],
+    }
+    return save('04_memory_vs_n', meta=body_meta)
+
+
+# ═══════════════════════════════════════════════════════════════
+# 4b. Distance-cache effect (SPEC 0026 T3; standalone per Q1c)
+# ═══════════════════════════════════════════════════════════════
+def panel_dist_cache_effect():
+    """
+    Report figure ``16_dist_cache_effect.pdf`` (SPEC 0026 T3; reworked after
+    owner review 2026-10-11) — MEASURED off/on wall-time ratio (forward time
+    without cache divided by with cache; >1 = the cache helps) per method at
+    N in {256, 512, 1024, 2048} from the VERIFIED H100 v2 grid (jobs
+    4375584 + 4377261). Two series, matching the section claim:
+    dense_masked (K=0) = CachedDistAttention and mask_knn (K=16) =
+    SparseMaskAttention, colored with the canonical palette slots used by
+    the sibling speed/memory panels (vermilion/sky-blue). The three gather
+    backends are not part of this claim and remain in the appendix
+    speed-detail figure (fig:app_speed_detail). Direct combined measurement
+    replacing the retired additivity argument of the old section 3.5.
+    """
+    on = pd.read_csv(H100_CSV)
+    off = pd.read_csv(H100_CACHE_OFF_CSV)
+    for frame in (on, off):
+        frame = frame[frame['error'].isna()]
+        frame['N'] = frame['N'].astype(int)
+
+    seq_lengths = [256, 512, 1024, 2048]
+    series_specs = [
+        ('dense_masked', 0, OI_VERMILION, 'CachedDistAttention (dense masked)'),
+        ('mask_knn',    16, OI_SKYBLUE,   'SparseMask'),
+    ]
+    fig, ax = plt.subplots(figsize=(5.6, 2.4))
+    panel_width = 0.8 / len(series_specs)
+    meta_values = []
+    for index, (method, k, colour, label) in enumerate(series_specs):
+        ratios = []
+        for position, seq_len in enumerate(seq_lengths):
+            on_row = on[(on['method'] == method) & (on['K'] == k) & (on['N'] == seq_len)]
+            off_row = off[(off['method'] == method) & (off['K'] == k) & (off['N'] == seq_len)]
+            ratio = float(off_row.iloc[0]['time_ms'] / on_row.iloc[0]['time_ms'])
+            ax.bar(position + index * panel_width, ratio, width=panel_width,
+                   color=colour, zorder=3,
+                   label=label if position == 0 else None)
+            ratios.append(ratio)
+        meta_values.append({'series': f'{method}_K{k}', 'ratios': ratios})
+    ax.axhline(1.0, color='k', lw=0.8, linestyle='--', zorder=2)
+    ax.set_xticks([i + 0.4 - panel_width / 2 for i in range(len(seq_lengths))])
+    ax.set_xticklabels([str(n) for n in seq_lengths])
+    ax.set_xlabel('Sequence length $N$')
+    ax.set_ylabel('Forward time ratio (off / on)')
+    ax.set_ylim(0, 3.1)
+    ax.legend(fontsize=6, frameon=False, loc='upper left')
+    fig.tight_layout()
+    return save('16_dist_cache_effect',
+                meta={'sources': [str(H100_CSV), str(H100_CACHE_OFF_CSV)],
+                      'values': meta_values})
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -695,10 +788,261 @@ def panel_edge_div_f1():
 
 
 # ═══════════════════════════════════════════════════════════════
+# B=64 batch-saturation grid + mask-cost decomposition (2026-10-23)
+# ═══════════════════════════════════════════════════════════════
+
+def panel_b64_saturation():
+    """Figure ``19_b64_saturation``: B=1 vs B=64 forward time and ratio.
+
+    Reads the B=64 grid (``full_bench_b64_h100_cache_on.csv``, header with
+    ``batch`` column, new method keys) and the B=1 v2 reference grid
+    (``full_bench_v2_h100_cache_on.csv``, old method keys), dist_cache=on,
+    L=1, error rows excluded.
+
+    Panel (a): forward time vs N (log-log) for DenseFlash, DenseMasked
+    (CachedDistAttention) and SparseMask K=16 at B=1 (dashed) and B=64
+    (solid).  SparseMask/``mask_knn`` uses K=16 in both grids.
+
+    Panel (b): dense_masked/dense_flash ratio vs N at B=1 and B=64 — the
+    masked-dense penalty grows from ~1.75x at B=1 (launch-bound regime) to
+    6.4x at N=512 and >11x at N>=2048 under saturation, and dense_masked
+    OOMs at B=64/N=8192 while SparseMask K=16 still runs at N=4096.
+
+    Returns the saved figure name for the html report list.
+    """
+    b64 = pd.read_csv(B64_CSV)
+    b64 = b64[b64['error'].isna() & (b64['L'] == 1) & (b64['batch'] == 64)].copy()
+    b64['N'] = b64['N'].astype(int)
+    v2 = pd.read_csv(H100_CSV)
+    v2 = v2[v2['error'].isna() & (v2['L'] == 1)].copy()
+    v2['N'] = v2['N'].astype(int)
+
+    # method name per grid: b64 uses the renamed keys, v2 the historical ones
+    series = [
+        # (label, colour, b64 method/key, v2 method/key, K)
+        ('DenseFlash', OI_BLACK, 'dense_flash', 'dense_flash', None),
+        ('DenseMasked (CachedDist)', OI_VERMILION, 'dense_masked', 'dense_masked', None),
+        ('SparseMask $K{=}16$', OI_SKYBLUE, 'sparse_mask', 'mask_knn', 16),
+    ]
+    fig, (ax_time, ax_ratio) = plt.subplots(1, 2, figsize=(8.4, 2.6))
+
+    meta_series = []
+    for label, colour, key_b64, key_v2, knn in series:
+        for df, batch, style in ((v2, 1, '--'), (b64, 64, '-')):
+            rows = df[df.method == (key_v2 if batch == 1 else key_b64)]
+            if knn is not None:
+                rows = rows[rows.K == knn]
+            rows = rows.groupby('N', as_index=False).time_ms.min().sort_values('N')
+            if rows.empty:
+                continue
+            ax_time.plot(rows.N, rows.time_ms, 'o' + style, ms=2.2, lw=0.9,
+                         color=colour, zorder=3)
+            meta_series.append({'series': label, 'batch': batch,
+                                'points': [{'N': int(row.N),
+                                            'time_ms': float(row.time_ms)}
+                                           for row in rows.itertuples()]})
+        # single legend entry per (label, batch) via dashed/solid proxy handles
+    handles = []
+    for label, colour, _, _, _ in series:
+        for batch, style in ((1, '--'), (64, '-')):
+            handles.append(mlines.Line2D([], [], color=colour, lw=0.9,
+                                         linestyle=style,
+                                         label=f'{label}, B={batch}'))
+    ax_time.set_xscale('log', base=2)
+    ax_time.set_yscale('log')
+    ax_time.set_xticks([128, 256, 512, 1024, 2048, 4096, 8192])
+    ax_time.get_xaxis().set_major_formatter(mticker.ScalarFormatter())
+    ax_time.get_xaxis().set_minor_formatter(mticker.NullFormatter())
+    ax_time.set_xlabel('Sequence length $N$')
+    ax_time.set_ylabel('Forward time (ms)')
+    ax_time.legend(handles=handles, fontsize=5.2, frameon=False, ncol=2)
+    ax_time.set_title('(a) Forward time: B=1 vs B=64', fontsize=8)
+
+    # ratio panel
+    for batch, df, key_dense, key_sparse, knn in (
+            (1, v2, 'dense_masked', 'mask_knn', 16),
+            (64, b64, 'dense_masked', 'sparse_mask', 16)):
+        ref = df[(df.method == key_dense)].groupby('N', as_index=False).time_ms.min().set_index('N')
+        rows = df[df.method == key_sparse]
+        if knn is not None:
+            rows = rows[rows.K == knn]
+        # dense-masked/dense-flash ratio (the reported architecture penalty)
+        ref_flash = df[(df.method == 'dense_flash')].groupby('N', as_index=False).time_ms.min().set_index('N')
+        ref = ref.join(ref_flash, rsuffix='_flash')
+        rows = rows.groupby('N', as_index=False).time_ms.min().sort_values('N')
+        pts = [(int(row.N), float(ref.loc[row.N, 'time_ms'] / ref.loc[row.N, 'time_ms_flash']))
+               for row in rows.itertuples() if row.N in ref.index]
+        if pts:
+            ax_ratio.plot([p[0] for p in pts], [p[1] for p in pts], 'o-',
+                          ms=2.2, lw=0.9, color=OI_VERMILION if batch == 1 else OI_BLACK,
+                          zorder=3, label=f'DenseMasked / DenseFlash, B={batch}')
+            meta_series.append({'series': 'dense_masked/dense_flash',
+                                'batch': batch,
+                                'points': [{'N': p[0], 'ratio': p[1]} for p in pts]})
+        # sparse-mask vs dense-flash ratio (production-relevant ranking)
+        pts_sm = [(int(row.N), float(row.time_ms / ref.loc[row.N, 'time_ms_flash']))
+                  for row in rows.itertuples() if row.N in ref.index]
+        if pts_sm:
+            ax_ratio.plot([p[0] for p in pts_sm], [p[1] for p in pts_sm], 'o-',
+                          ms=2.2, lw=0.9, color=OI_SKYBLUE,
+                          zorder=3, label=f'SparseMask $K{{=}}16$ / DenseFlash, B={batch}')
+            meta_series.append({'series': 'sparse_mask16/dense_flash',
+                                'batch': batch,
+                                'points': [{'N': p[0], 'ratio': p[1]} for p in pts_sm]})
+    ax_ratio.axhline(1.0, color='#999999', lw=0.8, linestyle='--', zorder=1)
+    ax_ratio.set_xscale('log', base=2)
+    ax_ratio.set_ylim(0, 16)
+    ax_ratio.set_xticks([128, 256, 512, 1024, 2048, 4096, 8192])
+    ax_ratio.get_xaxis().set_major_formatter(mticker.ScalarFormatter())
+    ax_ratio.get_xaxis().set_minor_formatter(mticker.NullFormatter())
+    ax_ratio.set_xlabel('Sequence length $N$')
+    ax_ratio.set_ylabel('Time ratio vs DenseFlash')
+    ax_ratio.legend(fontsize=5.2, frameon=False)
+    ax_ratio.set_title('(b) Ratio vs unmasked dense', fontsize=8)
+    fig.tight_layout()
+    write_meta_sidecar('19_b64_saturation', {
+        'sources': [str(B64_CSV), str(H100_CSV)],
+        'values': meta_series,
+    })
+    fig.savefig(FIGS / '19_b64_saturation.pdf')
+    fig.savefig(FIGS / '19_b64_saturation.svg')
+    plt.close(fig)
+    return '19_b64_saturation'
+
+
+def panel_mask_decomposition():
+    """Figure ``20_mask_decomposition``: where the masked-dense cost enters.
+
+    Reads ``cudnn_vs_fa2_mask_decomposition.csv`` (stages A-E, B=1, fp16,
+    d_model=320/n_head=8; kernel-level arms at d_head in {40, 64}).
+
+    Panel (a): stage C, the additive-mask construction of
+    CachedDistAttention._build_mask in isolation (v0/v1 decay, cache
+    on/off) — quadratic in N and caller-owned.
+
+    Panel (b): stage B/D/E kernel-level times at d_head=64 (both kernels
+    dispatchable): unmasked FA2 vs unmasked cuDNN (kernel-intrinsic
+    parity), cuDNN with the prebuilt float mask (carriage penalty),
+    mem-efficient with the same mask, and cuDNN with is_causal=True (no
+    NxN mask input at all).
+
+    Panel (c): stage E incremental peak memory — cuDNN causal (linear)
+    vs cuDNN with a prebuilt BOOL mask (the dispatcher materializes it to
+    float at O(N^2); 1032 MB at N=8192).
+
+    Returns the saved figure name for the html report list.
+    """
+    df = pd.read_csv(DECOMP_CSV)
+    fig, (ax_build, ax_kern, ax_mem) = plt.subplots(1, 3, figsize=(8.6, 2.6))
+
+    # (a) mask build isolation
+    build = df[(df.stage == 'C_mask_build_isolated')]
+    for (dm, dc), colour in ((('v1', 'on'), OI_VERMILION), (('v1', 'off'), OI_BLACK),
+                             (('v0', 'on'), OI_SKYBLUE), (('v0', 'off'), OI_PURPLE)):
+        rows = build[(build.dist_mode == dm) & (build.dist_cache == dc) &
+                     (build.d_head == 40)].sort_values('N')
+        if rows.empty:
+            continue
+        ax_build.plot(rows.N, rows.time_ms, 'o-', ms=2.0, lw=0.8, color=colour,
+                      zorder=3, label=f'$v_1$ decay, cache {dc}' if dm == 'v1'
+                      else f'$v_0$ decay, cache {dc}')
+    ax_build.set_xscale('log', base=2)
+    ax_build.set_yscale('log')
+    ax_build.set_xlabel('Sequence length $N$')
+    ax_build.set_ylabel('Mask build time (ms)')
+    ax_build.legend(fontsize=5.2, frameon=False)
+    ax_build.set_title('(a) Mask construction (stage C)', fontsize=8)
+
+    # (b) kernel-level times at d_head=64
+    kern = df[(df.d_head == 64)]
+    series_b = [
+        ('flash_nomask', 'FA2, no mask', OI_BLACK, 'B_kernel_intrinsic_nomask'),
+        ('cudnn_nomask', 'cuDNN, no mask', OI_VERMILION, 'B_kernel_intrinsic_nomask'),
+        ('cudnn_masked_prebuilt', 'cuDNN, prebuilt float mask', OI_ORANGE, 'D_mask_carriage'),
+        ('efficient_masked_prebuilt', 'cutlass, prebuilt float mask', OI_SKYBLUE, 'D_mask_carriage'),
+        ('cudnn_causal_procedural', 'cuDNN, causal (no mask input)', OI_PURPLE, 'E_causal_vs_mask_dtype'),
+    ]
+    for method, label, colour, stage in series_b:
+        rows = kern[(kern.stage == stage) & (kern.method == method) &
+                    kern.time_ms.notna() & (kern.time_ms > 0)].sort_values('N')
+        if rows.empty:
+            continue
+        ax_kern.plot(rows.N, rows.time_ms, 'o-', ms=2.0, lw=0.8, color=colour,
+                     zorder=3, label=label)
+    ax_kern.set_xscale('log', base=2)
+    ax_kern.set_yscale('log')
+    ax_kern.set_xlabel('Sequence length $N$')
+    ax_kern.set_ylabel('Forward time (ms)')
+    ax_kern.legend(fontsize=4.6, frameon=False)
+    ax_kern.set_title('(b) Kernel arms, $d_{head}=64$', fontsize=8)
+
+    # (c) memory: causal vs carried bool mask
+    mem = df[(df.stage == 'E_causal_vs_mask_dtype') & (df.d_head == 64)]
+    for method, label, colour in (
+            ('cudnn_causal_procedural', 'cuDNN causal (no mask input)', OI_PURPLE),
+            ('cudnn_bool_prebuilt', 'cuDNN, prebuilt bool mask', OI_ORANGE)):
+        rows = mem[(mem.method == method) & mem.mem_mb.notna() &
+                   (mem.mem_mb > 0)].sort_values('N')
+        if rows.empty:
+            continue
+        ax_mem.plot(rows.N, rows.mem_mb, 'o-', ms=2.0, lw=0.8, color=colour,
+                    zorder=3, label=label)
+    ax_mem.set_xscale('log', base=2)
+    ax_mem.set_yscale('log')
+    ax_mem.set_xlabel('Sequence length $N$')
+    ax_mem.set_ylabel('Incremental peak memory (MB)')
+    ax_mem.legend(fontsize=5.2, frameon=False)
+    ax_mem.set_title('(c) Mask dtype materialization', fontsize=8)
+
+    for ax in (ax_build, ax_kern, ax_mem):
+        ax.set_xticks([128, 256, 512, 1024, 2048, 4096, 8192])
+        ax.get_xaxis().set_major_formatter(mticker.ScalarFormatter())
+        ax.get_xaxis().set_minor_formatter(mticker.NullFormatter())
+        ax.tick_params(labelsize=6)
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.grid(axis='y', which='major', color='#cccccc', linewidth=0.5)
+        ax.set_axisbelow(True)
+    fig.tight_layout()
+
+    write_meta_sidecar('20_mask_decomposition', {
+        'sources': [str(DECOMP_CSV)],
+        'values': [
+            {'series': 'stage_C_mask_build_v1',
+             'points': [{'N': int(row.N), 'time_ms': float(row.time_ms)}
+                        for row in build[(build.dist_mode == 'v1') &
+                                         (build.dist_cache == 'on') &
+                                         (build.d_head == 40)].sort_values('N').itertuples()]},
+            {'series': 'stage_B_cudnn_nomask_d64',
+             'points': [{'N': int(row.N), 'time_ms': float(row.time_ms)}
+                        for row in kern[(kern.stage == 'B_kernel_intrinsic_nomask') &
+                                        (kern.method == 'cudnn_nomask')].sort_values('N').itertuples()]},
+            {'series': 'stage_D_cudnn_masked_prebuilt_d64',
+             'points': [{'N': int(row.N), 'time_ms': float(row.time_ms)}
+                        for row in kern[(kern.stage == 'D_mask_carriage') &
+                                        (kern.method == 'cudnn_masked_prebuilt')].sort_values('N').itertuples()]},
+            {'series': 'stage_E_cudnn_causal_d64',
+             'points': [{'N': int(row.N), 'time_ms': float(row.time_ms)}
+                        for row in kern[(kern.stage == 'E_causal_vs_mask_dtype') &
+                                        (kern.method == 'cudnn_causal_procedural')].sort_values('N').itertuples()]},
+            {'series': 'stage_E_cudnn_bool_prebuilt_mem_d64',
+             'points': [{'N': int(row.N), 'mem_mb': float(row.mem_mb)}
+                        for row in mem[(mem.method == 'cudnn_bool_prebuilt')].sort_values('N').itertuples()]},
+        ],
+    })
+    fig.savefig(FIGS / '20_mask_decomposition.pdf')
+    fig.savefig(FIGS / '20_mask_decomposition.svg')
+    plt.close(fig)
+    return '20_mask_decomposition'
+
+
+# ═══════════════════════════════════════════════════════════════
 # 9. Per-Epoch Training Time
 # ═══════════════════════════════════════════════════════════════
 def panel_per_epoch_time():
-    models = ['baseline', 'k4', 'k16', 'k32', 'k64']
+    # Ascending K with the dense baseline (dense = all neighbours) last: it is
+    # the right-hand limit of the K axis, matching the other K-sweep figures.
+    models = ['k4', 'k16', 'k32', 'k64', 'baseline']
     times = {'baseline': 1.63, 'k4': 1.62, 'k16': 1.63, 'k32': 1.64, 'k64': 1.64}
     fig, ax = plt.subplots(figsize=(7, 4.5))
     vals = [times[m] for m in models]
@@ -760,7 +1104,7 @@ def panel_profiler_breakdown():
             ('Copy/reshape', 210, AUX['copy_reshape']),
             ('QKV+out proj', 64, AUX['qkv_proj']),
         ]),
-        ('KNN Mask (scatter)', 97, [
+        ('SparseMask (scatter)', 97, [
             ('EfficientAttn', 36, AUX['efficient_attn']),
             ('QKV+out proj', 37, AUX['qkv_proj']),
             ('Mask fill', 13, AUX['mask_fill']),
@@ -820,32 +1164,68 @@ def panel_profiler_breakdown():
 # 13. SSL Pretraining: Negative Result
 # ═══════════════════════════════════════════════════════════════
 def panel_ssl_negative():
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(9, 4.5), gridspec_kw={'width_ratios': [1, 1.5]})
+    """SSL negative-result figure: loss and accuracy strictly on separate axes.
 
-    # LEFT: val_loss bar chart
-    methods = ['From scratch\n(10% labels)', 'SSL identity BCE\n+ finetune', 'Random baseline\n(NT-Xent)']
-    vals = [0.416, 0.404, 0.648]  # for contrastive: this is TRA not loss
-    colors_ssl = [OI_BLACK, OI_BLUE, '#999999']
-    labels_ssl = ['0.416', '0.404', '0.648 TRA\n(= random)']
-    bars = ax1.bar(range(len(methods)), vals, color=colors_ssl, width=0.5, edgecolor='white')
+    D-12 fix (owner decision 2026-10-08): the previous version mixed two
+    validation BCE losses with a downstream TRA value on ONE bar axis
+    (ylabel 'Val Loss (BCE) / TRA (Contrastive)'), so the direction of
+    "good" flipped between bars. Now: left = BCE losses only, right =
+    downstream TRA on an accuracy axis. The identity-BCE convergence
+    curves live in panel_ssl_convergence (appendix figure 17), per the
+    owner decision to move the loss-decay graph to the appendix.
+    TRA values are the frozen-embedding + Hungarian label-sweep proxy
+    results reported in evaluation §3.6 (NT-Xent 0.651 vs random 0.648).
+    """
+    fig, (ax1, ax2) = plt.subplots(
+        1, 2, figsize=(7.5, 4.2), gridspec_kw={'width_ratios': [1, 0.8]})
+
+    # LEFT: fine-tune comparison — validation BCE loss only (lower = better).
+    methods = ['From scratch\n(10% labels)', 'SSL identity BCE\n+ finetune']
+    vals = [0.416, 0.404]
+    bars = ax1.bar(range(len(methods)), vals, color=[OI_BLACK, OI_BLUE],
+                   width=0.5, edgecolor='white')
     for bar, v in zip(bars, vals):
         ax1.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.005,
-                f'{v:.3f}', ha='center', va='bottom', fontsize=9)
+                 f'{v:.3f}', ha='center', va='bottom', fontsize=9)
     ax1.set_xticks(range(len(methods)))
     ax1.set_xticklabels(methods, fontsize=8)
-    ax1.set_ylabel('Val Loss (BCE) / TRA (Contrastive)')
+    ax1.set_ylabel('Validation BCE loss')
 
-    # RIGHT: identity BCE pretraining convergence (5 epochs)
-    df_ssl = pd.read_csv(ROOT / 'benchmark_ssl' / 'results' / 'runs' / 'ssl_v1' / 'training_log.csv')
-    ax2.plot(df_ssl.epoch, df_ssl.train_loss, 'o-', label='Train loss', color=OI_BLUE, linewidth=2)
-    ax2.plot(df_ssl.epoch, df_ssl.val_loss, 's-', label='Val loss', color=OI_VERMILION, linewidth=2)
-    ax2.axhline(y=0.416, color='#999999', linestyle='--', alpha=0.5, label='Baseline final (0.416)')
-    ax2.set_xlabel('SSL Pretraining Epoch')
-    ax2.set_ylabel('BCE Loss')
-    ax2.legend(fontsize=8)
+    # RIGHT: NT-Xent downstream accuracy — own axis, same unit for both bars.
+    tra_labels = ['NT-Xent\n(frozen + proxy)', 'Random\nbaseline']
+    tra_vals = [0.651, 0.648]
+    bars = ax2.bar(range(len(tra_labels)), tra_vals,
+                   color=[OI_VERMILION, '#999999'], width=0.5, edgecolor='white')
+    for bar, v in zip(bars, tra_vals):
+        ax2.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.01,
+                 f'{v:.3f}', ha='center', va='bottom', fontsize=9)
+    ax2.set_xticks(range(len(tra_labels)))
+    ax2.set_xticklabels(tra_labels, fontsize=8)
+    ax2.set_ylabel('TRA (frozen-embedding proxy)')
 
     fig.tight_layout()
     return save('13_ssl_negative')
+
+
+def panel_ssl_convergence():
+    """Appendix figure: identity-BCE pretraining convergence curves.
+
+    Split off from panel_ssl_negative per the owner decision to move the
+    loss-decay graph to the appendix (D-12a/D-13). Reads the identity-BCE
+    training log (ssl_v1/training_log.csv); the dashed line marks the
+    from-scratch baseline's final validation loss (0.416) that the
+    fine-tuned SSL model marginally undercuts (0.404).
+    """
+    fig, ax = plt.subplots(figsize=(7, 4.2))
+    df_ssl = pd.read_csv(ROOT / 'benchmark_ssl' / 'results' / 'runs' / 'ssl_v1' / 'training_log.csv')
+    ax.plot(df_ssl.epoch, df_ssl.train_loss, 'o-', label='Train loss', color=OI_BLUE, linewidth=2)
+    ax.plot(df_ssl.epoch, df_ssl.val_loss, 's-', label='Val loss', color=OI_VERMILION, linewidth=2)
+    ax.axhline(y=0.416, color='#999999', linestyle='--', alpha=0.5, label='Baseline final (0.416)')
+    ax.set_xlabel('Identity-BCE pretraining epoch')
+    ax.set_ylabel('BCE loss')
+    ax.legend(fontsize=8)
+    fig.tight_layout()
+    return save('17_ssl_convergence')
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -936,7 +1316,7 @@ Two bottlenecks: (1) q_len=1 shape forces 2048 independent FlashAttention kernel
             'fig': '03_mask_vs_gather.svg',
             'text': '''
 <p>KNN mask via scatter (building an N×N mask with KNN structure and using EfficientAttention)
-is 7.9× faster than gather at N=256. Dense FlashAttention remains 1.3× faster than mask_knn.</p>
+is 7.9× faster than gather at N=256. DenseFlash remains 1.3× faster than SparseMask.</p>
             '''
         },
         {
@@ -1108,6 +1488,9 @@ if __name__ == '__main__':
     figs.append(panel_small_n())
     figs.append(panel_mask_vs_gather())
     figs.append(panel_memory_vs_n())
+    figs.append(panel_dist_cache_effect())
+    figs.append(panel_b64_saturation())
+    figs.append(panel_mask_decomposition())
     figs.append(panel_convergence())
     figs.append(panel_tra())
     figs.append(panel_aogm())
@@ -1116,6 +1499,7 @@ if __name__ == '__main__':
     figs.append(panel_speedup_heatmap())
     figs.append(panel_profiler_breakdown())
     figs.append(panel_ssl_negative())
+    figs.append(panel_ssl_convergence())
     figs.append(panel_layer_scaling())
     print(f'\n{len(figs)} figures generated in {FIGS}')
     print('Generating report.html...')

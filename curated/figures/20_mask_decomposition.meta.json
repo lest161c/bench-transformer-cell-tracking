@@ -1,0 +1,175 @@
+{
+  "figure": "20_mask_decomposition",
+  "created_utc": "2026-10-23T14:59:03.973514+00:00",
+  "generator": "curated/generate_report.py",
+  "sources": [
+    "/home/leonard.starke@mediainterface.de/Dokumente/Uni/research-proj/benchmark_attn/results/cudnn_vs_fa2_mask_decomposition.csv"
+  ],
+  "values": [
+    {
+      "series": "stage_C_mask_build_v1",
+      "points": [
+        {
+          "N": 128,
+          "time_ms": 0.053
+        },
+        {
+          "N": 256,
+          "time_ms": 0.053
+        },
+        {
+          "N": 512,
+          "time_ms": 0.054
+        },
+        {
+          "N": 1024,
+          "time_ms": 0.059
+        },
+        {
+          "N": 2048,
+          "time_ms": 0.26
+        },
+        {
+          "N": 4096,
+          "time_ms": 1.105
+        },
+        {
+          "N": 8192,
+          "time_ms": 4.406
+        }
+      ]
+    },
+    {
+      "series": "stage_B_cudnn_nomask_d64",
+      "points": [
+        {
+          "N": 128,
+          "time_ms": 0.032
+        },
+        {
+          "N": 256,
+          "time_ms": 0.032
+        },
+        {
+          "N": 512,
+          "time_ms": 0.031
+        },
+        {
+          "N": 1024,
+          "time_ms": 0.032
+        },
+        {
+          "N": 2048,
+          "time_ms": 0.031
+        },
+        {
+          "N": 4096,
+          "time_ms": 0.079
+        },
+        {
+          "N": 8192,
+          "time_ms": 0.308
+        }
+      ]
+    },
+    {
+      "series": "stage_D_cudnn_masked_prebuilt_d64",
+      "points": [
+        {
+          "N": 128,
+          "time_ms": 0.034
+        },
+        {
+          "N": 256,
+          "time_ms": 0.033
+        },
+        {
+          "N": 512,
+          "time_ms": 0.034
+        },
+        {
+          "N": 1024,
+          "time_ms": 0.033
+        },
+        {
+          "N": 2048,
+          "time_ms": 0.052
+        },
+        {
+          "N": 4096,
+          "time_ms": 0.178
+        },
+        {
+          "N": 8192,
+          "time_ms": 0.657
+        }
+      ]
+    },
+    {
+      "series": "stage_E_cudnn_causal_d64",
+      "points": [
+        {
+          "N": 128,
+          "time_ms": 0.032
+        },
+        {
+          "N": 256,
+          "time_ms": 0.036
+        },
+        {
+          "N": 512,
+          "time_ms": 0.032
+        },
+        {
+          "N": 1024,
+          "time_ms": 0.035
+        },
+        {
+          "N": 2048,
+          "time_ms": 0.032
+        },
+        {
+          "N": 4096,
+          "time_ms": 0.071
+        },
+        {
+          "N": 8192,
+          "time_ms": 0.199
+        }
+      ]
+    },
+    {
+      "series": "stage_E_cudnn_bool_prebuilt_mem_d64",
+      "points": [
+        {
+          "N": 128,
+          "mem_mb": 0.4
+        },
+        {
+          "N": 256,
+          "mem_mb": 1.3
+        },
+        {
+          "N": 512,
+          "mem_mb": 4.5
+        },
+        {
+          "N": 1024,
+          "mem_mb": 17.0
+        },
+        {
+          "N": 2048,
+          "mem_mb": 66.0
+        },
+        {
+          "N": 4096,
+          "mem_mb": 260.0
+        },
+        {
+          "N": 8192,
+          "mem_mb": 1032.0
+        }
+      ]
+    }
+  ]
+}

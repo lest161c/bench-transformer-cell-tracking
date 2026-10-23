@@ -1,0 +1,335 @@
+{
+  "figure": "19_b64_saturation",
+  "created_utc": "2026-10-23T14:58:27.032634+00:00",
+  "generator": "curated/generate_report.py",
+  "sources": [
+    "/home/leonard.starke@mediainterface.de/Dokumente/Uni/research-proj/benchmark_attn/results/full_bench_b64_h100_cache_on.csv",
+    "/home/leonard.starke@mediainterface.de/Dokumente/Uni/research-proj/benchmark_attn/results/full_bench_v2_h100_cache_on.csv"
+  ],
+  "values": [
+    {
+      "series": "DenseFlash",
+      "batch": 1,
+      "points": [
+        {
+          "N": 128,
+          "time_ms": 0.139
+        },
+        {
+          "N": 256,
+          "time_ms": 0.14
+        },
+        {
+          "N": 512,
+          "time_ms": 0.141
+        },
+        {
+          "N": 1024,
+          "time_ms": 0.142
+        },
+        {
+          "N": 2048,
+          "time_ms": 0.138
+        },
+        {
+          "N": 4096,
+          "time_ms": 0.139
+        },
+        {
+          "N": 8192,
+          "time_ms": 0.354
+        }
+      ]
+    },
+    {
+      "series": "DenseFlash",
+      "batch": 64,
+      "points": [
+        {
+          "N": 128,
+          "time_ms": 0.153
+        },
+        {
+          "N": 256,
+          "time_ms": 0.155
+        },
+        {
+          "N": 512,
+          "time_ms": 0.218
+        },
+        {
+          "N": 1024,
+          "time_ms": 0.551
+        },
+        {
+          "N": 2048,
+          "time_ms": 1.753
+        },
+        {
+          "N": 4096,
+          "time_ms": 5.951
+        },
+        {
+          "N": 8192,
+          "time_ms": 21.918
+        }
+      ]
+    },
+    {
+      "series": "DenseMasked (CachedDist)",
+      "batch": 1,
+      "points": [
+        {
+          "N": 128,
+          "time_ms": 0.245
+        },
+        {
+          "N": 256,
+          "time_ms": 0.245
+        },
+        {
+          "N": 512,
+          "time_ms": 0.246
+        },
+        {
+          "N": 1024,
+          "time_ms": 0.247
+        },
+        {
+          "N": 2048,
+          "time_ms": 0.338
+        },
+        {
+          "N": 4096,
+          "time_ms": 1.307
+        },
+        {
+          "N": 8192,
+          "time_ms": 5.109
+        }
+      ]
+    },
+    {
+      "series": "DenseMasked (CachedDist)",
+      "batch": 64,
+      "points": [
+        {
+          "N": 128,
+          "time_ms": 0.255
+        },
+        {
+          "N": 256,
+          "time_ms": 0.425
+        },
+        {
+          "N": 512,
+          "time_ms": 1.406
+        },
+        {
+          "N": 1024,
+          "time_ms": 5.212
+        },
+        {
+          "N": 2048,
+          "time_ms": 20.085
+        },
+        {
+          "N": 4096,
+          "time_ms": 83.245
+        }
+      ]
+    },
+    {
+      "series": "SparseMask $K{=}16$",
+      "batch": 1,
+      "points": [
+        {
+          "N": 128,
+          "time_ms": 0.186
+        },
+        {
+          "N": 256,
+          "time_ms": 0.187
+        },
+        {
+          "N": 512,
+          "time_ms": 0.187
+        },
+        {
+          "N": 1024,
+          "time_ms": 0.189
+        },
+        {
+          "N": 2048,
+          "time_ms": 0.188
+        },
+        {
+          "N": 4096,
+          "time_ms": 0.373
+        },
+        {
+          "N": 8192,
+          "time_ms": 1.258
+        }
+      ]
+    },
+    {
+      "series": "SparseMask $K{=}16$",
+      "batch": 64,
+      "points": [
+        {
+          "N": 128,
+          "time_ms": 0.196
+        },
+        {
+          "N": 256,
+          "time_ms": 0.222
+        },
+        {
+          "N": 512,
+          "time_ms": 0.611
+        },
+        {
+          "N": 1024,
+          "time_ms": 1.922
+        },
+        {
+          "N": 2048,
+          "time_ms": 6.334
+        },
+        {
+          "N": 4096,
+          "time_ms": 21.699
+        }
+      ]
+    },
+    {
+      "series": "dense_masked/dense_flash",
+      "batch": 1,
+      "points": [
+        {
+          "N": 128,
+          "ratio": 1.7625899280575537
+        },
+        {
+          "N": 256,
+          "ratio": 1.7499999999999998
+        },
+        {
+          "N": 512,
+          "ratio": 1.7446808510638299
+        },
+        {
+          "N": 1024,
+          "ratio": 1.73943661971831
+        },
+        {
+          "N": 2048,
+          "ratio": 2.4492753623188404
+        },
+        {
+          "N": 4096,
+          "ratio": 9.402877697841726
+        },
+        {
+          "N": 8192,
+          "ratio": 14.432203389830509
+        }
+      ]
+    },
+    {
+      "series": "sparse_mask16/dense_flash",
+      "batch": 1,
+      "points": [
+        {
+          "N": 128,
+          "ratio": 1.3381294964028776
+        },
+        {
+          "N": 256,
+          "ratio": 1.3357142857142856
+        },
+        {
+          "N": 512,
+          "ratio": 1.326241134751773
+        },
+        {
+          "N": 1024,
+          "ratio": 1.330985915492958
+        },
+        {
+          "N": 2048,
+          "ratio": 1.36231884057971
+        },
+        {
+          "N": 4096,
+          "ratio": 2.6834532374100717
+        },
+        {
+          "N": 8192,
+          "ratio": 3.553672316384181
+        }
+      ]
+    },
+    {
+      "series": "dense_masked/dense_flash",
+      "batch": 64,
+      "points": [
+        {
+          "N": 128,
+          "ratio": 1.6666666666666667
+        },
+        {
+          "N": 256,
+          "ratio": 2.7419354838709675
+        },
+        {
+          "N": 512,
+          "ratio": 6.4495412844036695
+        },
+        {
+          "N": 1024,
+          "ratio": 9.459165154264971
+        },
+        {
+          "N": 2048,
+          "ratio": 11.45750142612664
+        },
+        {
+          "N": 4096,
+          "ratio": 13.98840531003193
+        }
+      ]
+    },
+    {
+      "series": "sparse_mask16/dense_flash",
+      "batch": 64,
+      "points": [
+        {
+          "N": 128,
+          "ratio": 1.281045751633987
+        },
+        {
+          "N": 256,
+          "ratio": 1.4322580645161291
+        },
+        {
+          "N": 512,
+          "ratio": 2.8027522935779814
+        },
+        {
+          "N": 1024,
+          "ratio": 3.4882032667876586
+        },
+        {
+          "N": 2048,
+          "ratio": 3.6132344552196236
+        },
+        {
+          "N": 4096,
+          "ratio": 3.646277936481264
+        }
+      ]
+    }
+  ]
+}
