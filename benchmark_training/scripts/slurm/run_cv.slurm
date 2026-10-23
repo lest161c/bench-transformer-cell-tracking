@@ -1,8 +1,10 @@
 #!/bin/bash
-#SBATCH --job-name=cv_masked_dflash
+#SBATCH --job-name=cv500_masked_dflash
 #SBATCH --account=p_scads_celltracking
 #SBATCH --partition=capella
-#SBATCH --time=12:00:00
+# 500-epoch tasks estimated at 21-31 h (100-epoch tasks measured 4.3-6.3 h,
+# jobs 4428930/4429851); 40 h gives headroom. normal QOS MaxWall is 7 days.
+#SBATCH --time=40:00:00
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:1
 # Cluster QOS rejects --gpus-per-node submissions with QOSMinGRES (verified live 2026-09-24).
@@ -13,6 +15,15 @@
 #SBATCH --array=0-11
 #
 # Proper CV experiment: 6-fold leave-one-condition-out × 2 configs
+#
+# 500-epoch config-matched re-run (2026-10): the previously published CV
+# ablation (tab:cv_results) trained at 100 epochs, so its absolute AOGM/TRA
+# are not comparable to the 500-epoch baseline regime (optimal_train and the
+# K-sweep, run_vanilla_train.slurm / run_knn_sweep.slurm). This campaign
+# raises the CV arms to the baseline's 500 epochs; the LOCO train-set size
+# (5 of 6 conditions) and in-sample validation (val == train) are kept,
+# because they are inherent to the disclosed CV protocol and shared by both
+# arms, so the paired DenseFlash-vs-CachedDistAttention comparison stays fair.
 #
 # The confound in the dense_flash vs baseline comparison was:
 #   - baseline: window=4, knn_neighbors=-1, dropout=0.05
@@ -36,14 +47,21 @@
 #     ablation is fair; but validation/best-checkpoint choice is not independent
 #     of training data. This differs from the K-sweep (which validates on 3
 #     conditions) and must be disclosed with the table.
-#   * Single seed (--seed 42). The 6-fold CV therefore CANNOT quantify training
-#     stochasticity; the reported ± is across-condition spread, not seed noise.
-#   * Cost ≈ 76.6 GPU-h (median 6 h 20 m/run; ~6.5–8.7 h wall at 12 concurrent
-#     H100s), within the 12 h limit.
+#   * Seed is set per array campaign via --export=CV_SEED (42 and 43 to match
+#     the two-seed structure of tab:cv_results). Each seed's 6-fold CV alone
+#     CANNOT quantify training stochasticity; the reported ± is
+#     across-condition spread, not seed noise.
+#   * Cost ≈ 312 GPU-h per seed at 500 epochs (median ~26 h/task; ~31 h wall at
+#     12 concurrent H100s), within the 40 h limit.
 #
 # ─── Usage ──────────────────────────────────────────────────────────
 #
-#   sbatch scripts/slurm/run_cv.slurm
+#   sbatch --export=CV_SEED=42 scripts/slurm/run_cv.slurm
+#   sbatch --export=CV_SEED=43 scripts/slurm/run_cv.slurm
+#
+# Both seed arrays may run concurrently (24 tasks / 24 H100s, well under the
+# normal-QOS 284-GPU user cap): cache dirs and run names are seed-suffixed,
+# so no state is shared between the arrays.
 #
 # -----------------------------------------------------------------------
 
@@ -54,6 +72,9 @@ DATA_DIR="${DATA_DIR}/vanvliet"
 
 # Vanvliet conditions (6 datasets)
 CONDITIONS=(rpsM recA pheA metA cib trpL)
+
+# Seed of this array campaign (default preserves the historical seed 42).
+SEED="${CV_SEED:-42}"
 
 # Determine config and fold from array task ID
 if [ "$SLURM_ARRAY_TASK_ID" -lt 6 ]; then
@@ -86,10 +107,11 @@ if [ "$CONFIG" = "dense_flash" ]; then
     fi
 fi
 
-# Per-task cache directory: 12 concurrent array tasks must NOT share the
+# Per-task cache directory: concurrent array tasks must NOT share the
 # default $TRK/.cache (concurrent-write corruption). Mirrors
 # run_knn_sweep.slurm's per-task --cachedir; removed after the run.
-CACHE_DIR=".cache_cv_${CONFIG}_fold${FOLD}"
+# Seed-suffixed so the seed-42 and seed-43 arrays can run concurrently.
+CACHE_DIR=".cache_cv_${CONFIG}_fold${FOLD}_s${SEED}"
 # Always drop this task's cache on exit (avoids ~76 GB of duplicate caches).
 # Runs in $TRK (cd below); CACHE_DIR is relative to it.
 trap 'rm -rf "$CACHE_DIR" 2>/dev/null' EXIT
@@ -122,11 +144,12 @@ export CV_HELDOUT="$HELDOUT_COND"
 export CV_TRAIN_CONDS="${TRAIN_CONDS[*]}"
 export CV_TEST_PATH="$TEST_PATH"
 
-echo "=== Proper CV: $CONFIG ==="
+echo "=== Proper CV (500 epochs): $CONFIG ==="
 echo "  Fold:          $FOLD"
 echo "  Held-out:      $HELDOUT_COND"
 echo "  Train conds:   ${TRAIN_CONDS[*]}"
 echo "  knn_neighbors: $KNN_NEIGHBORS"
+echo "  Seed:          $SEED"
 echo "  Array task:    $SLURM_ARRAY_TASK_ID"
 echo "  Node:          ${SLURM_NODELIST}"
 echo "  Started:       $(date)"
@@ -180,11 +203,11 @@ fi
 # Train on 5 conditions, with held-out condition excluded
 # Both configs use identical hyperparams except knn_neighbors
 
-RUN_NAME="cv_${CONFIG}_fold${FOLD}_${HELDOUT_COND}"
+RUN_NAME="cv500_${CONFIG}_fold${FOLD}_${HELDOUT_COND}_s${SEED}"
 
 $PY scripts/train.py \
     --name "$RUN_NAME" \
-    --ndim 2 --window 4 --epochs 100 --warmup_epochs 5 \
+    --ndim 2 --window 4 --epochs 500 --warmup_epochs 5 \
     --detection_folders TRA \
     --input_train "${TRAIN_PATHS[@]}" \
     --input_val "${TRAIN_PATHS[@]}" \
@@ -198,7 +221,7 @@ $PY scripts/train.py \
     --attn_positional_bias rope --spatial_pos_cutoff 256 \
     --delta_cutoff 2 \
     --knn_neighbors $KNN_NEIGHBORS \
-    --mixedp True --num_workers 14 --seed 42 --augment 3
+    --mixedp True --num_workers 14 --seed $SEED --augment 3
 
 EXIT_CODE=$?
 echo ""
