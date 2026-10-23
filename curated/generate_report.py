@@ -194,7 +194,10 @@ def panel_speed_vs_n():
 # ═══════════════════════════════════════════════════════════════
 H100_CSV = ROOT / 'benchmark_attn' / 'results' / 'full_bench_v2_h100_cache_on.csv'
 B64_CSV = ROOT / 'benchmark_attn' / 'results' / 'full_bench_b64_h100_cache_on.csv'
-B64_CSV_OFF = ROOT / 'benchmark_attn' / 'results' / 'full_bench_b64_h100_cache_off.csv'
+B64_CACHE_OFF_CSV = ROOT / 'benchmark_attn' / 'results' / 'full_bench_b64_h100_cache_off.csv'
+# Alias retained for panel_b64_saturation (figure 19), which is out of scope
+# for the cache-off-continuation change.
+B64_CSV_OFF = B64_CACHE_OFF_CSV
 DECOMP_CSV = ROOT / 'benchmark_attn' / 'results' / 'cudnn_vs_fa2_mask_decomposition.csv'
 H100_CACHE_OFF_CSV = ROOT / 'benchmark_attn' / 'results' / 'full_bench_v2_h100_cache_off.csv'
 
@@ -220,6 +223,50 @@ def _h100_series(df, method, k=None):
     if k is not None:
         rows = rows[rows.K == k]
     return rows.groupby('N', as_index=False).time_ms.min().sort_values('N')
+
+
+def _b64_pooled_frame():
+    """The B=64 grid with cache-regime-independent rows pooled.
+
+    The cache regime is part of the measurement for every method whose
+    ``dist_cache`` column is ``on``/``off``; those rows come from the
+    cache-on run only. Rows with ``dist_cache == 'na'`` (dense_flash,
+    flex_attn) are regime-independent, so the two b64 runs are pooled for
+    them with ok-row preference: the cache-on run recorded allocator-state
+    OOMs at N >= 16384 that the cache-off run measured (dense_flash
+    79.0/320.5 ms, flex 264.7/1101.7 ms at 16384/32768), which is what
+    carries those curves to the top of the x-range.
+
+    Returns:
+        DataFrame with columns as in the b64 CSV (L=1, batch=64 rows only).
+    """
+    on = pd.read_csv(B64_CSV)
+    off = pd.read_csv(B64_CSV_OFF)
+    pooled = pd.concat([on, off])
+    pooled = pooled[(pooled['error'].isna()) & (pooled['dist_cache'] == 'na')]
+    pooled = pooled.groupby(['method', 'K', 'N', 'L', 'batch'],
+                            as_index=False).agg(time_ms=('time_ms', 'min'),
+                                                memory_mb=('memory_mb', 'max'))
+    frame = pd.concat([
+        on[on['error'].isna() & (on['dist_cache'] != 'na')],
+        pooled,
+    ])
+    frame = frame[frame['L'] == 1].copy()
+    frame['N'] = frame['N'].astype(int)
+    return frame
+
+
+def _h100_backend_label(df, method, k=None):
+    """Comma-joined dispatched backend labels for one method/K series.
+
+    Read from the CSV ``backend`` column so the figure sidecar records the
+    kernel family that actually ran (e.g. ``matmul_cublas`` for the B=64
+    SparseGather arm) rather than a label inferred from the method name.
+    """
+    rows = df[df.method == method]
+    if k is not None:
+        rows = rows[rows.K == k]
+    return ', '.join(sorted(rows['backend'].dropna().unique()))
 
 
 def _h100_band(df, method, k_low=4, k_high=64):
@@ -364,8 +411,9 @@ def panel_speed_vs_n_h100():
     """
     Two report figures from the VERIFIED H100 v2 grid (SPEC 0022 jobs
     4375584 + 4377261; dist_cache=on; backend labels probe-verified,
-    stray-transpose bug fixed) and the B=64 saturation grid
-    (``full_bench_b64_h100_cache_on.csv``, dist_cache=on). Error rows —
+    stray-transpose bug fixed), the B=64 saturation grid
+    (``full_bench_b64_h100_cache_on.csv``, dist_cache=on), and the B=64
+    cache-off run (``full_bench_b64_h100_cache_off.csv``). Error rows —
     including OOM and CUDA launch-configuration failures — are excluded
     before plotting, so each curve is a gap-free run of successful
     measurements and ends where a configuration fails.
@@ -373,10 +421,14 @@ def panel_speed_vs_n_h100():
     Body figure ``01_speed_vs_n_h100.pdf`` — single panel, five series
     (SPEC 0026 T1): dense_flash (K=0), dense_masked (K=0), mask_knn
     (K=16), gather_sdpa (K=16), flex_attn (K=0), each drawn at B=1
-    (dashed, v2 grid, N up to 8192) and B=64 (solid, B=64 grid, x-axis up
-    to 32768). The B=64 grid renames mask_knn→sparse_mask and
-    gather_sdpa→sparse_gather_sdpa; the colour per method is unchanged.
-    Log-log axes (time_ms vs N).
+    (dashed, v2 grid, N up to 8192) and B=64 (solid, B=64 cache-on grid,
+    x-axis up to 32768). The B=64 grid renames mask_knn→sparse_mask;
+    SparseGather at B=64 uses ``sparse_gather_matmul`` K=16 because the
+    SDPA arm errors at N>=1024. DenseFlash and FlexAttention have cache-on
+    rows only to N=8192 (cache-on OOMs above that), so their B=64 curves
+    continue from the cache-off 8192 point with a thinner dotted line and
+    open markers to N=32768; no cache-off points are used for the masked
+    or gathered series. Log-log axes (time_ms vs N).
 
     Okabe–Ito slot assignment (vis_guidelines §1; colourblind-safe,
     print-safe, one hue per series):
@@ -406,27 +458,19 @@ def panel_speed_vs_n_h100():
     df['N'] = df['N'].astype(int)
 
     df_b64_on = pd.read_csv(B64_CSV)
-    df_b64_off = pd.read_csv(B64_CSV_OFF)
-    # The cache regime is part of the measurement for every method whose
-    # dist_cache column is 'on'/'off'; those rows are taken from the
-    # cache-on run only. Rows with dist_cache == 'na' (dense_flash,
-    # flex_attn) are regime-independent, so the two runs are pooled for
-    # them with ok-row preference: the cache-on run recorded
-    # allocator-state OOMs at N >= 16384 that the cache-off run measured
-    # (dense_flash 79.0/320.5 ms, flex 264.7/1101.7 ms at 16384/32768),
-    # which is what carries these two curves to the top of the x-range.
-    pooled_na = pd.concat([df_b64_on, df_b64_off])
-    pooled_na = pooled_na[(pooled_na['error'].isna()) &
-                          (pooled_na['dist_cache'] == 'na')]
-    pooled_na = pooled_na.groupby(['method', 'K', 'N', 'L', 'batch'],
-                                  as_index=False).time_ms.min()
-    df_b64 = pd.concat([
-        df_b64_on[df_b64_on['error'].isna() &
-                  (df_b64_on['dist_cache'] != 'na')],
-        pooled_na,
-    ])
-    df_b64 = df_b64[df_b64['L'] == 1].copy()
-    df_b64['N'] = df_b64['N'].astype(int)
+    df_b64_on = df_b64_on[df_b64_on['error'].isna() &
+                          (df_b64_on['L'] == 1)].copy()
+    df_b64_on['N'] = df_b64_on['N'].astype(int)
+
+    # The cache-off run is used only as a continuation for the two methods
+    # whose rows are regime-independent (dist_cache == 'na'): the cache-on
+    # run OOMs at N >= 16384, while cache-off measured dense_flash
+    # 79.0/320.5 ms and flex_attn 264.7/1101.0 ms at 16384/32768. Masked
+    # and gathered series stay on their cache-on rows.
+    df_b64_off = pd.read_csv(B64_CACHE_OFF_CSV)
+    df_b64_off = df_b64_off[df_b64_off['error'].isna() &
+                            (df_b64_off['L'] == 1)].copy()
+    df_b64_off['N'] = df_b64_off['N'].astype(int)
 
     series_specs = [
         ('dense_flash',  0, OI_BLACK),
@@ -436,31 +480,72 @@ def panel_speed_vs_n_h100():
         ('flex_attn',    0, OI_PURPLE),
     ]
     # The B=64 campaign uses the renamed method keys for the KNN variants.
+    # SparseGather switches to the matmul backend: the SDPA arm errors for
+    # N >= 1024 (B*N exceeds the CUDA grid-dimension limit).
     b64_methods = {
         'dense_flash':  'dense_flash',
         'dense_masked': 'dense_masked',
         'mask_knn':     'sparse_mask',
-        'gather_sdpa':  'sparse_gather_sdpa',
+        'gather_sdpa':  'sparse_gather_matmul',
         'flex_attn':    'flex_attn',
     }
+    cache_off_continuation = {'dense_flash', 'flex_attn'}
 
     fig, ax_ranking = plt.subplots(figsize=(5.6, 2.4))
     method_handles = []
     meta_values = []
     for method, k, colour in series_specs:
         series_name = method if k == 0 else f'{method}_K{k}'
-        for batch, source_df, source_method, linestyle in (
-                (1, df, method, '--'),
-                (64, df_b64, b64_methods[method], '-')):
-            group = _h100_series(source_df, source_method, k)
-            ax_ranking.plot(group.N, group.time_ms, 'o' + linestyle,
-                            ms=2.2, lw=0.8, color=colour, zorder=3)
+
+        # B=1 reference (v2 grid, cache on).
+        group_b1 = _h100_series(df, method, k)
+        ax_ranking.plot(group_b1.N, group_b1.time_ms, 'o--',
+                        ms=2.2, lw=0.8, color=colour, zorder=3)
+        meta_values.append({
+            'series': series_name,
+            'batch': 1,
+            'source': 'cache_on',
+            'method': method,
+            'backend': _h100_backend_label(df, method, k),
+            'points': [{'N': int(row.N), 'time_ms': float(row.time_ms)}
+                       for row in group_b1.itertuples()],
+        })
+
+        # B=64 solid curve from the cache-on run.
+        b64_method = b64_methods[method]
+        group_b64 = _h100_series(df_b64_on, b64_method, k)
+        ax_ranking.plot(group_b64.N, group_b64.time_ms, 'o-',
+                        ms=2.2, lw=0.8, color=colour, zorder=3)
+        meta_values.append({
+            'series': series_name,
+            'batch': 64,
+            'source': 'cache_on',
+            'method': b64_method,
+            'backend': _h100_backend_label(df_b64_on, b64_method, k),
+            'points': [{'N': int(row.N), 'time_ms': float(row.time_ms)}
+                       for row in group_b64.itertuples()],
+        })
+
+        # DenseFlash/FlexAttention continue past the cache-on OOM with the
+        # cache-off measurement, starting at the shared N=8192 point so the
+        # dotted line visibly joins the solid curve.
+        if method in cache_off_continuation:
+            continuation = _h100_series(df_b64_off, b64_method, k)
+            continuation = continuation[continuation.N >= 8192]
+            ax_ranking.plot(continuation.N, continuation.time_ms,
+                            linestyle=':', marker='o', ms=2.2, lw=0.65,
+                            markerfacecolor='none', markeredgewidth=0.6,
+                            color=colour, zorder=3)
             meta_values.append({
                 'series': series_name,
-                'batch': batch,
+                'batch': 64,
+                'source': 'cache_off',
+                'method': b64_method,
+                'backend': _h100_backend_label(df_b64_off, b64_method, k),
                 'points': [{'N': int(row.N), 'time_ms': float(row.time_ms)}
-                           for row in group.itertuples()],
+                           for row in continuation.itertuples()],
             })
+
         method_handles.append(mlines.Line2D(
             [], [], color=colour, lw=0.8, marker='o', ms=2.2,
             label=H100_LABELS[method]))
@@ -490,7 +575,7 @@ def panel_speed_vs_n_h100():
     fig.tight_layout()
 
     body_meta = {
-        'sources': [str(H100_CSV), str(B64_CSV)],
+        'sources': [str(H100_CSV), str(B64_CSV), str(B64_CACHE_OFF_CSV)],
         'values': meta_values,
     }
     save('01_speed_vs_n_h100', body_meta)
@@ -619,65 +704,136 @@ def panel_mask_vs_gather():
 # ═══════════════════════════════════════════════════════════════
 # 4. Memory vs Sequence Length
 # ═══════════════════════════════════════════════════════════════
+def _project_memory(ns, mems, model, n_to=32768, n_points=10):
+    """Fit memory(N) on measured points and project it to ``n_to``.
+
+    Args:
+        ns: Measured sequence lengths (sorted).
+        mems: Measured incremental peak memory (MB), same order.
+        model: ``'quad'`` (masked methods: a quadratic dominant term) or
+            ``'lin'`` (gather/flash/flex: linear scaling).
+        n_to: Upper projection bound.
+        n_points: Number of projected points.
+
+    Returns:
+        (projected_ns, projected_mbs, coeff_description) where the
+        projection covers (last measured N, n_to]; empty arrays when fewer
+        than two measured points exist.
+    """
+    import numpy as np
+    if len(ns) < 2 or ns[-1] >= n_to:
+        return [], [], ''
+    degree = 2 if model == 'quad' else 1
+    coefficients = np.polyfit(ns, mems, degree)
+    projected = np.linspace(ns[-1], n_to, n_points)[1:]
+    values = np.polyval(coefficients, projected)
+    terms = ' + '.join(
+        f'{c:.3e}·N^{degree - i}' for i, c in enumerate(coefficients))
+    return list(projected), list(np.maximum(values, 0.0)), terms
+
+
 def panel_memory_vs_n():
     """
-    Report figure ``04_memory_vs_n.pdf`` (SPEC 0026 T2) — incremental peak
-    GPU memory vs sequence length from the VERIFIED H100 v2 grid
-    (dist_cache=on; error rows excluded). Log-log axes expose the O(N^2)
-    scaling of the masked regime (dense_masked, mask_knn — the N x N mask
-    and score workspace dominate) against the O(N) flash line
-    (dense_flash: ~5 fp16 token tensors). flex_attn stays linear as well
-    and coincides with dense_flash within 0.3 MB at every measured N (its
-    compiled block-sparse mask avoids the N x N score materialization), so
-    the pair is drawn interleaved for visibility: solid black dense_flash
-    line underneath, dashed purple flex_attn on top (the dash gaps expose
-    the black line beneath) and larger open black dense_flash markers.
-    Legend labels come from H100_LABELS (CamelCase display names shared
-    with the speed panel), not raw method keys.
-    mask_knn's memory is K-independent
-    (~1 GB at N=8192 for every K in 2..128).
+    Report figure ``04_memory_vs_n.pdf`` — incremental peak GPU memory vs
+    sequence length, B=1 (dashed) and B=64 (solid), from the verified H100
+    v2 grid (B=1) and the b64 saturation grid (B=64, cache-regime-
+    independent rows pooled per :func:`_b64_pooled_frame`).
+
+    Every curve is drawn as far as it was MEASURED (solid for B=64, dashed
+    for B=1); beyond the last successful measurement the curve continues
+    as a DOTTED projection of its fitted scaling (quadratic for the masked
+    methods, linear for the gather/flash/flex family), so the full
+    N in {128..32768} range is covered and the OOM boundaries are visible
+    as the transition from measured to projected. The horizontal grey line
+    marks the 80 GB H100 VRAM limit: the projected masked-dense memory
+    crosses it just above N=8192 at B=64 (a single (B, H, N, N) fp16 mask
+    plane is already 68.7 GB there), which is exactly where the measured
+    rows turn oom. Gather's measured OOM at B=64/N=16384 is caused by the
+    O(B N^2) KNN distance matrix built for the indices, not by its linear
+    attention working set (projected ~44 GB at that shape).
+
+    Log-log axes; Okabe-Ito colours per method, shared with the speed
+    panel. flex_attn coincides with dense_flash within 0.3 MB at every
+    measured N at B=1 (its compiled block-sparse mask avoids the N x N
+    score materialization) and is drawn dashed for visibility.
     """
-    df = pd.read_csv(H100_CSV)
-    df = df[df['error'].isna() & (df['L'] == 1)].copy()
-    df['N'] = df['N'].astype(int)
+    df1 = pd.read_csv(H100_CSV)
+    df1 = df1[df1['error'].isna() & (df1['L'] == 1)].copy()
+    df1['N'] = df1['N'].astype(int)
+    df64 = _b64_pooled_frame()
 
     series_specs = [
-        ('dense_masked', 0, OI_VERMILION, '-',  2.2, 3),
-        ('mask_knn',    16, OI_SKYBLUE,   '-',  2.2, 3),
-        ('gather_sdpa', 16, OI_ORANGE,    '-',  2.2, 3),
-        ('dense_flash',  0, OI_BLACK,     '-',  3.4, 3),
-        ('flex_attn',    0, OI_PURPLE,    '--', 2.2, 4),
+        # (label-key, K, colour, b64 method key, projection model)
+        ('dense_masked', 0,  OI_VERMILION, 'dense_masked',        'quad'),
+        ('mask_knn',     16, OI_SKYBLUE,   'sparse_mask',         'quad'),
+        ('gather_sdpa',  16, OI_ORANGE,    'sparse_gather_sdpa',  'lin'),
+        ('dense_flash',  0,  OI_BLACK,     'dense_flash',         'lin'),
+        ('flex_attn',    0,  OI_PURPLE,    'flex_attn',           'lin'),
     ]
-    fig, ax = plt.subplots(figsize=(5.6, 2.4))
-    for method, k, colour, linestyle, marker_size, zorder in series_specs:
-        grp = df[(df.method == method) & (df.K == k)].sort_values('N')
-        marker_style = (dict(mfc='white', mec=colour, mew=0.7)
-                        if method == 'dense_flash' else {})
-        ax.plot(grp.N, grp.memory_mb, linestyle=linestyle, marker='o',
-                ms=marker_size, lw=0.8, color=colour, zorder=zorder,
-                label=H100_LABELS[method], **marker_style)
+    fig, ax = plt.subplots(figsize=(5.6, 2.6))
+    meta_values = []
+    for method, k, colour, b64_key, model in series_specs:
+        for batch, source_df, source_method, base_style in (
+                (1, df1, method, '--'), (64, df64, b64_key, '-')):
+            rows = source_df[(source_df.method == source_method)]
+            if k:
+                rows = rows[rows.K == k]
+            rows = rows.dropna(subset=['memory_mb'])
+            rows = rows[rows.memory_mb > 0].groupby(
+                'N', as_index=False).memory_mb.max().sort_values('N')
+            if rows.empty:
+                continue
+            ns, mems = rows.N.to_numpy(), rows.memory_mb.to_numpy()
+            ax.plot(ns, mems, base_style, marker='o', ms=2.2, lw=0.8,
+                    color=colour, zorder=3)
+            meta_values.append({
+                'series': method if k == 0 else f'{method}_K{k}',
+                'batch': batch, 'kind': 'measured',
+                'points': [{'N': int(n), 'memory_mb': float(m)}
+                           for n, m in zip(ns, mems)]})
+            proj_ns, proj_ms, terms = _project_memory(
+                list(ns), list(mems), model)
+            if proj_ns:
+                ax.plot(proj_ns, proj_ms, ':', marker='o', ms=2.0,
+                        lw=0.8, color=colour, zorder=2, alpha=0.75)
+                meta_values.append({
+                    'series': method if k == 0 else f'{method}_K{k}',
+                    'batch': batch, 'kind': 'projected',
+                    'fit': terms,
+                    'points': [{'N': float(n), 'memory_mb': float(m)}
+                               for n, m in zip(proj_ns, proj_ms)]})
+    # 80 GB H100 VRAM limit
+    ax.axhline(80000.0, color='#999999', lw=1.0, linestyle='--', zorder=1)
+    ax.text(140, 95000, '80 GB H100 VRAM', fontsize=5.5, color='#666666')
     ax.set_xscale('log', base=2)
     ax.set_yscale('log')
-    ax.set_xticks([128, 256, 512, 1024, 2048, 4096, 8192])
+    ax.set_xticks([128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768])
     ax.get_xaxis().set_major_formatter(mticker.ScalarFormatter())
     ax.get_xaxis().set_minor_formatter(mticker.NullFormatter())
     ax.set_xlabel('Sequence length $N$')
     ax.set_ylabel('GPU Memory (MB)')
-    ax.set_title('GPU Memory vs Sequence Length')
-    ax.legend(fontsize=6, frameon=False)
+    ax.set_title('GPU memory vs sequence length')
+    method_handles = [
+        mlines.Line2D([], [], color=colour, lw=0.8, marker='o', ms=2.2,
+                      label=H100_LABELS[method])
+        for method, _, colour, _, _ in series_specs]
+    style_handles = [
+        mlines.Line2D([], [], color=OI_BLACK, lw=0.8, linestyle='--',
+                      label='B=1 measured'),
+        mlines.Line2D([], [], color=OI_BLACK, lw=0.8, linestyle='-',
+                      label='B=64 measured'),
+        mlines.Line2D([], [], color=OI_BLACK, lw=0.8, linestyle=':',
+                      label='projected scaling'),
+    ]
+    ax.legend(handles=method_handles, fontsize=5.5, frameon=False,
+              loc='upper left')
+    ax.add_artist(ax.legend(handles=style_handles, fontsize=5.5,
+                            frameon=False, loc='lower right'))
     fig.tight_layout()
 
     body_meta = {
-        'sources': [str(H100_CSV)],
-        'values': [
-            {'series': method,
-             'points': [{'N': int(row.N), 'memory_mb': float(row.memory_mb)}
-                        for row in df[(df.method == method) & (df.K == k)]
-                                     .sort_values('N').itertuples()]}
-            for method, k in [('dense_flash', 0), ('dense_masked', 0),
-                              ('mask_knn', 16), ('gather_sdpa', 16),
-                              ('flex_attn', 0)]
-        ],
+        'sources': [str(H100_CSV), str(B64_CSV), str(B64_CSV_OFF)],
+        'values': meta_values,
     }
     return save('04_memory_vs_n', meta=body_meta)
 
