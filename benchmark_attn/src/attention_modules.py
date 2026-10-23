@@ -2010,12 +2010,20 @@ class FlexAttentionModule(nn.Module):
     methods are unaffected on old torch.
 
     Block-mask amortisation: ``create_block_mask`` is expensive, so the
-    module builds it ONCE per config (outside the timed closure),
-    amortised across calls like ``dist_cache=on``.
+    module builds it ONCE per config in :meth:`prepare`, outside the
+    steady-state attention timing. Under contract B the benchmark uses ONE
+    spatial graph shared across the whole batch (and across heads): the
+    block mask is built for ``B=1, H=1`` and reused for every batch element
+    and head. Per-batch masks are out of scope because the stock
+    ``create_block_mask`` -> ``create_mask`` path materialises a
+    ``(B, H, N, N)`` boolean mask (549.8 GB at B=64, H=8, N=32768).
+    Spatial distances are computed on the fly from the stored single-batch
+    coordinates rather than materialised as a
+    ``(batch_size, seq_len, seq_len)`` tensor.
 
     Compile-cost note: ``torch.compile`` compiles per shape at warmup —
-    the first config is slow; the ``measure()`` warmup absorbs compile
-    time so operators know why the first config is slow.
+    the first config is slow; callers can run the first call outside the
+    timed region or account for it via :meth:`prepare` setup reporting.
     """
 
     def __init__(
@@ -2032,7 +2040,7 @@ class FlexAttentionModule(nn.Module):
         n_temporal: int = 16,
         dist_mode: str = "v0",
     ):
-        """Initialise projections; block mask built lazily on first forward.
+        """Initialise projections; setup is built lazily by :meth:`prepare`.
 
         Args:
             embed_dim: Total embedding dimension (divisible by ``n_head``).
@@ -2073,43 +2081,143 @@ class FlexAttentionModule(nn.Module):
         self._mask_mod = None
         self._compiled_flex = None  # compiled flex_attention, built lazily
 
-    def _build_score_mod(self, pairwise_distance: torch.Tensor):
-        """Build score_mod closure: spatial decay within cutoff, hard -inf beyond."""
+    @staticmethod
+    def _compute_spatial_distance(
+        coords: torch.Tensor,
+        batch_indices: torch.Tensor,
+        query_indices: torch.Tensor,
+        key_indices: torch.Tensor,
+    ) -> torch.Tensor:
+        """Compute per-pair spatial distances from every batch's own coords.
+
+        The leading coordinate column is the scaled temporal coordinate and
+        is ignored; the remaining columns are spatial. The batch, query, and
+        key index tensors may be scalars, vectors, or block-shaped tensors;
+        their broadcast shape determines the returned distance shape.
+
+        Args:
+            coords: Coordinates ``(batch_size, seq_len, coord_dim)``.
+            batch_indices: Batch index or index tensor selecting ``coords``.
+            query_indices: Query index or index tensor selecting ``coords``.
+            key_indices: Key index or index tensor selecting ``coords``.
+
+        Returns:
+            Spatial distances in float32 with shape
+            ``broadcast(batch_indices, query_indices, key_indices)``.
+        """
+        spatial_coords = coords[..., 1:].to(torch.float32)
+        query_spatial = spatial_coords[batch_indices, query_indices]
+        key_spatial = spatial_coords[batch_indices, key_indices]
+        query_spatial, key_spatial = torch.broadcast_tensors(
+            query_spatial, key_spatial
+        )
+        return torch.linalg.vector_norm(query_spatial - key_spatial, dim=-1)
+
+    def _build_score_mod(self, coords: torch.Tensor):
+        """Build score_mod closure: spatial decay within cutoff, hard -inf beyond.
+
+        Contract B: ``coords`` is the shared single-batch graph
+        ``(1, seq_len, coord_dim)``. The batch index passed by flex is
+        ignored (mapped to batch 0), so every batch element and every head
+        uses the same spatial score. Distances are computed on the fly; no
+        ``(batch_size, seq_len, seq_len)`` tensor is materialised.
+
+        Args:
+            coords: Shared coordinates ``(1, seq_len, coord_dim)``.
+
+        Returns:
+            Callable ``score_mod(score, b, h, q_idx, kv_idx)`` returning a
+            tensor with the same dtype as ``score``.
+        """
         cutoff = self.cutoff_spatial
         lam = 0.1  # spatial decay strength (matches demo LAM)
 
         def score_mod(score, b, h, q_idx, kv_idx):
-            distance = pairwise_distance[q_idx, kv_idx]
-            return torch.where(distance <= cutoff, score - lam * distance,
-                              score - 65504.0)
+            shared_batch_index = b * 0
+            distance = self._compute_spatial_distance(
+                coords, shared_batch_index, q_idx, kv_idx
+            )
+            distance_in_score_dtype = distance.to(score.dtype)
+            return torch.where(
+                distance <= cutoff,
+                score - lam * distance_in_score_dtype,
+                score - 65504.0,
+            )
         return score_mod
 
-    def _build_mask_mod(self, pairwise_distance: torch.Tensor):
-        """Build mask_mod closure: keep pairs within the spatial cutoff."""
+    def _build_mask_mod(self, coords: torch.Tensor):
+        """Build mask_mod closure: keep pairs within the shared cutoff graph.
+
+        Contract B: ``coords`` is the shared single-batch graph
+        ``(1, seq_len, coord_dim)``. The batch index passed by flex is
+        ignored (mapped to batch 0), so the mask is identical for every
+        batch element and head. Distances are computed on the fly; no
+        ``(batch_size, seq_len, seq_len)`` tensor is materialised.
+
+        Args:
+            coords: Shared coordinates ``(1, seq_len, coord_dim)``.
+
+        Returns:
+            Callable ``mask_mod(b, h, q_idx, kv_idx)`` returning a boolean
+            tensor shaped like the broadcast indices.
+        """
         cutoff = self.cutoff_spatial
 
         def mask_mod(b, h, q_idx, kv_idx):
-            return pairwise_distance[q_idx, kv_idx] <= cutoff
+            shared_batch_index = b * 0
+            distance = self._compute_spatial_distance(
+                coords, shared_batch_index, q_idx, kv_idx
+            )
+            return distance <= cutoff
         return mask_mod
 
-    def _build_block_mask(self, coords: torch.Tensor):
-        """Build the flex block mask once per config; cached on the module.
+    def _build_block_mask(self, coords: torch.Tensor) -> None:
+        """Build the shared flex block mask once; cached on the module.
+
+        Contract B: the mask is built from ``coords[0:1]`` with ``B=1, H=1``
+        and reused for all batch elements and heads. Per-batch masks are out
+        of scope because the stock API materialises a ``(B, H, N, N)`` bool
+        mask. Distances are evaluated on the fly from the shared coordinates
+        inside the mask modifier; no ``(batch_size, seq_len, seq_len)``
+        distance tensor is materialised or stored.
 
         Args:
-            coords: Spatial coordinates ``(batch_size, seq_len, coord_dim)``.
+            coords: Coordinates ``(batch_size, seq_len, coord_dim)``; only
+                the first batch element is used as the shared graph.
         """
-        # NOTE: coords is (batch, seq, coord_dim+1) — the leading column is
-        # the scaled temporal coordinate, the rest are spatial.  Drop the
-        # batch dim and the temporal column to get the per-batch spatial
-        # matrix, then cdist within batch element 0 (all elements share the
-        # same cutoff graph in this benchmark).
-        spatial_coords = coords[0, ..., 1:].float()
-        pairwise_distance = torch.cdist(spatial_coords, spatial_coords)
-        mask_mod = self._build_mask_mod(pairwise_distance)
+        shared_coords = coords[0:1]
+        mask_mod = self._build_mask_mod(shared_coords)
         self._block_mask = create_block_mask(
-            mask_mod, None, None, coords.shape[1], coords.shape[1], device=coords.device
+            mask_mod,
+            B=1,
+            H=1,
+            Q_LEN=shared_coords.shape[1],
+            KV_LEN=shared_coords.shape[1],
+            device=shared_coords.device,
         )
-        self._score_mod = self._build_score_mod(pairwise_distance)
+        self._mask_mod = mask_mod
+        self._score_mod = self._build_score_mod(shared_coords)
+
+    def prepare(self, coords: torch.Tensor) -> None:
+        """Build setup state (block mask and compiled flex callable) if absent.
+
+        This is setup work, not steady-state attention: callers should run it
+        before timing so the block-mask build and the first compiled call do
+        not leak into per-forward measurements. Repeated calls with existing
+        setup state are no-ops.
+
+        Contract B: the block mask and score modifier are built from the
+        first batch element's coordinates and shared by every batch element
+        and head.
+
+        Args:
+            coords: Coordinates ``(batch_size, seq_len, coord_dim)``; the
+                first batch element is the shared cutoff graph.
+        """
+        if self._block_mask is None:
+            self._build_block_mask(coords)
+        if self._compiled_flex is None:
+            self._compiled_flex = torch.compile(flex_attention, dynamic=False)
 
     def forward(self, query, key, value, knn_indices=None, coords=None):
         """Run flex attention: project q/k/v, reshape to (B, H, S, D), call compiled flex_attention.
@@ -2127,10 +2235,7 @@ class FlexAttentionModule(nn.Module):
         batch_size, seq_len, embed_dim = query.shape
         n_head = self.n_head
         head_dim = embed_dim // n_head
-        if self._block_mask is None:
-            self._build_block_mask(coords)
-        if self._compiled_flex is None:
-            self._compiled_flex = torch.compile(flex_attention, dynamic=False)
+        self.prepare(coords)
         projected_q = self.q_pro(query).view(batch_size, seq_len, n_head, head_dim).transpose(1, 2)
         projected_k = self.k_pro(key).view(batch_size, seq_len, n_head, head_dim).transpose(1, 2)
         projected_v = self.v_pro(value).view(batch_size, seq_len, n_head, head_dim).transpose(1, 2)

@@ -47,6 +47,14 @@ from src.attention_modules import (
     SparseSoftmaxAttention,
 )
 
+# Contract B (SPEC 0051, labbook 2026-10-23_attention_shared_graph_contract):
+# the benchmark uses ONE spatial graph for the whole batch so Gather and Flex
+# receive the same KNN/block-mask setup and either both fit or both do not.
+# Query tokens remain per-batch random. Per-batch Flex block masks are out of
+# scope because the stock ``create_block_mask`` -> ``create_mask`` path
+# materialises a ``(B, H, N, N)`` boolean mask: 549.8 GB at B=64, H=8,
+# N=32768, far beyond the 94 GB H100.
+#
 # How each registered method's ``forward`` is invoked.  The gather/mask
 # variants take ``(query, key, value, knn_indices, coords)``, the relative
 # positional variant takes ``(query, key, value, coords, knn_indices)``, the
@@ -170,6 +178,13 @@ def build_closure(method_key, layer_count, seq_len, knn_neighbors,
     ``with_knn`` is ``False`` (default) the indices are pre-computed
     once before timing, isolating the attention-kernel cost.
 
+    Under contract B the spatial graph is shared across the batch: only the
+    first batch element's coordinates from ``make_inputs`` are kept and
+    expanded to ``batch_size``. KNN indices and ``dist_2d`` are likewise
+    computed once on that single-batch graph and expanded, so no per-batch
+    graph construction is charged to any method and Gather/Flex see the same
+    setup. Query tokens stay per-batch random.
+
     Args:
         method_key: Registry key of the method.
         layer_count: Number of chained layers.
@@ -189,7 +204,9 @@ def build_closure(method_key, layer_count, seq_len, knn_neighbors,
         dist_cache: "on" or "off". When "off", the 2D distance matrix
             (``dist_2d``) is computed inside the timed closure so every
             call pays the ``torch.cdist`` cost; when "on" it is computed
-            once and amortised across the chained layers (current default).
+            once for ``dense_masked`` (``CachedDistAttention``) and
+            amortised across the chained layers (current default). Other
+            methods receive ``dist_2d=None`` because they never consume it.
 
     Returns:
         A closure whose return value is the output of the last layer.
@@ -197,6 +214,10 @@ def build_closure(method_key, layer_count, seq_len, knn_neighbors,
     query, coords = make_inputs(
         batch_size, seq_len, d_model, coord_dim + 1, device, dtype, seed
     )
+    # Contract B: share one spatial graph across the batch. Query stays
+    # per-batch random so the attention kernels still process distinct
+    # queries; only the KNN/mask graph is shared.
+    coords = coords[0:1].expand(batch_size, -1, -1)
     registry_entry = METHOD_REGISTRY[method_key]
     attention_class = resolve_class(registry_entry.class_path)
 
@@ -208,26 +229,55 @@ def build_closure(method_key, layer_count, seq_len, knn_neighbors,
     ])
     forward_style = _METHOD_FORWARD_STYLES[method_key]
 
-    # Pre-compute the 2D spatial distance matrix once, matching
-    # TrackingTransformer.forward() which computes dist_2d once and
-    # shares it across all L layers.  This avoids per-layer cdist.
+    # Pre-compute the 2D spatial distance matrix once for the only forward
+    # style that consumes it (masked / CachedDistAttention), matching
+    # TrackingTransformer.forward() which computes dist_2d once and shares it
+    # across all L layers.  This avoids per-layer cdist.
+    #
+    # The unused matrix used to be allocated for EVERY method when
+    # dist_cache="on", so gather/relpos/flex/qkv runs paid O(B*N^2) memory
+    # they never read.  That was a harness-induced large-N OOM, not a
+    # property of the attention kernels.  Keep dist_2d=None for those styles
+    # and for dist_cache="off" (where each layer computes distances itself).
+    #
     # Pre-compute KNN indices unless with_knn is requested or dist_cache=off
     # folds the KNN selection inside the timed closure (KNN methods only).
+    # Contract B: compute on the single-batch graph and expand, so the KNN
+    # selection cost is identical for every batch element and no per-batch
+    # graph is constructed.
     knn_inside = with_knn or (dist_cache == "off" and registry_entry.needs_knn)
     if knn_inside:
         knn_idx = None  # Will be computed inside the closure.
     else:
-        knn_idx = compute_knn_indices(coords, knn_neighbors) if registry_entry.needs_knn else None
+        knn_idx = (
+            compute_knn_indices(coords[:1], knn_neighbors).expand(
+                batch_size, -1, -1
+            )
+            if registry_entry.needs_knn
+            else None
+        )
 
-    if dist_cache == "on":
-        dist_2d = torch.cdist(coords[..., 1:].float(), coords[..., 1:].float()).to(dtype)
+    if dist_cache == "on" and forward_style == "masked":
+        # Contract B: compute the masked method's 2D distances on the shared
+        # single-batch graph and expand; do not allocate a full B x N x N
+        # matrix in setup.
+        dist_2d = (
+            torch.cdist(
+                coords[:1, ..., 1:].float(), coords[:1, ..., 1:].float()
+            )
+            .to(dtype)
+            .expand(batch_size, -1, -1)
+        )
     else:
-        dist_2d = None  # Each layer's forward computes distances from coords.
+        dist_2d = None  # Unused by this forward style, or computed per layer.
 
     if knn_inside:
         def closure():
-            # Training-realistic: recompute KNN indices every forward pass.
-            knn_idx_local = compute_knn_indices(coords, knn_neighbors)
+            # Training-realistic: recompute KNN indices every forward pass
+            # on the shared single-batch graph, then expand to the batch.
+            knn_idx_local = compute_knn_indices(
+                coords[:1], knn_neighbors
+            ).expand(batch_size, -1, -1)
             output = query
             for layer in layers:
                 output = _forward_layer(layer, output, coords, knn_idx_local, forward_style, dist_2d)
