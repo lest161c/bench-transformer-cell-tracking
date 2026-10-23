@@ -9,7 +9,7 @@
 #SBATCH --output=logs/b64_sweep_%j.out
 #SBATCH --error=logs/b64_sweep_%j.err
 
-# run_b64_sweep.slurm — Attention benchmark grid at B=64 (SPEC 0045).
+# run_b64_sweep.slurm — Attention benchmark grid at B=64 (SPEC 0049).
 # Mirrors run_full_bench_v2.slurm but runs batch B=64 (v2 ran B=1, hardcoded
 # before the --batch flag existed) and extends N to 16384/32768. L=1 and
 # B=1 are kept out per owner decision 2026-10-23: L=1 matches v2, and the
