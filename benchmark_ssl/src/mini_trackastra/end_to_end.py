@@ -35,6 +35,7 @@ import pandas as pd
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from scipy.ndimage import affine_transform
 from skimage.measure import regionprops_table
 from skimage.measure import regionprops as sk_regionprops
 from tifffile import imread
@@ -238,6 +239,46 @@ def distort(coords, labels, mode):
         return c, l
     # Default: jitter only (std=4)
     return apply_jitter(coords.copy(), 4), labels.copy()
+
+
+def distort_with_transform(coords, labels, mode):
+    """Apply a named distortion and also return the global warp applied.
+
+    Numerically identical to ``distort`` (same random draws in the same
+    order); the returned transform is the linear map applied to the
+    coordinates (``warped = coords @ transform``, row-vector convention),
+    the identity for jitter-only modes. Callers need it to warp the *image*
+    consistently with the coordinates: a patch taken from the clean image at
+    warped coordinates shows the wrong cell content once the warp
+    displacement exceeds the patch size (SPEC 0048).
+    """
+    if mode == "full":
+        theta = np.random.uniform(-10, 10) / 180 * np.pi
+        scale_x, scale_y = np.random.uniform(0.9, 1.1), np.random.uniform(0.9, 1.1)
+        transform = np.array(
+            [[scale_x * np.cos(theta), -scale_x * np.sin(theta)],
+             [scale_y * np.sin(theta), scale_y * np.cos(theta)]]
+        )
+        warped = apply_jitter(coords @ transform, 4)
+        warped, kept = apply_dropout(warped, labels.copy(), 0.1)
+        return warped, kept, transform
+    # Default: jitter only (std=4), no global warp.
+    return apply_jitter(coords.copy(), 4), labels.copy(), np.eye(2)
+
+
+def warp_image(img, transform):
+    """Resample the image under the inverse of the coordinate warp.
+
+    Coordinates warp as ``q = p @ transform`` (row vectors), i.e.
+    ``q_col = transform^T p_col``, so the consistent image warp is
+    ``W(q) = img(transform^{-T} q)``. A patch taken from ``W`` at a warped
+    coordinate shows the same cell content as the clean patch at the original
+    coordinate, resampled under the inverse warp (bilinear).
+    """
+    return affine_transform(
+        img, np.linalg.inv(transform).T, order=1, mode="constant",
+        cval=0.0, prefilter=False,
+    )
 
 
 # ─── Positional Encodings ────────────────────────────────────────────────────

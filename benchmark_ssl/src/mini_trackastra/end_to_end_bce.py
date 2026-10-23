@@ -19,11 +19,20 @@ Architecture (shared with end_to_end.py):
     -> Decoder x2 (MultiheadCrossAttention: tgt=enc_all, memory=enc_all + FFN)
     -> head_x(enc_t), head_y(dec_n) -> assoc = head_x @ head_y^T -> BCE
 
+Fixes (2026-10-23, SPEC 0048 — the 2026-06-01 negative result traced to these):
+  1. View-2 appearance is now extracted from the WARPED image (previously
+     from the clean image at warped coordinates, which shows the wrong cell
+     content once the warp displacement exceeds the patch size).
+  2. The dropout survivor labels are kept and used as the view-2 ground
+     truth (previously the first n2 clean labels were used, mislabelling
+     ~50% of positive pairs whenever dropout removed a cell).
+
 Usage:
-  cd src/mini_trackastra
-  .venv/bin/python end_to_end_bce.py
-  .venv/bin/python end_to_end_bce.py --ssl-steps 100 --downstream-steps 100 \\
-      --max-ssl-frames 30 --max-downstream-pairs 15 --d-model 128
+  cd benchmark_ssl
+  .venv/bin/python -m src.mini_trackastra.end_to_end_bce
+  .venv/bin/python -m src.mini_trackastra.end_to_end_bce --ssl-steps 100 \\
+      --downstream-steps 100 --max-ssl-frames 30 --max-downstream-pairs 15 \\
+      --d-model 128
 """
 
 import argparse
@@ -53,7 +62,8 @@ from src.mini_trackastra.end_to_end import (
     apply_jitter,
     apply_affine,
     apply_dropout,
-    distort,
+    distort_with_transform,
+    warp_image,
     FourierPE,
     NoPE,
     MiniEncoder,
@@ -76,18 +86,21 @@ logger = logging.getLogger("mini_bce")
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def run_ssl_bce_phase(ssl_data, args, pe_dim):
-    """Train full MiniTrackingTransformer with BCE identity loss on distorted views.
+    """Train full MiniTrackingTransformer with BCE identity loss on warped views.
 
-    For each single frame, we create two distorted views. The model predicts
-    associations between views. Target: identity matrix (cell i in view1
-    matches cell i in view2 because they're the same cell under different
-    distortions).
-
-    This trains encoder + decoder + heads jointly, closing the decoder gap
-    and using the same loss function as downstream (BCE).
+    For each single frame, the pair is (clean view, warped view) where the
+    warp is the pretext's affine + jitter + dropout. The model predicts
+    associations between the views. Ground truth is LABEL-BASED: view-1 cell i
+    matches view-2 cell j iff they carry the same label; cells dropped by the
+    warp have no partner in view 2 (their target row is all-negative). This
+    trains encoder + decoder + heads jointly, closing the decoder gap and
+    using the same loss function as downstream.
 
     Args:
-        ssl_data: list of (e1, e2, c1, c2, lbl) with precomputed DINO features
+        ssl_data: list of (e1, e2, c1, c2, lbl1, lbl2) with precomputed DINO
+            features (view-1 from the clean image, view-2 from the warped
+            image) and the labels of both views (view-2 labels are the
+            dropout survivors).
         args: parsed arguments
         pe_dim: positional encoding dimension
 
@@ -133,7 +146,7 @@ def run_ssl_bce_phase(ssl_data, args, pe_dim):
 
         # Move data to GPU once
         gpu_data = []
-        for e1, e2, c1, c2, lbl in ssl_data:
+        for e1, e2, c1, c2, lbl1, lbl2 in ssl_data:
             n = min(len(e1), len(e2))
             if n < 2:
                 continue
@@ -142,7 +155,8 @@ def run_ssl_bce_phase(ssl_data, args, pe_dim):
                 torch.from_numpy(e2[:n]).float().to(device),
                 torch.from_numpy(c1[:n]).float().unsqueeze(0).to(device),
                 torch.from_numpy(c2[:n]).float().unsqueeze(0).to(device),
-                lbl[:n],
+                lbl1[:n],
+                lbl2[:n],
             ))
 
         if len(gpu_data) == 0:
@@ -156,12 +170,7 @@ def run_ssl_bce_phase(ssl_data, args, pe_dim):
             n_batches = 0
             perm = torch.randperm(len(gpu_data))
             for idx in perm:
-                de1, de2, c1, c2, lbl = gpu_data[idx]
-                n1, n2 = de1.shape[0], de2.shape[0]
-                # Labels for both views (may differ due to dropout)
-                lbl1 = lbl  # view1 labels (all cells present)
-                lbl2 = lbl[:n2] if len(lbl) == n1 else lbl[:n2]
-
+                de1, de2, c1, c2, lbl1, lbl2 = gpu_data[idx]
                 # Build positional encodings
                 pe1 = pe(c1).squeeze(0)  # (N1, pe_dim)
                 pe2 = pe(c2).squeeze(0)  # (N2, pe_dim)
@@ -170,7 +179,8 @@ def run_ssl_bce_phase(ssl_data, args, pe_dim):
                 logits = model(de1, pe1, de2, pe2)  # (N1, N2)
 
                 # Target: label-based matching (handles dropout correctly)
-                # Cell i in view1 matches cell j in view2 iff same label
+                # Cell i in view1 matches cell j in view2 iff same label;
+                # dropped cells have no partner (all-negative target row).
                 loss = bce_assoc_loss(logits, lbl1, lbl2)
                 opt.zero_grad()
                 loss.backward()
@@ -577,12 +587,17 @@ def main():
         if r is None:
             continue
         c1, lbl, img = r
-        c2, _ = distort(c1.copy(), lbl.copy(), args.distortion)
+        # SPEC 0048 fixes: keep the dropout survivor labels (view-2 ground
+        # truth) and extract view-2 appearance from the warped image, not
+        # from the clean image at warped coordinates.
+        c2, lbl2, transform = distort_with_transform(
+            c1.copy(), lbl.copy(), args.distortion)
+        warped_img = warp_image(img, transform)
         p1 = extract_patches(img, c1)
-        p2 = extract_patches(img, c2)
+        p2 = extract_patches(warped_img, c2)
         e1 = compute_dino_embs(p1)
         e2 = compute_dino_embs(p2)
-        ssl_data.append((e1, e2, c1, c2, lbl))
+        ssl_data.append((e1, e2, c1, c2, lbl, lbl2))
     logger.info(f"SSL precomputed: {len(ssl_data)} frames")
 
     # ─── Collect downstream data ──────────────────────────────────────────
