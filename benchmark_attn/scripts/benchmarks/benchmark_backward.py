@@ -29,10 +29,20 @@ import torch.utils.benchmark as benchmark_timer
 
 from src.attention_modules import (
     DenseFlashAttention,
-    GatherSparseAttention,
-    KNNMaskSparseAttention,
+    FlexAttentionModule,
+    SparseGatherAttention,
+    SparseMaskAttention,
     RelativePositionalAttention,
+    SparseSoftmaxAttention,
 )
+
+# Pin threads + raise dynamo's recompile limit: benchmark.Timer-style thread
+# flapping trips torch.compile guards and silently falls back to eager after
+# 8 recompiles (quadratic memory, 20-50x slowdown) — REQUIRED for the
+# compiled flex_attn rows (SPEC 0023 v2).
+torch.set_num_threads(1)
+if hasattr(torch._dynamo, "config") and hasattr(torch._dynamo.config, "recompile_limit"):
+    torch._dynamo.config.recompile_limit = 32
 
 sns.set_theme(style="whitegrid")
 
@@ -173,7 +183,7 @@ def build_dense_flash(embed_dim, num_heads):
 
 def build_mask_knn(embed_dim, num_heads, num_neighbors):
     """Build the mask-KNN sparse attention module."""
-    return KNNMaskSparseAttention(
+    return SparseMaskAttention(
         embed_dim=embed_dim,
         n_head=num_heads,
         knn_neighbors=num_neighbors,
@@ -183,11 +193,29 @@ def build_mask_knn(embed_dim, num_heads, num_neighbors):
 
 def build_gather_knn(embed_dim, num_heads, num_neighbors):
     """Build the gather-KNN sparse attention module."""
-    return GatherSparseAttention(
+    return SparseGatherAttention(
         embed_dim=embed_dim,
         n_head=num_heads,
         knn_neighbors=num_neighbors,
         mode="none",
+    )
+
+
+def build_sparse_softmax(embed_dim, num_heads, num_neighbors):
+    """Build the sparse-softmax attention module (SPEC 0023 v2, T1)."""
+    return SparseSoftmaxAttention(
+        embed_dim=embed_dim,
+        n_head=num_heads,
+        knn_neighbors=num_neighbors,
+        mode="none",
+    )
+
+
+def build_flex(embed_dim, num_heads):
+    """Build the FlexAttention module (SPEC 0023 v2, T5)."""
+    return FlexAttentionModule(
+        embed_dim=embed_dim,
+        n_head=num_heads,
     )
 
 
@@ -299,6 +327,8 @@ def run_gpu():
         "dense_flash": "flash",
         "mask_knn": "knn",
         "gather_knn": "knn",
+        "sparse_softmax": "knn",
+        "flex_attn": "flex",
     }
 
     rows = []
@@ -319,6 +349,8 @@ def run_gpu():
                     extra_args = ()
                 elif style == "knn":
                     extra_args = (knn_indices,)
+                elif style == "flex":
+                    extra_args = (None, coords_3d)
                 else:
                     raise ValueError(f"Unknown forward style: {style}")
 
@@ -371,6 +403,10 @@ def _make_build_fn(method_name, embed_dim, num_heads, num_neighbors):
         return lambda: build_mask_knn(embed_dim, num_heads, num_neighbors)
     if method_name == "gather_knn":
         return lambda: build_gather_knn(embed_dim, num_heads, num_neighbors)
+    if method_name == "sparse_softmax":
+        return lambda: build_sparse_softmax(embed_dim, num_heads, num_neighbors)
+    if method_name == "flex_attn":
+        return lambda: build_flex(embed_dim, num_heads)
     raise ValueError(f"Unknown method name: {method_name}")
 
 
@@ -569,11 +605,11 @@ def run_profiler():
         "dense_flash": lambda: DenseFlashAttention(
             embed_dim=embed_dim, n_head=num_heads,
         ).to(device, dtype),
-        "mask_knn": lambda: KNNMaskSparseAttention(
+        "mask_knn": lambda: SparseMaskAttention(
             embed_dim=embed_dim, n_head=num_heads,
             knn_neighbors=num_neighbors, mode="none",
         ).to(device, dtype),
-        "gather_knn": lambda: GatherSparseAttention(
+        "gather_knn": lambda: SparseGatherAttention(
             embed_dim=embed_dim, n_head=num_heads,
             knn_neighbors=num_neighbors, mode="none",
         ).to(device, dtype),

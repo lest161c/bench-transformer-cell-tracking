@@ -23,6 +23,7 @@ def add_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--nhead", type=int, default=8, help="Number of attention heads")
     parser.add_argument("--warmup", type=int, default=5, help="Number of warmup iterations")
     parser.add_argument("--rep", type=int, default=30, help="Minimum run time in milliseconds for the benchmark timer")
+    parser.add_argument("--repeats", type=int, default=3, help="Number of timing repetitions per configuration (std across repeats is reported)")
     parser.add_argument("--out", default="benchmark_results.csv", help="Output CSV path")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     parser.add_argument("--device", default="auto",

@@ -138,8 +138,8 @@ def build_gather_report(all_results, output_dir):
         ".cat-gather{background:#553322} .cat-sdpa{background:#224455} .cat-proj{background:#335533}"
     )
     parts = html_page_head(
-        "GatherSparseAttention Profiler Report",
-        "GatherSparseAttention Profiler — N=128,256,512 K=16",
+        "SparseGatherAttention Profiler Report",
+        "SparseGatherAttention Profiler — N=128,256,512 K=16",
         extra_css=extra_css,
     )
 

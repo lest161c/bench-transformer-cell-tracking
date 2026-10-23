@@ -17,13 +17,13 @@ class MethodEntry:
     Attributes:
         registry_key: CSV-facing name used in benchmark result files.
         class_path: Dotted import path of the attention class, e.g.
-            "src.attention_modules.GatherSparseFusedAttention".
+            "src.attention_modules.SparseGatherFusedAttention".
         needs_knn: True if the method requires precomputed KNN indices.
         needs_coords: True if the method requires spatial coordinates.
     """
 
     registry_key: str          # CSV-facing name
-    class_path: str            # dotted import path, e.g. "src.attention_modules.GatherSparseFusedAttention"
+    class_path: str            # dotted import path, e.g. "src.attention_modules.SparseGatherFusedAttention"
     needs_knn: bool
     needs_coords: bool
 
@@ -31,13 +31,15 @@ class MethodEntry:
 METHOD_REGISTRY: dict[str, MethodEntry] = {
     "dense_masked": MethodEntry("dense_masked", "src.attention_modules.CachedDistAttention", needs_knn=False, needs_coords=True),
     "dense_flash": MethodEntry("dense_flash", "src.attention_modules.DenseFlashAttention", needs_knn=False, needs_coords=False),
-    "gather_sdpa": MethodEntry("gather_sdpa", "src.attention_modules.GatherSparseAttention", needs_knn=True, needs_coords=True),
-    "gather_fused": MethodEntry("gather_fused", "src.attention_modules.GatherSparseFusedAttention", needs_knn=True, needs_coords=True),
-    "gather_matmul": MethodEntry("gather_matmul", "src.attention_modules.GatherSparseMatmulAttention", needs_knn=True, needs_coords=True),
-    "mask_knn": MethodEntry("mask_knn", "src.attention_modules.KNNMaskSparseAttention", needs_knn=True, needs_coords=True),
-    "knn_relpos": MethodEntry("knn_relpos", "src.attention_modules.KNNRelativePositionalAttention", needs_knn=True, needs_coords=True),
+    "sparse_gather_sdpa": MethodEntry("sparse_gather_sdpa", "src.attention_modules.SparseGatherAttention", needs_knn=True, needs_coords=True),
+    "sparse_gather_fused": MethodEntry("sparse_gather_fused", "src.attention_modules.SparseGatherFusedAttention", needs_knn=True, needs_coords=True),
+    "sparse_gather_matmul": MethodEntry("sparse_gather_matmul", "src.attention_modules.SparseGatherMatmulAttention", needs_knn=True, needs_coords=True),
+    "sparse_mask": MethodEntry("sparse_mask", "src.attention_modules.SparseMaskAttention", needs_knn=True, needs_coords=True),
+    "sparse_softmax": MethodEntry("sparse_softmax", "src.attention_modules.SparseSoftmaxAttention", needs_knn=True, needs_coords=False),
+    "sparse_gather_relpos": MethodEntry("sparse_gather_relpos", "src.attention_modules.SparseGatherRelativePositionalAttention", needs_knn=True, needs_coords=True),
     "nsa": MethodEntry("nsa", "src.attention_modules.NSASparseAttention", needs_knn=False, needs_coords=False),
     "minimax": MethodEntry("minimax", "src.attention_modules.MiniMaxSparseAttention", needs_knn=False, needs_coords=False),
+    "flex_attn": MethodEntry("flex_attn", "src.attention_modules.FlexAttentionModule", needs_knn=False, needs_coords=False),
 }
 
 
