@@ -57,7 +57,18 @@
 # ─── Usage ──────────────────────────────────────────────────────────
 #
 #   sbatch --export=CV_SEED=42 scripts/slurm/run_cv.slurm
-#   sbatch --export=CV_SEED=43 scripts/slurm/run_cv.slurm
+#   sbatch --export=CV_SEED=43 \
+#          --output=logs/cv-s43-%a.out --error=logs/cv-s43-%a.err \
+#          scripts/slurm/run_cv.slurm
+#
+#   * sbatch does NOT accumulate repeated --export flags (the last one
+#     replaces all previous ones — verified live 2026-10-23, when a
+#     "--export=TEST=1 --export=CV_SEED=42" submission silently dropped
+#     TEST=1). Combine values comma-separated: --export=TEST=1,CV_SEED=42.
+#   * The header's --output/--error (logs/cv-%a.out) is shared by every
+#     array, so concurrent seed arrays MUST override both on the command
+#     line (seed-suffixed names, as above) or they clobber each other's
+#     logs. The first submitted array may keep the default names.
 #
 # Both seed arrays may run concurrently (24 tasks / 24 H100s, well under the
 # normal-QOS 284-GPU user cap): cache dirs and run names are seed-suffixed,
