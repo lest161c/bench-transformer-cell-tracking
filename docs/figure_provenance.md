@@ -11,6 +11,14 @@ well (owner directive; canonical copies verified in the generation
 directories first). Generators, canonical PDFs and sidecars remain on
 disk as artifacts.
 
+**Variant note (2026-10-23).** The owner's current working report is the
+shortened variant under `report-shorten/` (untracked, local workflow like
+the `report/` tex sources). Both variants consume the same
+`curated/figures/` panels; `19_b64_saturation` and `20_mask_decomposition`
+are integrated in both (`report/evaluation.tex` and
+`report-shorten/evaluation.tex`, each with variant-appropriate prose; the
+shorten variant enforces its own editorial rules, e.g. no em dashes).
+
 ## 1. Pipeline summary (current truth)
 
 ```
