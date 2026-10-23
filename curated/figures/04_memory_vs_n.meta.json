@@ -1,92 +1,12 @@
 {
   "figure": "04_memory_vs_n",
-  "created_utc": "2026-10-23T17:03:50.527130+00:00",
+  "created_utc": "2026-10-23T17:08:43.757030+00:00",
   "generator": "curated/generate_report.py",
   "sources": [
-    "/home/leonard.starke@mediainterface.de/Dokumente/Uni/research-proj/benchmark_attn/results/full_bench_v2_h100_cache_on.csv",
     "/home/leonard.starke@mediainterface.de/Dokumente/Uni/research-proj/benchmark_attn/results/full_bench_b64_h100_cache_on.csv",
     "/home/leonard.starke@mediainterface.de/Dokumente/Uni/research-proj/benchmark_attn/results/full_bench_b64_h100_cache_off.csv"
   ],
   "values": [
-    {
-      "series": "dense_masked",
-      "batch": 1,
-      "kind": "measured",
-      "points": [
-        {
-          "N": 128,
-          "memory_mb": 0.8
-        },
-        {
-          "N": 256,
-          "memory_mb": 2.7
-        },
-        {
-          "N": 512,
-          "memory_mb": 9.7
-        },
-        {
-          "N": 1024,
-          "memory_mb": 36.9
-        },
-        {
-          "N": 2048,
-          "memory_mb": 143.8
-        },
-        {
-          "N": 4096,
-          "memory_mb": 567.5
-        },
-        {
-          "N": 8192,
-          "memory_mb": 2255.0
-        }
-      ]
-    },
-    {
-      "series": "dense_masked",
-      "batch": 1,
-      "kind": "projected",
-      "fit": "3.338e-05\u00b7N^2 + 1.829e-03\u00b7N^1 + 2.926e-02\u00b7N^0",
-      "points": [
-        {
-          "N": 10922.666666666666,
-          "memory_mb": 4002.2033519782885
-        },
-        {
-          "N": 13653.333333333332,
-          "memory_mb": 6247.184203554361
-        },
-        {
-          "N": 16384.0,
-          "memory_mb": 8989.939986544157
-        },
-        {
-          "N": 19114.666666666664,
-          "memory_mb": 12230.470700947673
-        },
-        {
-          "N": 21845.333333333332,
-          "memory_mb": 15968.776346764918
-        },
-        {
-          "N": 24576.0,
-          "memory_mb": 20204.85692399589
-        },
-        {
-          "N": 27306.666666666664,
-          "memory_mb": 24938.712432640572
-        },
-        {
-          "N": 30037.333333333332,
-          "memory_mb": 30170.342872698984
-        },
-        {
-          "N": 32768.0,
-          "memory_mb": 35899.74824417112
-        }
-      ]
-    },
     {
       "series": "dense_masked",
       "batch": 64,
@@ -163,81 +83,13 @@
       ]
     },
     {
-      "series": "mask_knn_K16",
-      "batch": 1,
-      "kind": "measured",
+      "series": "dense_masked",
+      "batch": 64,
+      "kind": "oom_marker",
       "points": [
-        {
-          "N": 128,
-          "memory_mb": 0.6
-        },
-        {
-          "N": 256,
-          "memory_mb": 1.8
-        },
-        {
-          "N": 512,
-          "memory_mb": 5.6
-        },
-        {
-          "N": 1024,
-          "memory_mb": 19.2
-        },
-        {
-          "N": 2048,
-          "memory_mb": 70.3
-        },
-        {
-          "N": 4096,
-          "memory_mb": 268.6
-        },
         {
           "N": 8192,
-          "memory_mb": 1049.3
-        }
-      ]
-    },
-    {
-      "series": "mask_knn_K16",
-      "batch": 1,
-      "kind": "projected",
-      "fit": "1.526e-05\u00b7N^2 + 3.070e-03\u00b7N^1 + 8.246e-03\u00b7N^0",
-      "points": [
-        {
-          "N": 10922.666666666666,
-          "memory_mb": 1854.2295617470536
-        },
-        {
-          "N": 13653.333333333332,
-          "memory_mb": 2886.748783685724
-        },
-        {
-          "N": 16384.0,
-          "memory_mb": 4146.853562864999
-        },
-        {
-          "N": 19114.666666666664,
-          "memory_mb": 5634.543899284877
-        },
-        {
-          "N": 21845.333333333332,
-          "memory_mb": 7349.81979294536
-        },
-        {
-          "N": 24576.0,
-          "memory_mb": 9292.681243846448
-        },
-        {
-          "N": 27306.666666666664,
-          "memory_mb": 11463.128251988135
-        },
-        {
-          "N": 30037.333333333332,
-          "memory_mb": 13861.160817370432
-        },
-        {
-          "N": 32768.0,
-          "memory_mb": 16486.77893999333
+          "memory_mb": 144323.18333333332
         }
       ]
     },
@@ -317,81 +169,13 @@
       ]
     },
     {
-      "series": "gather_sdpa_K16",
-      "batch": 1,
-      "kind": "measured",
+      "series": "mask_knn_K16",
+      "batch": 64,
+      "kind": "oom_marker",
       "points": [
-        {
-          "N": 128,
-          "memory_mb": 3.1
-        },
-        {
-          "N": 256,
-          "memory_mb": 6.2
-        },
-        {
-          "N": 512,
-          "memory_mb": 12.4
-        },
-        {
-          "N": 1024,
-          "memory_mb": 24.9
-        },
-        {
-          "N": 2048,
-          "memory_mb": 49.8
-        },
-        {
-          "N": 4096,
-          "memory_mb": 99.5
-        },
         {
           "N": 8192,
-          "memory_mb": 199.0
-        }
-      ]
-    },
-    {
-      "series": "gather_sdpa_K16",
-      "batch": 1,
-      "kind": "projected",
-      "fit": "2.429e-02\u00b7N^1 + -2.299e-03\u00b7N^0",
-      "points": [
-        {
-          "N": 10922.666666666666,
-          "memory_mb": 265.3481461369052
-        },
-        {
-          "N": 13653.333333333332,
-          "memory_mb": 331.6857573837752
-        },
-        {
-          "N": 16384.0,
-          "memory_mb": 398.0233686306452
-        },
-        {
-          "N": 19114.666666666664,
-          "memory_mb": 464.36097987751515
-        },
-        {
-          "N": 21845.333333333332,
-          "memory_mb": 530.6985911243851
-        },
-        {
-          "N": 24576.0,
-          "memory_mb": 597.0362023712552
-        },
-        {
-          "N": 27306.666666666664,
-          "memory_mb": 663.373813618125
-        },
-        {
-          "N": 30037.333333333332,
-          "memory_mb": 729.7114248649951
-        },
-        {
-          "N": 32768.0,
-          "memory_mb": 796.0490361118651
+          "memory_mb": 67152.15916666665
         }
       ]
     },
@@ -459,81 +243,13 @@
       ]
     },
     {
-      "series": "dense_flash",
-      "batch": 1,
-      "kind": "measured",
+      "series": "gather_sdpa_K16",
+      "batch": 64,
+      "kind": "oom_marker",
       "points": [
         {
-          "N": 128,
-          "memory_mb": 0.4
-        },
-        {
-          "N": 256,
-          "memory_mb": 0.8
-        },
-        {
-          "N": 512,
-          "memory_mb": 1.6
-        },
-        {
-          "N": 1024,
-          "memory_mb": 3.2
-        },
-        {
-          "N": 2048,
-          "memory_mb": 6.3
-        },
-        {
-          "N": 4096,
-          "memory_mb": 12.6
-        },
-        {
-          "N": 8192,
-          "memory_mb": 25.3
-        }
-      ]
-    },
-    {
-      "series": "dense_flash",
-      "batch": 1,
-      "kind": "projected",
-      "fit": "3.085e-03\u00b7N^1 + 8.046e-03\u00b7N^0",
-      "points": [
-        {
-          "N": 10922.666666666666,
-          "memory_mb": 33.70038615862671
-        },
-        {
-          "N": 13653.333333333332,
-          "memory_mb": 42.12347120403052
-        },
-        {
-          "N": 16384.0,
-          "memory_mb": 50.54655624943433
-        },
-        {
-          "N": 19114.666666666664,
-          "memory_mb": 58.969641294838134
-        },
-        {
-          "N": 21845.333333333332,
-          "memory_mb": 67.39272634024194
-        },
-        {
-          "N": 24576.0,
-          "memory_mb": 75.81581138564574
-        },
-        {
-          "N": 27306.666666666664,
-          "memory_mb": 84.23889643104955
-        },
-        {
-          "N": 30037.333333333332,
-          "memory_mb": 92.66198147645336
-        },
-        {
-          "N": 32768.0,
-          "memory_mb": 101.08506652185717
+          "N": 16384,
+          "memory_mb": 44190.221428571436
         }
       ]
     },
@@ -577,85 +293,6 @@
         {
           "N": 32768,
           "memory_mb": 6464.0
-        }
-      ]
-    },
-    {
-      "series": "flex_attn",
-      "batch": 1,
-      "kind": "measured",
-      "points": [
-        {
-          "N": 128,
-          "memory_mb": 0.4
-        },
-        {
-          "N": 256,
-          "memory_mb": 0.8
-        },
-        {
-          "N": 512,
-          "memory_mb": 1.6
-        },
-        {
-          "N": 1024,
-          "memory_mb": 3.2
-        },
-        {
-          "N": 2048,
-          "memory_mb": 6.6
-        },
-        {
-          "N": 4096,
-          "memory_mb": 12.6
-        },
-        {
-          "N": 8192,
-          "memory_mb": 25.2
-        }
-      ]
-    },
-    {
-      "series": "flex_attn",
-      "batch": 1,
-      "kind": "projected",
-      "fit": "3.072e-03\u00b7N^1 + 6.667e-02\u00b7N^0",
-      "points": [
-        {
-          "N": 10922.666666666666,
-          "memory_mb": 33.617672790901125
-        },
-        {
-          "N": 13653.333333333332,
-          "memory_mb": 42.00542432195974
-        },
-        {
-          "N": 16384.0,
-          "memory_mb": 50.393175853018356
-        },
-        {
-          "N": 19114.666666666664,
-          "memory_mb": 58.78092738407696
-        },
-        {
-          "N": 21845.333333333332,
-          "memory_mb": 67.16867891513559
-        },
-        {
-          "N": 24576.0,
-          "memory_mb": 75.5564304461942
-        },
-        {
-          "N": 27306.666666666664,
-          "memory_mb": 83.94418197725281
-        },
-        {
-          "N": 30037.333333333332,
-          "memory_mb": 92.33193350831142
-        },
-        {
-          "N": 32768.0,
-          "memory_mb": 100.71968503937005
         }
       ]
     },

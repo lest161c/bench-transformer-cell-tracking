@@ -78,13 +78,31 @@ def measure(fn, warmup=5, min_run_time=0.3, repeats=1) -> tuple[float, float, fl
     return mean_time_s, std_time_s, memory_mb
 
 
+def _recover_after_failure() -> None:
+    """Release failed-allocation state so the next config starts clean.
+
+    A CUDA OOM (or any failed kernel launch) can leave the caching
+    allocator fragmented or holding reserved blocks; without an explicit
+    release the NEXT configuration can spuriously OOM too. Called after
+    every failed benchmark attempt — OOM is a soft, recorded outcome
+    (status ``'oom'``), never a run-terminating condition.
+    """
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+
 def try_bench(bench_fn, *args, warmup=5, min_run_time=0.3, repeats=1, **kwargs) -> tuple[float, float, float, str]:
-    """Try to build and benchmark, catching OOM/errors.
+    """Try to build and benchmark, catching OOM/errors as soft outcomes.
 
     Calls ``bench_fn(*args, **kwargs)`` to build a callable and benchmarks it
     with :func:`measure`, passing ``warmup``/``min_run_time``/``repeats``
     through. CUDA out-of-memory errors are reported with the dedicated
     status ``"oom"``; any other error is reported as ``"err: <message>"``.
+    Either way the failure is RECORDED, not raised: the sweep continues
+    with the next configuration, and :func:`_recover_after_failure`
+    releases the failed allocation state first so one OOM cannot cascade
+    into the following configurations.
 
     Args:
         bench_fn: Function that builds and returns the callable to benchmark.
@@ -105,9 +123,11 @@ def try_bench(bench_fn, *args, warmup=5, min_run_time=0.3, repeats=1, **kwargs) 
         time_s_mean, time_s_std, memory_mb = measure(fn, warmup=warmup, min_run_time=min_run_time, repeats=repeats)
         return time_s_mean, time_s_std, memory_mb, "ok"
     except RuntimeError as e:
+        _recover_after_failure()
         msg = str(e).lower()
         if "out of memory" in msg:
             return -1, -1, -1, "oom"
         return -1, -1, -1, f"err: {e}"
     except Exception as e:
+        _recover_after_failure()
         return -1, -1, -1, f"err: {e}"

@@ -735,60 +735,63 @@ def _project_memory(ns, mems, model, n_to=32768, n_points=10):
 def panel_memory_vs_n():
     """
     Report figure ``04_memory_vs_n.pdf`` — incremental peak GPU memory vs
-    sequence length, B=1 (dashed) and B=64 (solid), from the verified H100
-    v2 grid (B=1) and the b64 saturation grid (B=64, cache-regime-
+    sequence length at B=64, from the b64 saturation grid (cache-regime-
     independent rows pooled per :func:`_b64_pooled_frame`).
 
-    Every curve is drawn as far as it was MEASURED (solid for B=64, dashed
-    for B=1); beyond the last successful measurement the curve continues
-    as a DOTTED projection of its fitted scaling (quadratic for the masked
-    methods, linear for the gather/flash/flex family), so the full
-    N in {128..32768} range is covered and the OOM boundaries are visible
-    as the transition from measured to projected. The horizontal grey line
-    marks the 80 GB H100 VRAM limit: the projected masked-dense memory
-    crosses it just above N=8192 at B=64 (a single (B, H, N, N) fp16 mask
-    plane is already 68.7 GB there), which is exactly where the measured
-    rows turn oom. Gather's measured OOM at B=64/N=16384 is caused by the
-    O(B N^2) KNN distance matrix built for the indices, not by its linear
-    attention working set (projected ~44 GB at that shape).
+    OOM is a soft, plotted outcome, never a curve end: every curve is
+    drawn as far as it was MEASURED (solid); from there it continues as a
+    DOTTED projection of its fitted scaling (quadratic for the masked
+    methods, linear for the gather/flash/flex family) through the full
+    N in {128..32768} range. The measured OOM shapes are marked with a
+    cross at the projected memory of that shape, so the marker sits ON the
+    dotted curve and shows measured failure and projection agreeing (e.g.
+    CachedDistAttention OOMs at B=64/N=8192 where the projection says
+    145 GB, far above the grey 80 GB H100 VRAM line). SparseGather's OOM
+    marker sits BELOW the line (its projected attention working set at
+    N=16384 is only ~44 GB): that failure is caused by the O(B N^2) KNN
+    distance matrix built for the indices, not by the attention tensors.
 
     Log-log axes; Okabe-Ito colours per method, shared with the speed
-    panel. flex_attn coincides with dense_flash within 0.3 MB at every
-    measured N at B=1 (its compiled block-sparse mask avoids the N x N
-    score materialization) and is drawn dashed for visibility.
+    panel. Per-series rendering is guarded: a malformed or missing series
+    is skipped with a printed note instead of aborting the figure.
     """
-    df1 = pd.read_csv(H100_CSV)
-    df1 = df1[df1['error'].isna() & (df1['L'] == 1)].copy()
-    df1['N'] = df1['N'].astype(int)
     df64 = _b64_pooled_frame()
+    # OOM shapes per method from BOTH b64 runs (soft outcomes, not curve
+    # ends): first N whose status is oom, per (method, K).
+    oom_frames = []
+    for path in (B64_CSV, B64_CSV_OFF):
+        frame = pd.read_csv(path)
+        oom_frames.append(frame[frame['error'].astype(str).str.contains('oom', na=False)])
+    oom_rows = pd.concat(oom_frames)
 
     series_specs = [
         # (label-key, K, colour, b64 method key, projection model)
-        ('dense_masked', 0,  OI_VERMILION, 'dense_masked',        'quad'),
-        ('mask_knn',     16, OI_SKYBLUE,   'sparse_mask',         'quad'),
-        ('gather_sdpa',  16, OI_ORANGE,    'sparse_gather_sdpa',  'lin'),
-        ('dense_flash',  0,  OI_BLACK,     'dense_flash',         'lin'),
-        ('flex_attn',    0,  OI_PURPLE,    'flex_attn',           'lin'),
+        ('dense_masked', 0,  OI_VERMILION, 'dense_masked',       'quad'),
+        ('mask_knn',     16, OI_SKYBLUE,   'sparse_mask',        'quad'),
+        ('gather_sdpa',  16, OI_ORANGE,    'sparse_gather_sdpa', 'lin'),
+        ('dense_flash',  0,  OI_BLACK,     'dense_flash',        'lin'),
+        ('flex_attn',    0,  OI_PURPLE,    'flex_attn',          'lin'),
     ]
     fig, ax = plt.subplots(figsize=(5.6, 2.6))
     meta_values = []
     for method, k, colour, b64_key, model in series_specs:
-        for batch, source_df, source_method, base_style in (
-                (1, df1, method, '--'), (64, df64, b64_key, '-')):
-            rows = source_df[(source_df.method == source_method)]
+        try:
+            rows = df64[(df64.method == b64_key)]
             if k:
                 rows = rows[rows.K == k]
             rows = rows.dropna(subset=['memory_mb'])
             rows = rows[rows.memory_mb > 0].groupby(
                 'N', as_index=False).memory_mb.max().sort_values('N')
             if rows.empty:
+                print(f'  [memory] no measured rows for {b64_key} '
+                      f'(K={k}) — skipped')
                 continue
             ns, mems = rows.N.to_numpy(), rows.memory_mb.to_numpy()
-            ax.plot(ns, mems, base_style, marker='o', ms=2.2, lw=0.8,
+            ax.plot(ns, mems, '-', marker='o', ms=2.2, lw=0.8,
                     color=colour, zorder=3)
+            series_name = method if k == 0 else f'{method}_K{k}'
             meta_values.append({
-                'series': method if k == 0 else f'{method}_K{k}',
-                'batch': batch, 'kind': 'measured',
+                'series': series_name, 'batch': 64, 'kind': 'measured',
                 'points': [{'N': int(n), 'memory_mb': float(m)}
                            for n, m in zip(ns, mems)]})
             proj_ns, proj_ms, terms = _project_memory(
@@ -797,11 +800,30 @@ def panel_memory_vs_n():
                 ax.plot(proj_ns, proj_ms, ':', marker='o', ms=2.0,
                         lw=0.8, color=colour, zorder=2, alpha=0.75)
                 meta_values.append({
-                    'series': method if k == 0 else f'{method}_K{k}',
-                    'batch': batch, 'kind': 'projected',
+                    'series': series_name, 'batch': 64, 'kind': 'projected',
                     'fit': terms,
                     'points': [{'N': float(n), 'memory_mb': float(m)}
                                for n, m in zip(proj_ns, proj_ms)]})
+            # OOM markers at the projected value of the OOM shape: the
+            # cross sits ON the dotted curve, showing that the measured
+            # failure and the theoretical scaling agree.
+            oom = oom_rows[(oom_rows['method'] == b64_key)]
+            if k:
+                oom = oom[oom['K'] == k]
+            first_oom = oom['N'].min() if not oom.empty else None
+            if first_oom is not None and proj_ns:
+                import numpy as np
+                degree = 2 if model == 'quad' else 1
+                coefficients = np.polyfit(ns, mems, degree)
+                y_at_oom = float(np.polyval(coefficients, first_oom))
+                ax.plot([first_oom], [y_at_oom], 'x', ms=5, mew=1.4,
+                        color=colour, zorder=4)
+                meta_values.append({
+                    'series': series_name, 'batch': 64, 'kind': 'oom_marker',
+                    'points': [{'N': int(first_oom), 'memory_mb': y_at_oom}]})
+        except Exception as exc:  # noqa: BLE001 — one bad series must not
+            # abort the figure; OOM and malformed rows are soft outcomes.
+            print(f'  [memory] series {b64_key} (K={k}) skipped: {exc}')
     # 80 GB H100 VRAM limit
     ax.axhline(80000.0, color='#999999', lw=1.0, linestyle='--', zorder=1)
     ax.text(140, 95000, '80 GB H100 VRAM', fontsize=5.5, color='#666666')
@@ -812,18 +834,18 @@ def panel_memory_vs_n():
     ax.get_xaxis().set_minor_formatter(mticker.NullFormatter())
     ax.set_xlabel('Sequence length $N$')
     ax.set_ylabel('GPU Memory (MB)')
-    ax.set_title('GPU memory vs sequence length')
+    ax.set_title('GPU memory vs sequence length (B=64)')
     method_handles = [
         mlines.Line2D([], [], color=colour, lw=0.8, marker='o', ms=2.2,
                       label=H100_LABELS[method])
         for method, _, colour, _, _ in series_specs]
     style_handles = [
-        mlines.Line2D([], [], color=OI_BLACK, lw=0.8, linestyle='--',
-                      label='B=1 measured'),
         mlines.Line2D([], [], color=OI_BLACK, lw=0.8, linestyle='-',
-                      label='B=64 measured'),
+                      label='measured'),
         mlines.Line2D([], [], color=OI_BLACK, lw=0.8, linestyle=':',
                       label='projected scaling'),
+        mlines.Line2D([], [], color=OI_BLACK, lw=0.8, marker='x',
+                      linestyle='none', ms=5, mew=1.4, label='measured OOM'),
     ]
     ax.legend(handles=method_handles, fontsize=5.5, frameon=False,
               loc='upper left')
@@ -832,7 +854,7 @@ def panel_memory_vs_n():
     fig.tight_layout()
 
     body_meta = {
-        'sources': [str(H100_CSV), str(B64_CSV), str(B64_CSV_OFF)],
+        'sources': [str(B64_CSV), str(B64_CSV_OFF)],
         'values': meta_values,
     }
     return save('04_memory_vs_n', meta=body_meta)
