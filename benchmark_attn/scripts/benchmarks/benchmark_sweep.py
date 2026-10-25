@@ -161,7 +161,8 @@ def _forward_layer(layer, x, coords, knn_idx, forward_style, dist_2d=None):
 
 def build_closure(method_key, layer_count, seq_len, knn_neighbors,
                   batch_size, d_model, n_head, coord_dim, mode, dist_mode,
-                  device, dtype, seed, with_knn=False, dist_cache="on"):
+                  device, dtype, seed, with_knn=False, dist_cache="on",
+                  no_grad=False):
     """Build a zero-argument closure that runs ``layer_count`` chained layers.
 
     Creates the synthetic inputs with ``make_inputs``, computes the KNN
@@ -207,6 +208,11 @@ def build_closure(method_key, layer_count, seq_len, knn_neighbors,
             once for ``dense_masked`` (``CachedDistAttention``) and
             amortised across the chained layers (current default). Other
             methods receive ``dist_2d=None`` because they never consume it.
+        no_grad: If ``True``, the returned closure runs the timed forward
+            under ``torch.no_grad()`` (inference mode, no autograd graph is
+            built). Closure setup is unchanged: inputs, layers, KNN indices,
+            and any cached distances are still built with grad enabled, so
+            only the timed forward differs.
 
     Returns:
         A closure whose return value is the output of the last layer.
@@ -288,6 +294,13 @@ def build_closure(method_key, layer_count, seq_len, knn_neighbors,
             for layer in layers:
                 output = _forward_layer(layer, output, coords, knn_idx, forward_style, dist_2d)
             return output
+
+    if no_grad:
+        def no_grad_closure():
+            """Run the timed forward in inference mode (no autograd graph)."""
+            with torch.no_grad():
+                return closure()
+        return no_grad_closure
 
     return closure
 
@@ -693,7 +706,7 @@ def _format_row(method_key, layer_count, seq_len, knn_neighbors, batch_size,
 def run_sweep(methods, layer_counts, seq_lens, knn_choices, mode, dist_mode,
               d_model, n_head, coord_dim, batch_size, device, dtype, seed,
               warmup=5, min_run_time=0.3, repeats=1, with_knn=False,
-              dist_cache="on"):
+              dist_cache="on", no_grad=False):
     """Run the full method × L × N × K sweep and collect the result rows.
 
     Non-KNN methods are swept once per (method, L, N) with ``K=0``; KNN-based
@@ -721,6 +734,10 @@ def run_sweep(methods, layer_counts, seq_lens, knn_choices, mode, dist_mode,
             computed once outside the timed closure and amortised across
             all chained layers; when "off", it is recomputed inside the
             closure on every timed call.
+        no_grad: If ``True``, forward it to :func:`build_closure` via
+            ``try_bench`` so the timed forward runs under ``torch.no_grad()``
+            (inference mode, no autograd graph). Default: grad-enabled
+            forward.
 
     Returns:
         List of CSV rows [method, L, N, K, batch, time_ms, memory_mb, error,
@@ -759,7 +776,7 @@ def run_sweep(methods, layer_counts, seq_lens, knn_choices, mode, dist_mode,
                         batch_size, d_model, n_head, coord_dim, mode, dist_mode,
                         device, dtype, seed, with_knn,
                         warmup=warmup, min_run_time=min_run_time, repeats=repeats,
-                        dist_cache=dist_cache,
+                        dist_cache=dist_cache, no_grad=no_grad,
                     )
                     rows.append(_format_row(
                         method_key, layer_count, seq_len, knn_neighbors,
@@ -880,6 +897,11 @@ def main():
              "forward pass. Without this flag, KNN indices are pre-computed "
              "once before timing, isolating the attention-kernel cost.",
     )
+    parser.add_argument(
+        "--no-grad", action="store_true",
+        help="Run the timed closure under torch.no_grad (inference mode, no "
+             "autograd graph). Default: grad-enabled forward.",
+    )
     add_common_args(parser)
     args = parser.parse_args()
 
@@ -898,6 +920,7 @@ def main():
     print(f"Methods: {methods}")
     print(f"L = {layer_counts}  N = {seq_lens}  K = {knn_choices}  B = {args.batch}")
     print(f"with_knn: {args.with_knn}\n")
+    print(f"no_grad: {args.no_grad}")
     print(f"[Timing] warmup={args.warmup} rep={args.rep} repeats={args.repeats}")
     print(f"[DistCache] dist_cache={args.dist_cache}")
 
@@ -929,6 +952,7 @@ def main():
         batch_size=args.batch, device=device, dtype=dtype, seed=args.seed,
         warmup=args.warmup, min_run_time=args.rep / 1000.0, repeats=args.repeats,
         with_knn=args.with_knn, dist_cache=args.dist_cache,
+        no_grad=args.no_grad,
     )
 
     header = ["method", "L", "N", "K", "batch", "time_ms", "memory_mb", "error", "time_std_ms", "dist_cache", "backend"]
