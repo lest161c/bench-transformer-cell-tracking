@@ -424,21 +424,14 @@ def test_extract_feature_frame_dispatches_dino(
 def test_extract_feature_frame_dispatches_sam21_without_sam2(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``sam21`` dispatches to the adapter method without importing ``sam2``."""
-    from src.analysis import sam21_features
+    """``sam21`` dispatches to the standalone extractor without importing ``sam2``."""
+    from src.analysis import sam21_probe_features
 
     recorded_arguments: dict[str, np.ndarray] = {}
 
-    def fake_init(
-        self: object,
-        device: str = "cuda",
-        mode: str = "nearest_patch",
-        image_size: tuple[int, int] = (1024, 1024),
-    ) -> None:
+    def fake_init(self: object, device: str = "cuda") -> None:
         """Replace checkpoint loading so the test never needs ``sam2``."""
         self.device = device
-        self.mode = mode
-        self.image_size = image_size
 
     def fake_extract_frame(
         self: object, image: np.ndarray, coords: np.ndarray
@@ -450,9 +443,13 @@ def test_extract_feature_frame_dispatches_sam21_without_sam2(
             coords.shape[0] * 256, dtype=np.float32
         ).reshape(coords.shape[0], 256)
 
-    monkeypatch.setattr(sam21_features.Sam21FeatureExtractor, "__init__", fake_init)
     monkeypatch.setattr(
-        sam21_features.Sam21FeatureExtractor, "extract_frame", fake_extract_frame
+        sam21_probe_features.Sam21ProbeFeatureExtractor, "__init__", fake_init
+    )
+    monkeypatch.setattr(
+        sam21_probe_features.Sam21ProbeFeatureExtractor,
+        "extract_frame",
+        fake_extract_frame,
     )
 
     coords = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)

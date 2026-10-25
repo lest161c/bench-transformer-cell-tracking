@@ -12,10 +12,11 @@ The shallow/handcrafted rows ``regionprops_7d``, ``regionprops_13d``,
 rows ``dino`` (DINOv2 ``dinov2_vits14``), ``cnn_frozen`` (DynaCLR ScaledCNN),
 ``cnn_ntxent`` (NT-Xent ScaledCNN) and ``sam21``
 (SAM2.1-Hiera-B+, ``facebook/sam2.1-hiera-base-plus``).  The ``sam21`` row uses
-the optional ``sam2`` package through
-:class:`src.analysis.sam21_features.Sam21FeatureExtractor`; when that package is
-missing the CLI exits with the adapter's install hint instead of an import
-traceback.
+the optional ``sam2`` package through the standalone
+:class:`src.analysis.sam21_probe_features.Sam21ProbeFeatureExtractor`, which
+loads the official package directly and does not import the Trackastra fork;
+when that package is missing the CLI exits with the extractor's install hint
+instead of an import traceback.
 
 Design summary
 --------------
@@ -425,18 +426,22 @@ class FeatureExtractorContext:
 
         Returns:
             The constructed
-            :class:`src.analysis.sam21_features.Sam21FeatureExtractor`.
+            :class:`src.analysis.sam21_probe_features.Sam21ProbeFeatureExtractor`.
 
         Raises:
-            ImportError: If ``sam2`` or the vendored Trackastra fork is
-                unavailable.  The message contains the adapter's install hint.
+            ImportError: If the optional ``sam2`` package is unavailable.  The
+                message contains the extractor's install hint.
         """
         if self._sam21_extractor is not None:
             return self._sam21_extractor
 
-        from src.analysis.sam21_features import Sam21FeatureExtractor
+        from src.analysis.sam21_probe_features import (
+            Sam21ProbeFeatureExtractor,
+        )
 
-        self._sam21_extractor = Sam21FeatureExtractor(device=str(self.device))
+        self._sam21_extractor = Sam21ProbeFeatureExtractor(
+            device=str(self.device)
+        )
         return self._sam21_extractor
 
     def checkpoint_record(self, feature_name: str) -> dict[str, Any]:
@@ -2323,6 +2328,7 @@ def _build_run_payload(
     resolved_device: torch.device,
     environment: Mapping[str, Any],
     checkpoint_record: Mapping[str, Any],
+    feature_metadata: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Assemble one per-run JSON payload.
 
@@ -2340,6 +2346,9 @@ def _build_run_payload(
         environment: Runtime environment mapping.
         checkpoint_record: Checkpoint identity for this feature row, as returned
             by :meth:`FeatureExtractorContext.checkpoint_record`.
+        feature_metadata: Optional extraction configuration to merge into the
+            ``feature_configuration`` block, for example the SAM2.1 adapter's
+            :meth:`metadata` mapping.  Ignored when ``None``.
 
     Returns:
         The JSON-serialisable run payload.  It contains every key required by
@@ -2370,6 +2379,9 @@ def _build_run_payload(
             "encoding": feature_name,
             "output_dim": int(fold_results[0].get("feature_dimension", 0)),
         }
+
+    if feature_metadata is not None:
+        feature_configuration.update(dict(feature_metadata))
 
     data_scope: dict[str, Any] = {
         **scan_statistics,
@@ -2884,6 +2896,11 @@ def run_experiment(args: argparse.Namespace) -> int:
                         environment=environment,
                         checkpoint_record=extractor_context.checkpoint_record(
                             feature_name
+                        ),
+                        feature_metadata=(
+                            extractor_context.sam21_extractor().metadata()
+                            if feature_name == "sam21"
+                            else None
                         ),
                     )
                     run_path = (
