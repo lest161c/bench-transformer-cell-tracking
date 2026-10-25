@@ -28,6 +28,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[4]
 CACHE_DIR = PROJECT_ROOT / "results" / "feature_cache"
 PATCH_SIZE = 64
 
+#: Default number of Fourier frequencies per spatial dimension for ``posenc``.
+POSENC_N_FREQS = 8
+#: Output dimensionality of the default ``posenc`` encoding:
+#: 2 spatial dimensions * 8 frequencies * (sin, cos) = 32.
+POSENC_DIM = 2 * POSENC_N_FREQS * 2
+
 
 # ── Regionprops 7D (wrfeat-style) ────────────────────────────────────────────
 
@@ -397,6 +403,55 @@ def extract_hoct2d_fourier(mask, img, frame_idx=0, n_freqs=8, cutoff=128.0):
     )
 
     return coords, labels, features
+
+
+# ── Position-only Fourier PE baseline (posenc) ───────────────────────────────
+
+
+def extract_posenc(coords, n_freqs=POSENC_N_FREQS, cutoff=128.0):
+    """Encode cell centroids with Fourier positional encoding only.
+
+    This is the position-only baseline for the K-nearest-neighbour probe:
+    it deliberately uses no appearance features and no time coordinate.
+    Two cells are therefore indistinguishable unless their ``(y, x)``
+    centroids differ, which isolates how much of the probe's performance
+    can be explained by spatial position alone.
+
+    Convenience wrapper over :class:`src.models.fourier_pe.FourierPE`. The
+    encoding concatenates ``sin`` and ``cos`` of each coordinate at
+    ``n_freqs`` geometrically decaying frequencies, so the default output
+    is ``(N, 32)`` (2 dimensions * 8 frequencies * 2). The encoding is
+    deterministic and finite for finite coordinates.
+
+    Args:
+        coords: ``(N, 2)`` array-like of float ``(y, x)`` centroids in
+            pixels.
+        n_freqs: Number of Fourier frequencies per spatial dimension.
+            Defaults to :data:`POSENC_N_FREQS` (8).
+        cutoff: Geometric frequency-decay cutoff passed to ``FourierPE``.
+            Defaults to 128.0.
+
+    Returns:
+        ``(N, 4 * n_freqs)`` ``float32`` array; ``(N, 32)`` for the default
+        ``n_freqs``. An empty input returns ``(0, 4 * n_freqs)``.
+
+    Raises:
+        ValueError: If ``coords`` is not a 2-D array with two columns.
+    """
+    coords_array = np.asarray(coords, dtype=np.float32)
+    if coords_array.ndim != 2 or coords_array.shape[1] != 2:
+        raise ValueError(
+            f"coords must have shape (N, 2), got {coords_array.shape}"
+        )
+
+    output_dim = 2 * n_freqs * 2
+    if coords_array.shape[0] == 0:
+        return np.zeros((0, output_dim), dtype=np.float32)
+
+    pe = FourierPE(coord_dim=2, n_freqs=n_freqs, cutoff=cutoff)
+    with torch.no_grad():
+        encoded = pe(torch.from_numpy(coords_array)).numpy().astype(np.float32)
+    return encoded
 
 
 # ── ScaledCNN (same arch as cnn_ssl.py) ──────────────────────────────────────
