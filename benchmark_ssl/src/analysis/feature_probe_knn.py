@@ -238,6 +238,15 @@ EXCLUDED_EXPERIMENTS: frozenset[str] = frozenset({"150303-08_BAD"})
 #: Largest K searched by the coverage diagnostic, matching SPEC 0046 section
 #: 4.2 ("capped at 64 if larger").
 DEFAULT_K_MAX = 64
+#: Global cap passed to :func:`scan_consecutive_pairs` when locating the full
+#: consecutive-pair list.  It is deliberately far above any vanvliet sequence
+#: length so the per-condition sampling sees the whole sequence; the effective
+#: number of loaded pairs is still governed by ``max_pairs_per_condition``.
+MAX_SCANNED_CONSECUTIVE_PAIRS = 1_000_000
+#: Oversampling factor used when building the candidate pool for each
+#: condition.  Up to three times the requested pair count is inspected so
+#: sparse early frames can be dropped without losing the target sample size.
+PAIR_SAMPLE_OVERSAMPLE_FACTOR = 3
 #: Held-out fraction of each fold's *training* pairs used for early stopping
 #: and threshold selection.  The final held-out fold is never used here.
 DEFAULT_VALIDATION_FRACTION = 0.2
@@ -788,6 +797,32 @@ def _pair_identifier(
     return f"{condition}/{experiment}/{anchor_stem}->{candidate_stem}"
 
 
+def _evenly_spaced_indices(n_items: int, n_select: int) -> list[int]:
+    """Return up to ``n_select`` evenly spaced indices over ``n_items`` items.
+
+    Called by :func:`load_base_pairs` to spread the sampled frame pairs across
+    each condition's full consecutive-pair sequence instead of taking the first
+    N pairs.  The first and last item are selected whenever at least two
+    indices are requested, so the sample covers the whole sequence.
+
+    Args:
+        n_items: Number of items in the full sequence.
+        n_select: Desired number of indices.
+
+    Returns:
+        Strictly increasing unique indices in ``[0, n_items)``.  All indices
+        are returned when ``n_select >= n_items``; an empty list is returned
+        when either count is not positive.
+    """
+    if n_items <= 0 or n_select <= 0:
+        return []
+    if n_select >= n_items:
+        return list(range(n_items))
+
+    raw_indices = np.linspace(0, n_items - 1, num=n_select).round().astype(int)
+    return sorted({int(index) for index in raw_indices})
+
+
 def load_base_pairs(
     data_root: str | Path,
     conditions: Sequence[str],
@@ -799,10 +834,17 @@ def load_base_pairs(
     are the feature-agnostic basis for fold assignment and the coverage-vs-K
     diagnostic, so K selection never depends on appearance features.
 
+    Pairs are sampled evenly across each condition's full consecutive-pair
+    list rather than taking the first N pairs, because early frames are sparser
+    and do not represent later candidate density.  A candidate pool of up to
+    three times the requested count is inspected so sparse pairs can be dropped
+    without shrinking the usable sample when denser pairs are available.
+
     Args:
         data_root: Root containing the vanvliet condition directories.
         conditions: Condition names to scan, in order.
-        max_pairs_per_condition: Maximum number of usable pairs per condition.
+        max_pairs_per_condition: Target maximum number of usable pairs per
+            condition.
 
     Returns:
         ``(base_pairs, scan_statistics)`` where each base pair has keys
@@ -823,74 +865,113 @@ def load_base_pairs(
                 f"condition directory not found under {root}: {condition}"
             )
 
-    maximum_pairs = max(1, int(max_pairs_per_condition) * len(conditions))
     scanned_pairs = scan_consecutive_pairs(
         str(root),
         list(conditions),
-        maximum_pairs,
-        max_pairs_per_condition=int(max_pairs_per_condition),
+        MAX_SCANNED_CONSECUTIVE_PAIRS,
+        max_pairs_per_condition=0,
     )
 
-    base_pairs: list[dict[str, Any]] = []
-    pair_counts_by_condition: dict[str, int] = {}
+    pairs_by_condition: dict[str, list[tuple[str, ...]]] = {
+        condition: [] for condition in conditions
+    }
     excluded_pair_count = 0
-    skipped_pairs: list[dict[str, str]] = []
-    for (
-        anchor_mask_path,
-        candidate_mask_path,
-        anchor_image_path,
-        candidate_image_path,
-        _man_track_path,
-        condition,
-        experiment,
-    ) in scanned_pairs:
+    for scanned_pair in scanned_pairs:
+        condition = scanned_pair[5]
+        experiment = scanned_pair[6]
         if experiment in EXCLUDED_EXPERIMENTS:
             excluded_pair_count += 1
             continue
+        pairs_by_condition[condition].append(scanned_pair)
 
-        pair_id = _pair_identifier(
-            condition, experiment, anchor_mask_path, candidate_mask_path
+    target_pairs_per_condition = max(1, int(max_pairs_per_condition))
+    base_pairs: list[dict[str, Any]] = []
+    pair_counts_by_condition: dict[str, int] = {}
+    skipped_pairs: list[dict[str, str]] = []
+    for condition in conditions:
+        condition_pairs = pairs_by_condition[condition]
+        candidate_pool_size = min(
+            len(condition_pairs),
+            target_pairs_per_condition * PAIR_SAMPLE_OVERSAMPLE_FACTOR,
         )
-        try:
-            anchor_frame = load_frame(anchor_mask_path, anchor_image_path)
-            candidate_frame = load_frame(candidate_mask_path, candidate_image_path)
-        except (OSError, ValueError) as loading_error:
-            skipped_pairs.append({"pair_id": pair_id, "reason": str(loading_error)})
-            logger.warning("skipping pair %s: %s", pair_id, loading_error)
-            continue
+        candidate_indices = _evenly_spaced_indices(
+            len(condition_pairs), candidate_pool_size
+        )
 
-        if anchor_frame is None or candidate_frame is None:
-            skip_reason = "fewer than two cells in at least one frame"
-            skipped_pairs.append({"pair_id": pair_id, "reason": skip_reason})
-            logger.warning("skipping pair %s: %s", pair_id, skip_reason)
-            continue
+        usable_condition_pairs: list[dict[str, Any]] = []
+        for pair_index in candidate_indices:
+            (
+                anchor_mask_path,
+                candidate_mask_path,
+                anchor_image_path,
+                candidate_image_path,
+                _man_track_path,
+                _pair_condition,
+                experiment,
+            ) = condition_pairs[pair_index]
+            pair_id = _pair_identifier(
+                condition, experiment, anchor_mask_path, candidate_mask_path
+            )
+            try:
+                anchor_frame = load_frame(anchor_mask_path, anchor_image_path)
+                candidate_frame = load_frame(
+                    candidate_mask_path, candidate_image_path
+                )
+            except (OSError, ValueError) as loading_error:
+                skipped_pairs.append(
+                    {"pair_id": pair_id, "reason": str(loading_error)}
+                )
+                logger.warning("skipping pair %s: %s", pair_id, loading_error)
+                continue
 
-        anchor_coords, anchor_labels, anchor_image, anchor_mask = anchor_frame
-        candidate_coords, candidate_labels, candidate_image, candidate_mask = (
-            candidate_frame
+            if anchor_frame is None or candidate_frame is None:
+                skip_reason = "fewer than two cells in at least one frame"
+                skipped_pairs.append({"pair_id": pair_id, "reason": skip_reason})
+                logger.warning("skipping pair %s: %s", pair_id, skip_reason)
+                continue
+
+            anchor_coords, anchor_labels, anchor_image, anchor_mask = anchor_frame
+            candidate_coords, candidate_labels, candidate_image, candidate_mask = (
+                candidate_frame
+            )
+            if min(anchor_coords.shape[0], candidate_coords.shape[0]) < 3:
+                skip_reason = "fewer than three cells in at least one frame"
+                skipped_pairs.append({"pair_id": pair_id, "reason": skip_reason})
+                logger.warning("skipping pair %s: %s", pair_id, skip_reason)
+                continue
+
+            usable_condition_pairs.append(
+                {
+                    "pair_id": pair_id,
+                    "condition": condition,
+                    "experiment": experiment,
+                    "anchor": {
+                        "coords": anchor_coords,
+                        "labels": anchor_labels,
+                        "img": anchor_image,
+                        "mask": anchor_mask,
+                    },
+                    "candidate": {
+                        "coords": candidate_coords,
+                        "labels": candidate_labels,
+                        "img": candidate_image,
+                        "mask": candidate_mask,
+                    },
+                }
+            )
+
+        selected_positions = _evenly_spaced_indices(
+            len(usable_condition_pairs),
+            min(
+                len(usable_condition_pairs),
+                target_pairs_per_condition,
+            ),
         )
-        base_pairs.append(
-            {
-                "pair_id": pair_id,
-                "condition": condition,
-                "experiment": experiment,
-                "anchor": {
-                    "coords": anchor_coords,
-                    "labels": anchor_labels,
-                    "img": anchor_image,
-                    "mask": anchor_mask,
-                },
-                "candidate": {
-                    "coords": candidate_coords,
-                    "labels": candidate_labels,
-                    "img": candidate_image,
-                    "mask": candidate_mask,
-                },
-            }
-        )
-        pair_counts_by_condition[condition] = (
-            pair_counts_by_condition.get(condition, 0) + 1
-        )
+        for selected_position in selected_positions:
+            base_pairs.append(usable_condition_pairs[selected_position])
+            pair_counts_by_condition[condition] = (
+                pair_counts_by_condition.get(condition, 0) + 1
+            )
 
     if not base_pairs:
         raise ValueError(

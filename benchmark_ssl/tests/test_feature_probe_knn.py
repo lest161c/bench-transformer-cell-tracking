@@ -20,6 +20,7 @@ from src.analysis.feature_probe_knn import (
     FeatureExtractorContext,
     InsufficientCoverageError,
     _extract_feature_frame,
+    _evenly_spaced_indices,
     _loco_split_specs,
     _summary_row,
     aggregate_coverage_rows,
@@ -78,6 +79,20 @@ def _make_pair_record(pair_id: str, seed: int) -> dict:
         "anchor_labels": anchor_labels,
         "candidate_labels": candidate_labels,
     }
+
+
+def test_evenly_spaced_indices_spreads_sampling_across_full_range() -> None:
+    """Even sampling covers the full range without duplicates and is stable."""
+    assert _evenly_spaced_indices(6, 6) == [0, 1, 2, 3, 4, 5]
+    assert _evenly_spaced_indices(6, 10) == [0, 1, 2, 3, 4, 5]
+
+    indices = _evenly_spaced_indices(100, 7)
+    assert indices[0] == 0
+    assert indices[-1] == 99
+    assert len(indices) == 7
+    assert indices == sorted(indices)
+    assert len(set(indices)) == len(indices)
+    assert indices == _evenly_spaced_indices(100, 7)
 
 
 def test_help_exits_zero() -> None:
