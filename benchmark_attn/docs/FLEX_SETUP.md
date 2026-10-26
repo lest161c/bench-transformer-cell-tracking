@@ -137,5 +137,6 @@ After the first shape in a fresh process, per-shape setup is 5--39 ms of
 transiently peaks at 16.4 GB at N=32768, independent of batch size.  That
 16.4 GB is a **transient setup peak**, distinct from the **steady-state
 working set**: at B=64/N=32768 the steady-state forward is 1374.1 ms with a
-6.4 GB working set.  The setup peak is released after preparation and is not
-the memory a steady-state forward pass occupies.
+6.4 GB working set.  The setup peak is a high-water mark during preparation; the retained
+block-mask state is small (local A500 check at B=1: 0.0 MiB at N=4096 and
+0.1 MiB at N=8192). The H100 table records the peak, not retained memory.
