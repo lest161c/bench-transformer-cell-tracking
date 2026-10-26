@@ -110,3 +110,32 @@ The runner writes:
 - `results/flex_setup_h100_b64.csv`
 
 Logs go to `logs/flex_setup_%j.out` and `logs/flex_setup_%j.err`.
+
+## H100 result (2026-10-26, job 4469794)
+
+B=64, all 9 rows `ok`:
+
+| N | prepare_ms | first_call_ms | compile_overhead_ms | total_setup_ms | prepare_peak_mem_mb | steady_ms | steady_mem_mb |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 128 | 96.097 | 3188.360 | 3188.210 | 3284.307 | 0.3 | 0.150 | 25.0 |
+| 256 | 19.046 | 1167.542 | 1167.362 | 1186.409 | 1.0 | 0.180 | 50.0 |
+| 512 | 5.394 | 1149.425 | 1148.919 | 1154.313 | 4.0 | 0.506 | 100.0 |
+| 1024 | 5.940 | 1107.154 | 1105.507 | 1111.447 | 16.1 | 1.647 | 200.0 |
+| 2048 | 9.669 | 1153.602 | 1147.896 | 1157.564 | 64.1 | 5.707 | 400.0 |
+| 4096 | 5.421 | 1080.271 | 1058.904 | 1064.324 | 256.2 | 21.368 | 800.0 |
+| 8192 | 5.972 | 1136.673 | 1053.465 | 1059.437 | 1024.4 | 83.207 | 1600.0 |
+| 16384 | 12.160 | 1409.105 | 1081.840 | 1094.000 | 4096.8 | 327.265 | 3200.0 |
+| 32768 | 38.878 | 2444.715 | 1070.590 | 1109.468 | 16385.6 | 1374.125 | 6400.0 |
+
+B=1 shows the same pattern (9/9 `ok`): per-shape compile overhead is about
+1.1 s and the setup peak is 16.4 GB at N=32768.  The full B=1 table is in
+`benchmark_attn/results/flex_setup_h100_b1.csv`.
+
+After the first shape in a fresh process, per-shape setup is 5--39 ms of
+`prepare` plus 1.05--1.16 s of compile overhead.  The first shape pays more
+(3.2 s at B=64/N=128 and 5.6 s at B=1/N=128).  Block-mask construction
+transiently peaks at 16.4 GB at N=32768, independent of batch size.  That
+16.4 GB is a **transient setup peak**, distinct from the **steady-state
+working set**: at B=64/N=32768 the steady-state forward is 1374.1 ms with a
+6.4 GB working set.  The setup peak is released after preparation and is not
+the memory a steady-state forward pass occupies.
