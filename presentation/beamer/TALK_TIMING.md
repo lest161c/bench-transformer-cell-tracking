@@ -44,7 +44,7 @@ leaves **1:30** as buffer before Q&A; B1–B10 are untimed Q&A material.
 | 19 | Result: all three arms 0.500 | 30 | 14:25 |
 | 20 | Why it collapsed: ~1/N positives and an all-negative optimum | 65 | 15:30 |
 | 21 | Coordinate solvability: 0.982 of warp labels recoverable from coordinates | 55 | 16:25 |
-| 22 | What we did instead: DynaCLR encoder 1.47M, frozen | 45 | 17:10 |
+| 22 | What we did instead: ScaledCNN 1.47M, frozen | 45 | 17:10 |
 | 23 | Deprioritized, not disproven; two branches remain open | 45 | 17:55 |
 | | **§4.2 subtotal** | **340** | **5:40** |
 
@@ -55,7 +55,7 @@ leaves **1:30** as buffer before Q&A; B1–B10 are untimed Q&A material.
 | 24 | §4.3/§4.4: What was actually trained? What do features add? | 5 | 18:00 |
 | 25 | What was actually trained: frozen injection, not end-to-end fine-tuning | 40 | 18:40 |
 | 26 | KNN probe: K=8 covers 99.3%, candidates by centroid, shared MLP | 50 | 19:30 |
-| 27 | Position and geometry dominate: DynaCLR 0.826, nearest-centroid 0.811 | 75 | 20:45 |
+| 27 | Position and geometry dominate: ScaledCNN 0.826, nearest-centroid 0.811 | 75 | 20:45 |
 | 28 | What the probe means: features add little over geometry | 40 | 21:25 |
 | 29 | Injection protocol: projection head + concat; encoder frozen | 35 | 22:00 |
 | 30 | Small encoder is competitive, not state of the art | 70 | 23:10 |

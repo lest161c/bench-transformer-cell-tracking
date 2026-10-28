@@ -2,8 +2,8 @@
 % 20-ssl.tex -- SPEC 0055, frames 16-23.
 %
 % §4.2 SSL association pretraining. Eight frames: divider; pretext;
-% protocol; result; root cause; coordinate solvability; the frozen DynaCLR
-% pivot; status and open branches. No SSL or contrastive tutorial.
+% protocol; result; root cause; coordinate solvability; the frozen ScaledCNN
+% (DynaCLR recipe) pivot; status and open branches. No SSL or contrastive tutorial.
 % ======================================================================
 
 % ----------------------------------------------------------------------
@@ -159,8 +159,8 @@
 % Frame 22 -- the pivot.
 % (a) Why: after the pretext failure, build a legitimate SSL component
 %     within scope.
-% (b) Tried: DynaCLR-style NT-Xent ScaledCNN, 1.47M parameters, 128-D,
-%     frozen; evaluated under Achard's protocol.
+% (b) Tried: ScaledCNN trained with the DynaCLR NT-Xent recipe, 1.47M
+%     parameters, 128-D, frozen; evaluated under Achard's protocol.
 % (c) Novel: small from-scratch encoder versus large frozen foundation
 %     models; feature-encoder pretraining, not association-head pretraining.
 % (d) Interpretation: the pivot is a feature encoder, not the proposed
@@ -168,9 +168,9 @@
 %     masks.
 % ----------------------------------------------------------------------
 \begin{frame}
-  \talktitle{What we did instead: DynaCLR encoder 1.47M, frozen}
+  \talktitle{What we did instead: ScaledCNN 1.47M, frozen}
   \begin{center}
-  {\small DynaCLR \scite{hirata2025dynacl}; Achard protocol \scite{achard2025thesis}.\par}
+  {\small ScaledCNN trained with the DynaCLR recipe \scite{hirata2025dynacl}; Achard protocol \scite{achard2025thesis}.\par}
   \vspace{2mm}
   \begin{tikzpicture}[
     box/.style={draw=talkblue, fill=talkblue!6, rounded corners=2pt,

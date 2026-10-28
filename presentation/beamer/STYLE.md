@@ -42,6 +42,9 @@ extends the report typography rules in `docs/report_typography_rules.md`.
 - Use the report's canonical names: `CachedDistAttention`, `DenseFlash`,
   `SparseGather`, `SparseMask`, `FlexAttention`, `NSA`,
   `RelativePositionalAttention`.
+- DynaCLR is a training recipe, not an architecture. The architecture is
+  `ScaledCNN`. Write `ScaledCNN (DynaCLR recipe)` on first use; never label a
+  row or slide just `DynaCLR`.
 - Use the report's terms: cutoff, AOGM, AOGM-A, AOGM-D, TRA, LOCO, frame-CV.
 - Use "to our knowledge" for literature claims. Never write a bare "first".
 - Prefer "state of the art" over the abbreviation "SOTA".

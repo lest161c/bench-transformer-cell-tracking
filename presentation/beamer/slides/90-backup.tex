@@ -140,7 +140,7 @@
     \textbf{Feature} & \textbf{Frame-CV top-1} & \textbf{LOCO top-1} &
     \textbf{LOCO F1} \\
     \midrule
-    CNN DynaCLR (frozen) & $0.8527 \pm 0.0044$ & $0.8259 \pm 0.0054$ &
+    ScaledCNN (DynaCLR recipe) & $0.8527 \pm 0.0044$ & $0.8259 \pm 0.0054$ &
     $0.8279 \pm 0.0053$ \\
     Regionprops 13D & $0.8694 \pm 0.0008$ & $0.8183 \pm 0.0035$ &
     $0.8174 \pm 0.0024$ \\
@@ -185,7 +185,7 @@
     SAM2.1-Hiera-B+ & $7.00 \pm 2.14$ & $19.93 \pm 1.15$ & zero-shot \\
     CoTracker3 & $20.81 \pm 5.41$ & $18.62 \pm 0.99$ & zero-shot \\
     Original Trackastra (greedy) & 29.0 & 11.9 & in-domain; GT detections \\
-    DynaCLR ScaledCNN (ours) & $8.81 \pm 2.11$ & $19.35 \pm 0.76$ &
+    ScaledCNN (DynaCLR recipe, ours) & $8.81 \pm 2.11$ & $19.35 \pm 0.76$ &
     Bacteria in-domain; DeepCell test held out (91/27) \\
     \bottomrule
   \end{tabular}

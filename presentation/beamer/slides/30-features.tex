@@ -23,7 +23,7 @@
 % ----------------------------------------------------------------------
 % Frame 25 -- what was actually trained.
 % (a) Why: clarify what was trained; end-to-end fine-tuning was left open.
-% (b) Tried: frozen DynaCLR encoder + projection head + concat with
+% (b) Tried: frozen ScaledCNN encoder (DynaCLR recipe) + projection head + concat with
 %     position/regionprops; association head trained on annotations.
 % (c) Novel: Achard's injection protocol applied to a small from-scratch
 %     encoder.
@@ -36,7 +36,7 @@
   \vspace{4mm}
   \centering
   \featureCardTfour{\textcolor{talkorange}{End-to-end fine-tune: left open}}\hfill
-  \featureCardTfour{Frozen DynaCLR + projection head}\hfill
+  \featureCardTfour{Frozen ScaledCNN + projection head}\hfill
   \featureCardTfour{Association head trained on annotations}\par
   \vspace{6mm}
 \end{frame}
@@ -72,11 +72,11 @@
 % (b) Tried: eight feature rows, K=8 MLP, frame-CV/LOCO, nearest-centroid
 %     K=1 baseline.
 % (c) Novel: LOCO comparison with coordinates-only candidates.
-% (d) Interpretation: position and geometry dominate; the DynaCLR margin
+% (d) Interpretation: position and geometry dominate; the CNN margin
 %     over nearest-centroid is 0.015. Threat: within-experiment probe.
 % ----------------------------------------------------------------------
 \begin{frame}
-  \talktitle{Position and geometry dominate: DynaCLR 0.826, nearest-centroid 0.811}
+  \talktitle{Position and geometry dominate: ScaledCNN 0.826, nearest-centroid 0.811}
   \vspace{1mm}
   \begin{center}
   \scriptsize
@@ -89,7 +89,7 @@
     \midrule
     Regionprops 13D & 0.8694 & 0.8183\\
     Hu 20D & 0.8679 & 0.8023\\
-    \textcolor{talkteal}{\textbf{DynaCLR}}\scite{hirata2025dynacl} & \textcolor{talkteal}{\textbf{0.8527}} & \textcolor{talkteal}{\textbf{0.8259}}\\
+    \textcolor{talkteal}{\textbf{ScaledCNN (DynaCLR recipe)}}\scite{hirata2025dynacl} & \textcolor{talkteal}{\textbf{0.8527}} & \textcolor{talkteal}{\textbf{0.8259}}\\
     Regionprops 7D & 0.8422 & 0.7915\\
     position-only & 0.8127 & 0.7887\\
     SAM2.1\scite{ravi2024sam2} & 0.7354 & 0.7256\\
@@ -161,7 +161,7 @@
 % ----------------------------------------------------------------------
 % Frame 30 -- Bacteria and DeepCell in one figure.
 % (a) Why: does the small encoder help in-domain and transfer?
-% (b) Tried: frozen DynaCLR + Achard injection, 3 seeds; Bacteria and
+% (b) Tried: frozen ScaledCNN (DynaCLR recipe) + Achard injection, 3 seeds; Bacteria and
 %     DeepCell with the 91/27 head split.
 % (c) Novel: 1.47M from-scratch encoder versus SAM2.1 and other frozen
 %     features.
