@@ -138,7 +138,7 @@ echo "=== evaluated=$N_DONE skipped=$N_SKIP failed=$N_FAIL ==="
 import json
 from pathlib import Path
 
-runs_root = Path(".")  # $TRK
+runs_root = Path("runs")  # cwd is $TRK; run dirs live in $TRK/runs
 out_dir = Path(__import__("os").environ["BENCH"]) / "results/cv_rerun/cv500_decomp"
 records = []
 for run_dir in sorted(runs_root.glob("2026-*_cv500_*_s42")) + \
