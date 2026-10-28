@@ -146,23 +146,23 @@
     \end{column}
     \begin{column}{0.42\textwidth}
       \centering
-      \begin{tikzpicture}[x=1mm, y=1mm]
-        \node[draw=talkgray!40, fill=talklight, rounded corners=1.5mm,
-          minimum width=48mm, minimum height=18mm, anchor=north west] at (0,0) {};
-        \node[anchor=north, text=tudblue] at (24,-4)
-          {\fontsize{4.5mm}{5.4mm}\selectfont 4.41 ms};
-        \node[anchor=north, text=talkgray] at (24,-11)
-          {\scriptsize construction at $N{=}8192$};
-        \node[anchor=north, text=talkgray] at (24,-16)
-          {\scriptsize 14$\times$ the kernel call};
-        \node[draw=talkgray!40, fill=talklight, rounded corners=1.5mm,
-          minimum width=48mm, minimum height=18mm, anchor=north west] at (0,-21) {};
-        \node[anchor=north, text=tudblue] at (24,-25)
-          {\fontsize{4.5mm}{5.4mm}\selectfont 1032 MB};
-        \node[anchor=north, text=talkgray] at (24,-32)
-          {\scriptsize bool mask materialization};
-        \node[anchor=north, text=talkgray] at (24,-37)
-          {\scriptsize 1.97 ms at $N{=}8192$};
+      \begin{tikzpicture}[
+        card/.style={draw=talkgray!40, fill=talklight, rounded corners=1.5mm,
+          text width=38mm, align=center, inner sep=2.2mm, font=\small,
+          text=talkgray},
+      ]
+        \node[card] (one) at (0,0) {%
+          {\fontsize{4.5mm}{5.4mm}\selectfont\textcolor{tudblue}{\textbf{4.41 ms}}}\par
+          \vspace{1mm}
+          {\scriptsize construction at $N{=}8192$}\par
+          {\scriptsize 14$\times$ the kernel call}%
+        };
+        \node[card, below=3mm of one] (two) {%
+          {\fontsize{4.5mm}{5.4mm}\selectfont\textcolor{tudblue}{\textbf{1032 MB}}}\par
+          \vspace{1mm}
+          {\scriptsize bool mask materialization}\par
+          {\scriptsize 1.97 ms at $N{=}8192$}%
+        };
       \end{tikzpicture}
     \end{column}
   \end{columns}

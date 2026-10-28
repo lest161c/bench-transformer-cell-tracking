@@ -82,6 +82,9 @@ carries (b), and a short badge or line carries (a)/(c).
 - Keep the TUD theme, fonts, and logos unchanged.
 - Prefer the report's values to a new derived number. If a number is not in
   the report, stop and report the conflict rather than deriving it on the fly.
+- Do not place text as separate absolute nodes over an empty rectangle. Put the
+  text inside a `TikZ` node with `text width` and let the node size itself;
+  fixed-size boxes with absolute text overflow at the first font or line change.
 
 ## 6. Timing and deck shape
 
