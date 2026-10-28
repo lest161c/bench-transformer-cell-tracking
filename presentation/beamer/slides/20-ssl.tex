@@ -180,15 +180,16 @@
     \node[box] (patches) {Cell patches};
     \node[box, right=8mm of patches] (encoder) {ScaledCNN + BatchNorm};
     \node[box, right=8mm of encoder] (embedding) {128-D embedding};
-    \node[box, dashed, below=8mm of embedding, text width=0.42\linewidth] (params) {1.47M vs SAM2.1 80.8M};
     \node[font=\scriptsize\color{talkgray}, below=1mm of encoder] {frozen};
     \draw[arrow] (patches) -- (encoder);
     \draw[arrow] (encoder) -- (embedding);
   \end{tikzpicture}
   \end{center}
-  \vspace{2mm}
+  \vspace{3mm}
 
   \begin{center}
+  {\footnotesize 1.47M parameters versus SAM2.1's 80.8M.}\par
+  \vspace{1mm}
   {\footnotesize This is a feature encoder, not the proposed association-head pretraining.}
   \end{center}
 \end{frame}
