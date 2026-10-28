@@ -1,0 +1,168 @@
+% ======================================================================
+% 40-synthesis.tex -- SPEC 0055, frames 34-38.
+%
+% Insight-first synthesis. Five frames: what changed and how it was caught;
+% what was not done and why; recommendations; next steps; what the results
+% do not license. The duplicate exploration table and the novelty inventory
+% from SPEC 0054 are removed. Frame 39 (thank you) is in 50-close.tex.
+% ======================================================================
+
+% ----------------------------------------------------------------------
+% Frame 34 -- what changed, and how it was caught.
+% Process frame: each row names a changed belief and the measurement that
+% changed it. No new claims; every value is from the report.
+% ----------------------------------------------------------------------
+\begin{frame}
+  \talktitle{What changed, and how we caught it}
+  \centering
+  \hyphenpenalty=10000
+  \exhyphenpenalty=10000
+  \scriptsize
+  \renewcommand{\arraystretch}{1.30}
+  \setlength{\tabcolsep}{1.8mm}
+  \begin{tabular}{@{}p{53mm}>{\raggedright\arraybackslash}p{83mm}@{}}
+    \toprule
+    \textbf{Changed belief} & \textbf{How we caught it}\\
+    \midrule
+    The mask cost is not a kernel-package cost. &
+    Forced-backend arms and per-row kernel names; masked SDPA reaches fused cuDNN.\\
+    The cutoff is not only a compute knob. &
+    Paired 6-fold leave-one-condition-out ablation: 12/12 fold--seed cells worse.\\
+    The warp pretext does not transfer at prototype scale. &
+    Pre-registered low-label pilot failed; loss at the entropy floor; input audit ruled out a bug.\\
+    Learned features are not the main association signal. &
+    Coordinates-only candidates; DynaCLR LOCO 0.826 vs nearest-centroid 0.811.\\
+    The delivered SSL component is a feature encoder. &
+    Frozen DynaCLR injection; the proposed association-head pretraining was not delivered.\\
+    \bottomrule
+  \end{tabular}
+\end{frame}
+
+% ----------------------------------------------------------------------
+% Frame 35 -- what was not done and why.
+% Process frame: explicit negative/omitted work. Keeps the statuses
+% distinct and pre-empts the obvious expert questions.
+% ----------------------------------------------------------------------
+\begin{frame}
+  \talktitle{What we did not do, and why}
+  \centering
+  \hyphenpenalty=10000
+  \exhyphenpenalty=10000
+  \scriptsize
+  \renewcommand{\arraystretch}{1.30}
+  \setlength{\tabcolsep}{1.8mm}
+  \begin{tabular}{@{}p{53mm}>{\raggedright\arraybackslash}p{83mm}@{}}
+    \toprule
+    \textbf{Not done} & \textbf{Why}\\
+    \midrule
+    Full Trackastra port &
+    Optional in the proposal; not attempted. The 18-configuration test checks SparseGather/SparseMask equivalence, not a port.\\
+    Token reordering &
+    0.992--1.023$\times$ on real centroids; discarded.\\
+    NSA &
+    11.7$\times$ slower than CachedDistAttention at $N{=}128$--$1024$; fixed overhead dominates at small $N$.\\
+    Distortion-family and low-label sweep &
+    Open beyond the prototype; only affine $10^\circ$ + jitter 4 + dropout 0.1 was piloted.\\
+    \bottomrule
+  \end{tabular}
+\end{frame}
+
+% ----------------------------------------------------------------------
+% Frame 36 -- recommendations.
+% Each recommendation is tied to a measured value. "Do not optimize
+% attention first" is a priority statement, not a claim that attention
+% never matters.
+% ----------------------------------------------------------------------
+\begin{frame}
+  \talktitle{Recommendations for the Trackastra team}
+  \centering
+  \hyphenpenalty=10000
+  \exhyphenpenalty=10000
+  \scriptsize
+  \renewcommand{\arraystretch}{1.30}
+  \setlength{\tabcolsep}{1.8mm}
+  \begin{tabular}{@{}p{46mm}>{\raggedright\arraybackslash}p{90mm}@{}}
+    \toprule
+    \textbf{Recommendation} & \textbf{Evidence}\\
+    \midrule
+    \textbf{Keep the cutoff} &
+    Removing it is worse in 12/12 fold--seed cells; pooled $+47.5$ AOGM [32.1, 62.0].\\
+    \textbf{Set $K{=}16$} &
+    In-sample 201.8 vs 200.8 AOGM; held-out \texttt{trpL} 51.0 vs 43.3. $K{=}32$ is the accuracy-first alternative.\\
+    \textbf{Use SparseMask} &
+    2.3$\times$ at $N{=}512$ and 3.9$\times$ at $N{=}4096$ versus CachedDistAttention.\\
+    \textbf{Do not optimize attention first} &
+    10.05\% of the step; Amdahl 1.044 versus 2.9\% measured.\\
+    \textbf{Normalize the chain} &
+    38.7\% of the step and 240 synchronizations per step: the real target.\\
+    \bottomrule
+  \end{tabular}
+  \vspace{3mm}
+
+  {\footnotesize The cutoff ablation is, to our knowledge, the first for Trackastra.}
+\end{frame}
+
+% ----------------------------------------------------------------------
+% Frame 37 -- next steps.
+% Ordered by expected value: HOCT changes the representation most directly;
+% end-to-end training tests the open §4.3 question; the linker ablation
+% removes an attribution confound; multi-seed/HP widens every remaining
+% claim but changes no mechanism by itself.
+% ----------------------------------------------------------------------
+\begin{frame}
+  \talktitle{What I would do next}
+  \centering
+  \hyphenpenalty=10000
+  \exhyphenpenalty=10000
+  \footnotesize
+  \renewcommand{\arraystretch}{1.35}
+  \setlength{\tabcolsep}{1.8mm}
+  \begin{tabular}{@{}p{5mm}p{34mm}p{94mm}@{}}
+    \toprule
+    \textbf{\#} & \textbf{Next step} & {\raggedright\textbf{What changes}}\\
+    \midrule
+    1 & \textbf{HOCT edge-centric\scite{bragantini2026hoct}} &
+    {\raggedright Replace node-level token features with edge-centric HOCT edge tokens.}\\
+    2 & \textbf{End-to-end encoder} &
+    {\raggedright Unfreeze and fine-tune the encoder; the current protocol is frozen injection.}\\
+    3 & \textbf{Linker ablation} &
+    {\raggedright Separate association-head quality from the linker effect on the metric.}\\
+    4 & \textbf{Multi-seed / HP} &
+    {\raggedright Widen beyond the two CV seeds and add a hyperparameter search before treating small gaps as stable.}\\
+    \bottomrule
+  \end{tabular}
+\end{frame}
+
+% ----------------------------------------------------------------------
+% Frame 38 -- what the results do not license.
+% Combines the SPEC 0054 limitations and non-claims into one frame. The
+% values stay visible so an audience member can challenge a row directly.
+% ----------------------------------------------------------------------
+\begin{frame}
+  \talktitle{What these results do not license}
+  \centering
+  \hyphenpenalty=10000
+  \exhyphenpenalty=10000
+  \scriptsize
+  \renewcommand{\arraystretch}{1.25}
+  \setlength{\tabcolsep}{1.8mm}
+  \begin{tabular}{@{}p{42mm}>{\raggedright\arraybackslash}p{94mm}@{}}
+    \toprule
+    \textbf{Not licensed} & \textbf{Why}\\
+    \midrule
+    \textbf{No state-of-the-art claim} &
+    Bacteria 8.81 vs SAM2.1 7.00; DeepCell 19.35 vs 19.93; still behind Original Trackastra 11.9.\\
+    \textbf{No large-$N$ accuracy} &
+    The operator benchmark reaches $N{=}32768$; tracking accuracy at thousands of cells is untested.\\
+    \textbf{No association-head pretraining} &
+    The delivered component is a frozen DynaCLR encoder; the warp pretext was deprioritized.\\
+    \textbf{No low-label gain} &
+    Pilot arms all 0.500; the pre-registered success rule was not met.\\
+    \textbf{No significance test} &
+    Two seeds, 6-fold CV; the 12 fold--seed cells share training data.\\
+    \bottomrule
+  \end{tabular}
+  \vspace{3mm}
+
+  {\footnotesize One encoder, one crop protocol; distortion families were not swept.}
+\end{frame}

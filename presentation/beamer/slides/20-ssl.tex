@@ -1,0 +1,231 @@
+% ======================================================================
+% 20-ssl.tex -- SPEC 0055, frames 16-23.
+%
+% §4.2 SSL association pretraining. Eight frames: divider; pretext;
+% protocol; result; root cause; coordinate solvability; the frozen DynaCLR
+% pivot; status and open branches. No SSL or contrastive tutorial.
+% ======================================================================
+
+% ----------------------------------------------------------------------
+% Frame 16 -- divider.
+% ----------------------------------------------------------------------
+\talksectiondivider{\S4.2: Can warps manufacture association labels?}{One question: can a warp supply the label for free?}
+
+% ----------------------------------------------------------------------
+% Frame 17 -- why the pretext is not just another augmentation.
+% (a) Why: separate the pretext from Trackastra's augmentation stack; the
+%     claim is about the supervision source, not the warp type.
+% (b) Tried: one frame, warp T, synthetic next frame, labels i -> T(i).
+% (c) Novel: annotation-free association-label construction for the
+%     low-label regime.
+% (d) Interpretation: legitimate SSL idea; target is low-label. Threat: the
+%     synthetic pair is not real motion.
+% ----------------------------------------------------------------------
+\begin{frame}
+  \talktitle{Why the warp pretext is not just another augmentation}
+  \begin{center}
+  \begin{tikzpicture}[
+    card/.style={draw=talkblue, fill=talkblue!6, rounded corners=2pt,
+      text width=0.86\linewidth, align=center, inner sep=5pt, font=\small}
+  ]
+    \node[card] (cardone) {Trackastra augmentations perturb annotated windows};
+    \node[card, below=4mm of cardone] (cardtwo) {Warp derives $i\to T(i)$\scite{wang2019learning,jabri2020spacetime}};
+    \node[card, below=4mm of cardtwo] (cardthree) {No tracking annotations; targets the low-label regime};
+  \end{tikzpicture}
+  \end{center}
+\end{frame}
+
+% ----------------------------------------------------------------------
+% Frame 18 -- the protocol.
+% (a) Why: test the pretext under a pre-registered low-label rule, not post
+%     hoc.
+% (b) Tried: pretrain on trpL unlabeled frames (evaluation frames excluded),
+%     fine-tune on five labeled pairs, random init and compute-matched
+%     control, pre-registered success rule.
+% (c) Novel: controlled low-label pilot with a compute-matched control and a
+%     held-out condition.
+% (d) Interpretation: if the rule fails, report failure; no protocol tweaks.
+%     Threat: prototype scale.
+% ----------------------------------------------------------------------
+\begin{frame}
+  \talktitle{What we tried: \texttt{trpL} held out, 5 labeled pairs, compute-matched control}
+  \vfill
+  \begin{center}
+  \begin{tikzpicture}[
+    card/.style={draw=talkblue, fill=talkblue!6, rounded corners=2pt,
+      text width=0.40\linewidth, align=center, inner sep=5pt, font=\small}
+  ]
+    \node[card] (cardone) {\texttt{trpL} held out};
+    \node[card, right=4mm of cardone] (cardtwo) {5 labeled pairs};
+    \node[card, below=4mm of cardone] (cardthree) {random init + compute-matched control};
+    \node[card, below=4mm of cardtwo] (cardfour) {pre-registered success rule, fixed before the run};
+  \end{tikzpicture}
+  \end{center}
+  \vfill
+\end{frame}
+
+% ----------------------------------------------------------------------
+% Frame 19 -- the result.
+% (a) Why: does pretraining transfer to the held-out condition?
+% (b) Tried: three arms, validation balanced accuracy.
+% (c) Novel: the compute-matched control isolates the pretext from extra
+%     compute.
+% (d) Interpretation: all three arms 0.500; the rule was not met. Threat:
+%     balanced accuracy at chance can hide calibration differences.
+% ----------------------------------------------------------------------
+\begin{frame}
+  \talktitle{Result: all three arms 0.500}
+  \begin{center}
+  \small
+  \begin{tabular}{lc}
+    \toprule
+    Arm & Validation balanced accuracy\\
+    \midrule
+    Random init & 0.500\\
+    Warp pretext & 0.500\\
+    Matched control & 0.500\\
+    \bottomrule
+  \end{tabular}
+  \end{center}
+  \vspace{4mm}
+
+  \begin{center}
+  {\footnotesize Chance is 0.500; the pre-registered success rule was not met.}
+  \end{center}
+\end{frame}
+
+% ----------------------------------------------------------------------
+% Frame 20 -- root cause.
+% (a) Why: a null result is only useful with a root cause.
+% (b) Tried: loss and entropy analysis, pool dependence, input audit,
+%     true-identity accuracy.
+% (c) Novel: root-cause evidence for objective-level collapse, not an
+%     implementation bug.
+% (d) Interpretation: loss 0.161 at the entropy floor; the same recipe
+%     learns on another pool; input audit rules out an artifact. Threat:
+%     one prototype configuration.
+% ----------------------------------------------------------------------
+\begin{frame}
+  \talktitle{Why it collapsed: $\sim 1/N$ positives and an all-negative optimum}
+  \begin{center}
+  \begin{tikzpicture}[
+    card/.style={draw=talkblue, fill=talkblue!6, rounded corners=2pt,
+      text width=0.86\linewidth, align=center, inner sep=5pt, font=\small}
+  ]
+    \node[card] (cardone) {$\sim 1/N$ positives in the $N{\times}N$ BCE};
+    \node[card, below=4mm of cardone] (cardtwo) {all-negative is the analytic optimum};
+    \node[card, below=4mm of cardtwo] (cardthree) {loss 0.161 at the entropy floor; control pool 0.10 vs 0.188 floor};
+  \end{tikzpicture}
+  \end{center}
+  \vspace{2mm}
+
+  \begin{center}
+  {\footnotesize Input audit: targets match the true correspondence; view-2 appearance is correctly warped; identical code learns on another pool.}
+  \end{center}
+\end{frame}
+
+% ----------------------------------------------------------------------
+% Frame 21 -- coordinate solvability.
+% (a) Why: are the warp labels themselves too easy or positionally solvable?
+% (b) Tried: coordinate-only probe on 92 frames, 8 experiments, 15 warp
+%     draws per frame, seed 42.
+% (c) Novel: quantifies coordinate recoverability of the warp labels.
+% (d) Interpretation: a property of the labels, not a verdict on the
+%     pretext's training value. Threat: applied configuration only.
+% ----------------------------------------------------------------------
+\begin{frame}
+  \talktitle{Coordinate solvability: 0.982 of warp labels recoverable from coordinates}
+  \begin{center}
+  \small
+  \begin{tabular}{@{}lccc@{}}
+    \toprule
+    Configuration & ICP & Warp-family & Oracle\\
+    \midrule
+    Applied: affine $10^\circ$, jitter 4, dropout 0.1 & 0.854 & 0.982 & 0.999\\
+    Wider: affine $25^\circ$, jitter 8, dropout 0.1 & 0.629 & 0.900 & 0.933\\
+    \addlinespace
+    \multicolumn{4}{@{}l}{\footnotesize Random baseline $\approx 0.03$ (all columns)}\\
+    \bottomrule
+  \end{tabular}
+  \end{center}
+  \vspace{2mm}
+
+  \begin{center}
+  {\footnotesize This is a property of the labels, not a verdict on the pretext's training value.}
+  \end{center}
+\end{frame}
+
+% ----------------------------------------------------------------------
+% Frame 22 -- the pivot.
+% (a) Why: after the pretext failure, build a legitimate SSL component
+%     within scope.
+% (b) Tried: DynaCLR-style NT-Xent ScaledCNN, 1.47M parameters, 128-D,
+%     frozen; evaluated under Achard's protocol.
+% (c) Novel: small from-scratch encoder versus large frozen foundation
+%     models; feature-encoder pretraining, not association-head pretraining.
+% (d) Interpretation: the pivot is a feature encoder, not the proposed
+%     association-head pretraining. Threat: pairing uses tracking-derived
+%     masks.
+% ----------------------------------------------------------------------
+\begin{frame}
+  \talktitle{What we did instead: DynaCLR encoder 1.47M, frozen}
+  \begin{center}
+  {\small DynaCLR \scite{hirata2025dynacl}; Achard protocol \scite{achard2025thesis}.\par}
+  \vspace{2mm}
+  \begin{tikzpicture}[
+    box/.style={draw=talkblue, fill=talkblue!6, rounded corners=2pt,
+      align=center, inner sep=5pt, font=\small, minimum height=9mm},
+    arrow/.style={-{Latex[length=2mm]}, thick, draw=talkblue}
+  ]
+    \node[box] (patches) {Cell patches};
+    \node[box, right=8mm of patches] (encoder) {ScaledCNN + BatchNorm};
+    \node[box, right=8mm of encoder] (embedding) {128-D embedding};
+    \node[box, dashed, below=8mm of embedding, text width=0.42\linewidth] (params) {1.47M vs SAM2.1 80.8M};
+    \node[font=\scriptsize\color{talkgray}, below=1mm of encoder] {frozen};
+    \draw[arrow] (patches) -- (encoder);
+    \draw[arrow] (encoder) -- (embedding);
+  \end{tikzpicture}
+  \end{center}
+  \vspace{2mm}
+
+  \begin{center}
+  {\footnotesize This is a feature encoder, not the proposed association-head pretraining.}
+  \end{center}
+\end{frame}
+
+% ----------------------------------------------------------------------
+% Frame 23 -- status and open branches.
+% (a) Why: make the decision and the remaining work explicit.
+% (b) Tried: one applied configuration; no full-scale run, no family sweep.
+% (c) Novel: none claimed.
+% (d) Interpretation: deprioritized as a scope decision, not disproven.
+% ----------------------------------------------------------------------
+\begin{frame}
+  \talktitle{Deprioritized, not disproven; two branches remain open}
+  \begin{columns}[t]
+    \begin{column}{0.46\textwidth}
+      \centering
+      {\small\textbf{Decision}}\par\vspace{2mm}
+      \begin{tikzpicture}[
+        card/.style={draw=talkblue, fill=talkblue!6, rounded corners=2pt,
+          text width=0.92\linewidth, align=center, inner sep=4pt, font=\small}
+      ]
+        \node[card] (one) {Deprioritized as a scope decision};
+        \node[card, below=3mm of one] (two) {Not a measured rejection};
+        \node[card, below=3mm of two] (three) {No full-scale run};
+      \end{tikzpicture}
+    \end{column}
+    \begin{column}{0.46\textwidth}
+      \centering
+      {\small\textbf{Still open}}\par\vspace{2mm}
+      \begin{tikzpicture}[
+        card/.style={draw=talkorange, fill=talkorange!6, rounded corners=2pt,
+          text width=0.92\linewidth, align=center, inner sep=4pt, font=\small}
+      ]
+        \node[card] (one) {Distortion families};
+        \node[card, below=3mm of one] (two) {Low-label vs full-label sweep};
+        \node[card, below=3mm of two] (three) {Only one applied configuration};
+      \end{tikzpicture}
+    \end{column}
+  \end{columns}
+\end{frame}

@@ -1,0 +1,4 @@
+source: report-shorten/figs/20_mask_decomposition.pdf
+crop: x = 0-208 pt of 619.2 x 187.2 pt page (panel (a) only, panel (b) excluded, full height)
+date: 2026-10-28
+note: cropped from the existing report figure; no re-plotting

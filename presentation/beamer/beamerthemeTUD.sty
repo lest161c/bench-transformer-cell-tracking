@@ -1,0 +1,184 @@
+% ======================================================================
+% beamerthemeTUD.sty -- 1:1 reproduction of the TU Dresden PowerPoint
+% template "TUD_Presentation.pptx" in Beamer (SPEC 0009).
+%
+% Purpose
+%   Provide the TUD corporate-design look for beamer presentations so
+%   slides built from the official PowerPoint template can be reproduced
+%   and extended in LaTeX. Every coordinate, color and font size below
+%   comes from XML analysis of presentation/TUD_Presentation.pptx (theme
+%   "Farbset dunkel TUD CD", slideMaster1).
+%
+% Coordinate system
+%   Beamer paper = aspectratio 169 = 160 mm x 90 mm, which maps the pptx
+%   canvas (13.3333 x 7.5 in) exactly: 1 pptx inch = 12 mm and
+%   1 pptx pt = 1/6 mm. All positions are measured from the paper's
+%   top-left corner.
+%
+% Fonts
+%   The pptx uses proprietary "Futura Medium" (slide titles) and the
+%   Noto families (body). Free OFL-licensed lookalikes are loaded from
+%   fonts/ (built by scripts/prepare_presentation_assets.py): Jost
+%   Medium stands in for Futura Medium; Noto Sans/Serif match exactly.
+% ======================================================================
+\ProvidesPackage{beamerthemeTUD}[2026/09/25 TU Dresden pptx 1:1 reproduction (SPEC 0009)]
+\RequirePackage{tikz}      % modern beamer does not load tikz itself
+\RequirePackage{fontspec}
+
+% ---------------------------------------------------------------------
+% Colors (theme1 clrScheme values from the pptx, corrected against the
+% official TU Dresden corporate design)
+% ---------------------------------------------------------------------
+\definecolor{tudblue}{HTML}{00008C}  % dk2/tx2: footer text, captions
+                                     % (2025 TUD brand blue, matches the
+                                     % pptx theme and tu-dresden.de)
+\definecolor{tudbg}{HTML}{00305E}    % title-slide background: TUD
+                                     % Dunkelblau HKS 41 (RGB 0/48/94),
+                                     % per the official TUD PowerPoint
+                                     % template theme "TUD_Farben"
+                                     % (tu-dresden.de) and the TUD CD.
+                                     % NOTE: the pptx stores this as
+                                     % accent5 (#2F57B2) with lumMod 50%
+                                     % which renders as ~#182B59; both
+                                     % are dark navy. Switch to 182B59
+                                     % here for pixel-identical pptx
+                                     % rendering instead of the official
+                                     % house color.
+\definecolor{tudwhite}{HTML}{FFFFFF} % bg1: text on the title slide
+
+% ---------------------------------------------------------------------
+% Fonts (file names fixed by scripts/prepare_presentation_assets.py)
+% ---------------------------------------------------------------------
+\setsansfont{NotoSans-Regular}[Path=fonts/,Extension=.ttf]
+\setmainfont{NotoSans-Regular}[Path=fonts/,Extension=.ttf]
+% Ligatures=TeX so -- and --- map to en/em dashes in every face
+% (\newfontface does not enable them by default).
+\newfontface\TudTitleFont{NotoSans-Medium}[Path=fonts/,Extension=.ttf,Ligatures=TeX]
+\newfontface\TudSlideTitleFont{Jost-Medium}[Path=fonts/,Extension=.ttf,Ligatures=TeX]
+\newfontface\TudCaptionFont{NotoSerif-Regular}[Path=fonts/,Extension=.ttf,Ligatures=TeX]
+\newfontface\TudFooterFont{NotoSans-Regular}[Path=fonts/,Extension=.ttf,Ligatures=TeX]
+
+% Body text: pptx master body style = 20pt Noto Sans, single spacing.
+\setbeamerfont{normal text}{size=\fontsize{3.3333mm}{4mm}\selectfont}
+
+% ---------------------------------------------------------------------
+% Text area: pptx text boxes sit 0.67in from the left/right edges.
+% There is no "text width" key; the width results from the two margins.
+% ---------------------------------------------------------------------
+\newcommand\TudSetBodyWidth[1]{%
+  \setbeamersize{text margin left=8.04mm,
+                 text margin right=\dimexpr160mm-8.04mm-#1\relax}}
+\TudSetBodyWidth{143.92mm} % default: 12in text box width
+
+% ---------------------------------------------------------------------
+% Chrome: no headline, no navigation symbols, absolute footer.
+% ---------------------------------------------------------------------
+\setbeamertemplate{headline}{}
+\setbeamertemplate{navigation symbols}{}
+
+% Footer visibility flag: content frames show the footer (set true by
+% the frametitle template), the title page hides it (set false below).
+\newif\iftudfooter@visible
+\tudfooter@visibletrue
+
+% Footer per pptx slideMaster1: blue wordmark at (0.26,7.17)in sized
+% 0.56x0.18in; text field at (1.30,7.16)in, 7.91in wide, 12pt #00008C.
+% pptx field "Slide <#>" becomes the beamer frame number. The text is a
+% macro so main.tex can replace the template placeholder with real
+% presentation metadata (\renewcommand\TudFooterText{...}).
+\newcommand\TudFooterText{Towards General Artifical Intelligence
+  \textbullet{} Jane Doe}
+\setbeamertemplate{footline}{%
+  \iftudfooter@visible%
+    \begin{tikzpicture}[remember picture,overlay]
+      \node[anchor=north west,inner sep=0pt,outer sep=0pt]
+        at ([xshift=3.12mm,yshift=-86.04mm]current page.north west)
+        {\includegraphics[width=6.72mm,height=2.16mm]{assets/tud_logo_blue.pdf}};
+      \node[anchor=north west,inner sep=0pt,outer sep=0pt,text width=94.92mm]
+        at ([xshift=15.6mm,yshift=-85.92mm]current page.north west)
+        {\TudFooterFont\fontsize{2mm}{2.4mm}\selectfont
+         \textcolor{tudblue}{\TudFooterText{}
+           \textbullet{} Slide \insertframenumber}};
+    \end{tikzpicture}%
+  \fi%
+}
+
+% ---------------------------------------------------------------------
+% Frametitle: absolute node (title text top-left at (8.04,6.70)mm,
+% Jost Medium 34pt) plus negative glue so normal frame bodies start at
+% y=22.8mm (pptx body box top 1.90in).
+%
+% Calibration (beamer 3.70 + pgf 3.1.12, TeX Live 2023): beamer assembles
+% the frame as \vbox to \textheight, so the body top responds to glue in
+% the frametitle template with a constant factor of 0.6 (measured: a
+% 15mm vskip moves the first body line 9.0mm). With zero reserve the
+% body sits at 25.28mm; \vskip-4.13mm x 0.6 = -2.48mm lands the first
+% line at exactly 22.80mm (verified by pdftotext -bbox). If beamer/pgf
+% versions change, recalibrate: measure the first body glyph with
+% \vskip0mm (y0) and with \vskip10mm (y10), slope k = (y10-y0)/10mm,
+% then set \vskip = (22.8mm - y0)/k.
+% ---------------------------------------------------------------------
+\setbeamertemplate{frametitle}{%
+  \tudfooter@visibletrue
+  \begin{tikzpicture}[remember picture,overlay]
+    \node[anchor=north west,inner sep=0pt,outer sep=0pt]
+      at ([xshift=8.04mm,yshift=-6.70mm]current page.north west)
+      {\TudSlideTitleFont\fontsize{5.6667mm}{6.12mm}\selectfont
+       \textcolor{black}{\shortstack{\insertframetitle}}};
+  \end{tikzpicture}%
+  \vskip-4.13mm
+  \vskip-0.25em\relax
+}
+
+% ---------------------------------------------------------------------
+% Itemize: the pptx master body style has NO markers at levels 1-2 and
+% a hanging bullet at level 3. For talk slides the user wants visible
+% bullets, so levels 1-2 now get markers too, reusing the pptx bullet
+% geometry (bullet glyph left edge at +0.79mm, text at +3.06mm from the
+% text-block edge). This is a deliberate deviation from 1:1 pptx
+% fidelity for talk readability; slide frame margins stay 1:1.
+% ---------------------------------------------------------------------
+\setlength\leftmargini{3.06mm}
+\setlength\leftmarginii{3.06mm}
+\setlength\leftmarginiii{3.06mm}
+\setlength\labelsep{1.48mm}
+\renewcommand\@listi{\leftmargin\leftmargini\topsep0pt\parsep0pt\itemsep0pt}
+\renewcommand\@listii{\leftmargin\leftmarginii\topsep0pt\parsep0pt\itemsep0pt}
+\renewcommand\@listiii{\leftmargin\leftmarginiii\topsep0pt\parsep0pt\itemsep0pt}
+\setbeamertemplate{itemize item}{\makebox[0.79mm][l]{\textbullet}}
+\setbeamertemplate{itemize subitem}{\makebox[0.79mm][l]{--}}
+\setbeamertemplate{itemize subsubitem}{\makebox[0.79mm][l]{\textbullet}}
+
+% ---------------------------------------------------------------------
+% Title page (pptx slide 1, layout2): full-bleed accent5 background,
+% white/blue corner graphic, centered title, bottom-anchored subtitle,
+% no footer. Call as \TudTitlePage{<title>}{<lines>} (\\-separated
+% subtitle lines) inside a frame, so real content can replace the
+% template placeholders:
+%   \begin{frame}[plain]\TudTitlePage{...}{...}\end{frame}
+% ---------------------------------------------------------------------
+\newcommand\TudTitlePage[2]{%
+  \tudfooter@visiblefalse
+  \begin{tikzpicture}[remember picture,overlay]
+    % full-bleed background (pptx layout2 "Rechteck 6")
+    \fill[tudbg] (current page.south west) rectangle (current page.north east);
+    % corner graphic at (0.68,0.44)in, 2.31x0.78in, stretch fill
+    \node[anchor=north west,inner sep=0pt,outer sep=0pt]
+      at ([xshift=8.16mm,yshift=-5.28mm]current page.north west)
+      {\includegraphics[width=27.72mm,height=9.36mm]{assets/tud_logo_white.pdf}};
+    % title: 44pt Noto Sans Medium white, centered, text top at 32.02mm
+    % (box y=2.55in + master title top inset 0.118in; box center 80.04mm).
+    % \shortstack instead of \\: beamer redefines \\ inside frames for
+    % overlay handling, which corrupts the tikz path scanner; shortstack
+    % keeps the node text safe while still allowing multi-line titles.
+    \node[anchor=north,inner sep=0pt,outer sep=0pt]
+      at ([xshift=80.04mm,yshift=-32.02mm]current page.north west)
+      {\TudTitleFont\fontsize{7.3333mm}{6.6mm}\selectfont
+       \textcolor{tudwhite}{\shortstack{#1}}};
+    % subtitle: 20pt white, 3 centered lines, block bottom at 72.0mm
+    \node[anchor=south,inner sep=0pt,outer sep=0pt]
+      at ([xshift=80.04mm,yshift=-72.0mm]current page.north west)
+      {\fontsize{3.3333mm}{4mm}\selectfont
+       \textcolor{tudwhite}{\shortstack{#2}}};
+  \end{tikzpicture}%
+}

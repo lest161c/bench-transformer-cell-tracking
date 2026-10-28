@@ -1,0 +1,334 @@
+% references.bib — corrected 2026-10-07 (SPEC 0027 T7, owner-approved).
+% Every change is evidence-backed in docs/agent-state/specs/0027-bibliography-verification/
+% (results/VERIFICATION.md, UNSURE.md, per-worker files; access date 2026-10-07).
+% Changes vs the previous version:
+%  - DELETED loeffler2024trackastra: nonexistent reference (NOT-FOUND confirmed by
+%    two independent verification passes); the real work is gallusser2024trackastra.
+%    Its two co-citations were updated accordingly (background.tex, introduction.tex).
+%  - vanvliet2018: rewritten. The former entry ("Spatiotemporally resolved protein
+%    synthesis in single cells") does not exist in any registry. The vanvliet
+%    bacteria tracking dataset is the one distributed with Trackastra as
+%    "Bacteria van Vliet" and originates from van Vliet et al. 2018, Cell Systems
+%    (verified via Crossref and the trackastra repo's pretrained.json).
+%  - schwartz2023: rewritten. The former entry cited CellSAM (a different Schwartz
+%    paper). All three in-text uses of this key cite the DeepCell dataset, which is
+%    DynamicNuclearNet, published with the Caliban paper (bioRxiv 10.1101/803205).
+%    The CellSAM entry is therefore no longer part of the bibliography (documented
+%    owner decision, 2026-10-07; CellSAM had no other in-text use).
+%  - matula2015cell: replaced with the verifiable PLOS ONE AOGM paper (owner
+%    approved); the former ISBI 2015 record could not be verified anywhere.
+%  - han2025ascent: authorship fixed (Haejun Han, Robert Pritchard, Hang Lu per
+%    bioRxiv) and upgraded to the peer-reviewed ICCV 2025 version.
+%  - Peer-reviewed upgrades preferred over arXiv where they exist: chen2020simple
+%    (ICML/PMLR), kitaev2020reformer (ICLR 2020), yuan2025native (ACL 2025),
+%    dao2022flashattention/dao2024flashattention2 (proceedings records fixed).
+%  - Full author lists substituted for "and others" truncations throughout.
+%  - NEW achard2025thesis (E-04): Cyril Achard's MA thesis, added to the bib only
+%    (in-text citations remain a Lane 4 report-text task).
+
+@article{ulman2017cell,
+  title={An objective comparison of cell-tracking algorithms},
+  author={Ulman, Vladim{\'\i}r and Ma{\v{s}}ka, Martin and Magnusson, Klas E. G. and Ronneberger, Olaf and Haubold, Carsten and Harder, Nathalie and Matula, Pavel and Matula, Petr and Svoboda, David and Radojevic, Miroslav and Smal, Ihor and Rohr, Karl and Jald{\'e}n, Joakim and Blau, Helen M. and Dzyubachyk, Oleh and Lelieveldt, Boudewijn and Xiao, Pengdong and Li, Yuexiang and Cho, Siu-Yeung and Dufour, Alexandre C. and Olivo-Marin, Jean-Christophe and Reyes-Aldasoro, Constantino C. and Solis-Lemus, Jose A. and Bensch, Robert and Brox, Thomas and Stegmaier, Johannes and Mikut, Ralf and Wolf, Steffen and Hamprecht, Fred A. and Esteves, Tiago and Quelhas, Pedro and Demirel, {\"O}mer and Malmstr{\"o}m, Lars and Jug, Florian and Tomancak, Pavel and Meijering, Erik and Mu{\~n}oz-Barrutia, Arrate and Kozubek, Michal and Ortiz-de-Solorzano, Carlos},
+  journal={Nature Methods},
+  volume={14},
+  number={12},
+  pages={1141--1152},
+  year={2017},
+  doi={10.1038/nmeth.4473}
+}
+
+@article{matula2015cell,
+  title={Cell Tracking Accuracy Measurement Based on Comparison of Acyclic Oriented Graphs},
+  author={Matula, Pavel and Ma{\v{s}}ka, Martin and Sorokin, Dmitry V. and Matula, Petr and Ortiz-de-Sol{\'o}rzano, Carlos and Kozubek, Michal},
+  journal={PLOS ONE},
+  volume={10},
+  number={12},
+  pages={e0144959},
+  year={2015},
+  doi={10.1371/journal.pone.0144959}
+}
+
+@inproceedings{vaswani2017attention,
+  title={Attention is All you Need},
+  author={Vaswani, Ashish and Shazeer, Noam and Parmar, Niki and Uszkoreit, Jakob and Jones, Llion and Gomez, Aidan N. and Kaiser, {\L}ukasz and Polosukhin, Illia},
+  booktitle={Advances in Neural Information Processing Systems},
+  volume={30},
+  year={2017}
+}
+
+@inproceedings{dao2022flashattention,
+  title={FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness},
+  author={Dao, Tri and Fu, Dan and Ermon, Stefano and Rudra, Atri and R{\'e}, Christopher},
+  booktitle={Advances in Neural Information Processing Systems},
+  volume={35},
+  year={2022},
+  doi={10.52202/068431-1189}
+}
+
+@inproceedings{dao2024flashattention2,
+  title={FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning},
+  author={Dao, Tri},
+  booktitle={International Conference on Learning Representations (ICLR)},
+  year={2024},
+  note={Poster},
+  url={https://openreview.net/forum?id=mZn2Xyh9Ec}
+}
+
+@article{hirata2025dynacl,
+  title={DynaCLR: Contrastive Learning of Cellular Dynamics with Temporal Regularization},
+  author={Hirata-Miyasaki, Eduardo and Pradeep, Soorya and Liu, Ziwen and Imran, Alishba and Theodoro, Taylla Milena and Ivanov, Ivan E. and Khadka, Sudip and Lee, See-Chi and Grunberg, Michelle and Woosley, Hunter and Bhave, Madhura and Arias, Carolina and Mehta, Shalin B.},
+  journal={arXiv preprint arXiv:2410.11281},
+  year={2025},
+  doi={10.48550/arXiv.2410.11281}
+}
+
+@inproceedings{kitaev2020reformer,
+  title={Reformer: The Efficient Transformer},
+  author={Kitaev, Nikita and Kaiser, {\L}ukasz and Levskaya, Anselm},
+  booktitle={International Conference on Learning Representations (ICLR)},
+  year={2020}
+}
+
+@article{roy2021routing,
+  title={Efficient Content-Based Sparse Attention with Routing Transformers},
+  author={Roy, Aurko and Saffar, Mohammad and Vaswani, Ashish and Grangier, David},
+  journal={Transactions of the Association for Computational Linguistics},
+  volume={9},
+  pages={53--68},
+  year={2021},
+  publisher={MIT Press},
+  doi={10.1162/tacl_a_00353},
+  url={https://aclanthology.org/2021.tacl-1.4/}
+}
+
+@inproceedings{chen2020simple,
+  title={A Simple Framework for Contrastive Learning of Visual Representations},
+  author={Chen, Ting and Kornblith, Simon and Norouzi, Mohammad and Hinton, Geoffrey},
+  booktitle={Proceedings of the 37th International Conference on Machine Learning},
+  volume={119},
+  pages={1597--1607},
+  year={2020},
+  publisher={PMLR},
+  url={https://proceedings.mlr.press/v119/chen20j.html}
+}
+
+@article{bragantini2026hoct,
+  title={Higher-Order Cell Tracking Transformer},
+  author={Bragantini, Jord{\~a}o and Theodoro, Ilan and Royer, Lo{\"i}c A},
+  journal={arXiv preprint arXiv:2607.11754},
+  year={2026}
+}
+
+@article{moutakanni2025celldino,
+  title={Cell-DINO: Self-supervised image-based embeddings for cell fluorescent microscopy},
+  author={Moutakanni, Th{\'e}o and Couprie, Camille and Yi, Seungeun and Doron, Michael and Chen, Zitong S. and Moshkov, Nikita and Gardes, Elouan and Caron, Mathilde and Touvron, Hugo and Joulin, Armand and Bojanowski, Piotr and Pernice, Wolfgang M. and Caicedo, Juan C.},
+  journal={PLOS Computational Biology},
+  volume={21},
+  number={12},
+  pages={e1013828},
+  year={2025},
+  doi={10.1371/journal.pcbi.1013828}
+}
+
+% Venue + pages verified against the CVF Open Access record (ICCV 2025 day
+% listing + official BibTeX, accessed 2026-10-07): the ICCV camera-ready
+% paper has TWO authors (Han, Haejun and Lu, Hang). The bioRxiv preprint
+% (10.1101/2025.07.23.666425) lists a third author, Robert Pritchard; the
+% camera-ready record is authoritative for the venue citation.
+@inproceedings{han2025ascent,
+  title={ASCENT: Annotation-free Self-supervised Contrastive Embeddings for 3D Neuron Tracking in Fluorescence Microscopy},
+  author={Han, Haejun and Lu, Hang},
+  booktitle={Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV)},
+  pages={14676--14687},
+  year={2025}
+}
+
+@article{simeoni2025dinov3,
+  title={DINOv3},
+  author={Sim{\'e}oni, Oriane and Vo, Huy V. and Seitzer, Maximilian and Baldassarre, Federico and Oquab, Maxime and Jose, Cijo and Khalidov, Vasil and Szafraniec, Marc and Yi, Seungeun and Ramamonjisoa, Micha{\"e}l and Massa, Francisco and Haziza, Daniel and Wehrstedt, Luca and Wang, Jianyuan and Darcet, Timoth{\'e}e and Moutakanni, Th{\'e}o and Sentana, Leonel and Roberts, Claire and Vedaldi, Andrea and Tolan, Jamie and Brandt, John and Couprie, Camille and Mairal, Julien and J{\'e}gou, Herv{\'e} and Labatut, Patrick and Bojanowski, Piotr},
+  journal={arXiv preprint arXiv:2508.10104},
+  year={2025},
+  doi={10.48550/arXiv.2508.10104}
+}
+
+@misc{weigert2025fastregionprops,
+  title={fast-regionprops: Vectorized region property extraction},
+  author={Weigert, Martin},
+  year={2025},
+  note={v0.2.0, GitHub repository},
+  url={https://github.com/maweigert/fast-regionprops}
+}
+
+% Venue, year, and 9-author list verified against the official NeurIPS 2020
+% proceedings listing (proceedings.neurips.cc/paper_files/paper/2020,
+% "Advances in Neural Information Processing Systems 33", accessed
+% 2026-10-07); the official proceedings assign no page numbers.
+@inproceedings{khosla2020supervised,
+  title={Supervised Contrastive Learning},
+  author={Khosla, Prannay and Teterwak, Piotr and Wang, Chen and Sarna, Aaron and Tian, Yonglong and Isola, Phillip and Maschinot, Aaron and Liu, Ce and Krishnan, Dilip},
+  booktitle={Advances in Neural Information Processing Systems},
+  volume={33},
+  year={2020}
+}
+
+% Pages 467-484 confirmed against the official trackastra repository BibTeX
+% (github.com/weigertlab/trackastra README, accessed 2026-10-07).
+@inproceedings{gallusser2024trackastra,
+  title={Trackastra: Transformer-based cell tracking for live-cell microscopy},
+  author={Gallusser, Benjamin and Weigert, Martin},
+  booktitle={European Conference on Computer Vision (ECCV)},
+  pages={467--484},
+  year={2024},
+  organization={Springer}
+}
+
+@inproceedings{hassani2024neighborhood,
+  title={Faster Neighborhood Attention: Reducing the O(n{\textasciicircum}2) Cost of Self Attention at the Threadblock Level},
+  author={Hassani, Ali and Hwu, Wen-mei and Shi, Humphrey},
+  booktitle={Advances in Neural Information Processing Systems},
+  year={2024},
+  url={https://openreview.net/forum?id=8Ofbg2KYMu},
+  note={NeurIPS 2024}
+}
+
+@inproceedings{wu2024point,
+  title={Point Transformer {V3}: Simpler, Faster, Stronger},
+  author={Wu, Xiaoyang and Jiang, Li and Wang, Peng-Shuai and Liu, Zhijian and Liu, Xihui and Qiao, Yu and Ouyang, Wanli and He, Tong and Zhao, Hengshuang},
+  booktitle={Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)},
+  pages={4840--4851},
+  year={2024}
+}
+
+% The vanvliet bacteria tracking dataset (distributed with Trackastra as
+% "Bacteria van Vliet"; see trackastra/trackastra/model/pretrained.json).
+% Author list and metadata verified via Crossref (DOI registry), 2026-10-07.
+@article{vanvliet2018,
+  title={Spatially Correlated Gene Expression in Bacterial Groups: The Role of Lineage History, Spatial Gradients, and Cell-Cell Interactions},
+  author={van Vliet, Simon and Dal Co, Alma and Winkler, Annina R. and Spriewald, Stefanie and Stecher, B{\"a}rbel and Ackermann, Martin},
+  journal={Cell Systems},
+  volume={6},
+  number={4},
+  pages={496--507.e6},
+  year={2018},
+  doi={10.1016/j.cels.2018.03.009}
+}
+
+@inproceedings{yuan2025native,
+  title={Native Sparse Attention: Hardware-Aligned and Natively Trainable Sparse Attention},
+  author={Yuan, Jingyang and Gao, Huazuo and Dai, Damai and Luo, Junyu and Zhao, Liang and Zhang, Zhengyan and Xie, Zhenda and Wei, Yuxing and Wang, Lean and Xiao, Zhiping and Wang, Yuqing and Ruan, Chong and Zhang, Ming and Liang, Wenfeng and Zeng, Wangding},
+  booktitle={Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers)},
+  pages={23078--23097},
+  year={2025},
+  publisher={Association for Computational Linguistics},
+  doi={10.18653/v1/2025.acl-long.1126},
+  url={https://aclanthology.org/2025.acl-long.1126/}
+}
+
+@inproceedings{lalit2025unsupervised,
+  title={An Investigation of Unsupervised Cell Tracking and Interactive Fine-Tuning},
+  author={Lalit, Manan and Funke, Jan},
+  booktitle={Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV) Workshops},
+  pages={5851--5859},
+  year={2025},
+  doi={10.1109/iccvw69036.2025.00610}
+}
+
+% The DeepCell dataset (DynamicNuclearNet, 12-video test split) is published
+% with the Caliban paper. Author list and metadata per the bioRxiv landing
+% page (accessed 2026-10-07); the current version was posted 2024-08-07 and
+% names deepcell.org as the data portal. Trackastra cites the 2023 revision.
+% The former entry under this key (CellSAM, arXiv:2311.11004) was a different
+% Schwartz paper mistakenly used for the DeepCell citations; it was removed
+% (owner-approved, 2026-10-07).
+% Key schwartz2023 is a stable label; the entry year is the current (2024) revision.
+@article{schwartz2023,
+  title={Caliban: Accurate cell tracking and lineage construction in live-cell imaging experiments with deep learning},
+  author={Schwartz, Morgan Sarah and Moen, Erick and Miller, Geneva and Dougherty, Tom and Borba, Enrico and Ding, Rachel and Graf, William and Pao, Edward and Van Valen, David},
+  journal={bioRxiv},
+  year={2024},
+  doi={10.1101/803205},
+  url={https://www.biorxiv.org/content/10.1101/803205}
+}
+
+% E-04: Cyril Achard's MA thesis (papers/Cyril_Achard_Trackastra_NX_MA_Thesis_15_09_25.pdf).
+% Fields read from the thesis title page, 2026-10-07. In-text citations are a
+% Lane 4 report-text task and not yet added.
+@thesis{achard2025thesis,
+  author={Achard, Cyril},
+  title={Leveraging learned object features for Transformer-based cell tracking in microscopy},
+  institution={{\'E}cole Polytechnique F{\'e}d{\'e}rale de Lausanne},
+  type={Master Thesis},
+  year={2025},
+  date={2025-08-15},
+  note={Supervisor: Martin Weigert (ScaDS.AI, TU Dresden)}
+}
+
+% SSL-5 (CT1): primary citations for the pretrained models compared in
+% tab:feature_injection and tab:app_feature_injection. Metadata supplied and
+% verified by the ticket owner (authors given to the point of the source's
+% "et al.", venue, year, pages, DOI as applicable).
+@inproceedings{ravi2024sam2,
+  title={SAM 2: Segment Anything in Images and Videos},
+  author={Ravi, Nikhila and Gabeur, Valentin and Hu, Yuan-Ting and others},
+  booktitle={International Conference on Learning Representations (ICLR)},
+  year={2025},
+  note={Oral; arXiv:2408.00714}
+}
+
+@inproceedings{karaev2025cotracker3,
+  title={CoTracker3: Simpler and Better Point Tracking by Pseudo-Labelling Real Videos},
+  author={Karaev, Nikita and Makarov, Iurii and Wang, Jianyuan and Neverova, Natalia and Vedaldi, Andrea and Rupprecht, Christian},
+  booktitle={Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV)},
+  pages={6013--6022},
+  year={2025}
+}
+
+@article{oquab2024dinov2,
+  title={DINOv2: Learning Robust Visual Features without Supervision},
+  author={Oquab, Maxime and Darcet, Timoth{\'e}e and Moutakanni, Th{\'e}o and others},
+  journal={Transactions on Machine Learning Research (TMLR)},
+  year={2024},
+  note={arXiv:2304.07193}
+}
+
+@inproceedings{kirillov2023sam,
+  title={Segment Anything},
+  author={Kirillov, Alexander and Mintun, Eric and Ravi, Nikhila and others},
+  booktitle={Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV)},
+  pages={4015--4026},
+  year={2023},
+  doi={10.1109/iccv51070.2023.00371}
+}
+
+@article{archit2025microsam,
+  title={Segment Anything for Microscopy},
+  author={Archit, Anwai and others},
+  journal={Nature Methods},
+  volume={22},
+  number={3},
+  pages={579--591},
+  year={2025},
+  doi={10.1038/s41592-024-02580-4}
+}
+
+% Correspondence-pretraining from geometrically transformed views.
+% Wang et al. verified via Crossref (DOI registry), 2026-10-23;
+% Jabri et al. verified via arXiv (2006.14613, "NeurIPS 2020 camera ready
+% version"), 2026-10-23.
+@inproceedings{wang2019learning,
+  title={Learning Correspondence From the Cycle-Consistency of Time},
+  author={Wang, Xiaolong and Jabri, Allan and Efros, Alexei A.},
+  booktitle={Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)},
+  pages={2561--2571},
+  year={2019},
+  doi={10.1109/CVPR.2019.00267}
+}
+
+@inproceedings{jabri2020spacetime,
+  title={Space-Time Correspondence as a Contrastive Random Walk},
+  author={Jabri, Allan and Owens, Andrew and Efros, Alexei A.},
+  booktitle={Advances in Neural Information Processing Systems},
+  year={2020},
+  url={https://arxiv.org/abs/2006.14613},
+  note={NeurIPS 2020}
+}

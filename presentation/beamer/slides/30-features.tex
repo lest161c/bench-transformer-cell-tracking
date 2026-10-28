@@ -1,0 +1,259 @@
+% ======================================================================
+% 30-features.tex -- SPEC 0055, frames 24-33.
+%
+% §4.3/§4.4 feature story: what was actually trained, the KNN probe, the
+% frozen-encoder injection result, the feature-dependence ablation, and the
+% cosine diagnostic. Expert audience; no k-NN, cross-validation, or
+% contrastive-learning tutorial. One claim per frame.
+% ======================================================================
+
+% Draw one of the three one-claim cards used on frames 25, 26, 28, and 33.
+% The fixed height keeps the three-card rows visually level; the card text
+% may wrap to two lines but remains a single claim.
+\providecommand{\featureCardTfour}[1]{%
+  \fcolorbox{talkteal}{talklight}{%
+    \parbox[c][17mm][c]{0.285\textwidth}{\centering\small #1}}%
+}
+
+% ----------------------------------------------------------------------
+% Frame 24 -- divider.
+% ----------------------------------------------------------------------
+\talksectiondivider{\S4.3/\S4.4: What was actually trained? What do features add?}{Frozen injection and the feature probe.}
+
+% ----------------------------------------------------------------------
+% Frame 25 -- what was actually trained.
+% (a) Why: clarify what was trained; end-to-end fine-tuning was left open.
+% (b) Tried: frozen DynaCLR encoder + projection head + concat with
+%     position/regionprops; association head trained on annotations.
+% (c) Novel: Achard's injection protocol applied to a small from-scratch
+%     encoder.
+% (d) Interpretation: tests feature quality under a trained head, not the
+%     proposed fine-tuning comparison. Threat: not end-to-end; crop
+%     semantics differ.
+% ----------------------------------------------------------------------
+\begin{frame}
+  \talktitle{What was actually trained: frozen injection, not end-to-end fine-tuning}
+  \vspace{4mm}
+  \centering
+  \featureCardTfour{\textcolor{talkorange}{End-to-end fine-tune: left open}}\hfill
+  \featureCardTfour{Frozen DynaCLR + projection head}\hfill
+  \featureCardTfour{Association head trained on annotations}\par
+  \vspace{6mm}
+\end{frame}
+
+% ----------------------------------------------------------------------
+% Frame 26 -- probe design.
+% (a) Why: isolate feature information independently of end-to-end training.
+% (b) Tried: for each anchor, K=8 nearest cells by centroid; shared MLP
+%     scores each pair; three probe seeds; frame-CV and LOCO.
+% (c) Novel: coordinates-only candidate construction; the feature cannot
+%     select its own shortlist.
+% (d) Interpretation: measures re-identification among plausible
+%     neighbours, not tracking. Threat: candidate set is geometry-defined.
+% ----------------------------------------------------------------------
+\begin{frame}
+  \talktitle{KNN probe: K=8 covers 99.3\%, candidates by centroid, shared MLP}
+  \vspace{4mm}
+  \centering
+  \featureCardTfour{\textcolor{talkteal}{\textbf{K=8}} covers 99.3\%}\hfill
+  \featureCardTfour{Candidates by centroid; feature never selects}\hfill
+  \featureCardTfour{Shared MLP, 3 seeds, frame-CV + LOCO}\par
+  \vspace{4mm}
+
+  \begin{center}
+  {\footnotesize The feature cannot choose its own shortlist.}
+  \end{center}
+\end{frame}
+
+% ----------------------------------------------------------------------
+% Frame 27 -- probe result.
+% (a) Why: which signal carries association: position/geometry or learned
+%     features?
+% (b) Tried: eight feature rows, K=8 MLP, frame-CV/LOCO, nearest-centroid
+%     K=1 baseline.
+% (c) Novel: LOCO comparison with coordinates-only candidates.
+% (d) Interpretation: position and geometry dominate; the DynaCLR margin
+%     over nearest-centroid is 0.015. Threat: within-experiment probe.
+% ----------------------------------------------------------------------
+\begin{frame}
+  \talktitle{Position and geometry dominate: DynaCLR 0.826, nearest-centroid 0.811}
+  \vspace{1mm}
+  \begin{center}
+  \scriptsize
+  \setlength{\tabcolsep}{7pt}
+  \begin{tabular}{lrr}
+    \toprule
+    \multicolumn{3}{c}{K=8 candidates, 3 probe seeds}\\
+    \midrule
+    Feature & Frame-CV & LOCO\\
+    \midrule
+    Regionprops 13D & 0.8694 & 0.8183\\
+    Hu 20D & 0.8679 & 0.8023\\
+    \textcolor{talkteal}{\textbf{DynaCLR}}\scite{hirata2025dynacl} & \textcolor{talkteal}{\textbf{0.8527}} & \textcolor{talkteal}{\textbf{0.8259}}\\
+    Regionprops 7D & 0.8422 & 0.7915\\
+    position-only & 0.8127 & 0.7887\\
+    SAM2.1\scite{ravi2024sam2} & 0.7354 & 0.7256\\
+    DINOv2\scite{oquab2024dinov2} & 0.6782 & 0.6433\\
+    NT-Xent & 0.5778 & 0.5634\\
+    \midrule
+    nearest-centroid & 0.812 & 0.811\\
+    \bottomrule
+  \end{tabular}
+  \end{center}
+\end{frame}
+
+% ----------------------------------------------------------------------
+% Frame 28 -- what the probe means.
+% (a) Why: interpret the ranking without overclaiming.
+% (b) Tried: compare feature rows and baselines; frame-CV and LOCO.
+% (c) Novel: a large foundation model is not automatically better here.
+% (d) Interpretation: features add little over explicit geometry; the
+%     ranking is not a tracking verdict. Threat: one checkpoint per feature.
+% ----------------------------------------------------------------------
+\begin{frame}
+  \talktitle{What the probe means: features add little over geometry}
+  \vspace{4mm}
+  \centering
+  \featureCardTfour{Features add little over geometry}\hfill
+  \featureCardTfour{SAM2.1 mid-pack}\hfill
+  \featureCardTfour{\textcolor{talkred}{NT-Xent 0.563}}\par
+  \vspace{6mm}
+\end{frame}
+
+% ----------------------------------------------------------------------
+% Frame 29 -- injection protocol.
+% (a) Why: need a controlled integration to test features in the tracker.
+% (b) Tried: projection head + concat during token construction; encoder
+%     frozen; head trained on annotations.
+% (c) Novel: the reference protocol applied to the 1.47M encoder.
+% (d) Interpretation: changes token construction only; no encoder
+%     fine-tuning. Threat: crop semantics and protocol mismatch.
+% ----------------------------------------------------------------------
+\begin{frame}
+  \talktitle{Injection protocol: projection head + concat; encoder frozen}
+  \vspace{3mm}
+  \centering
+  \begin{tikzpicture}[
+    box/.style={draw=talkteal, fill=talklight, rounded corners=1.2mm,
+                text width=30mm, minimum height=11mm, align=center,
+                inner sep=1.5mm, font=\small},
+    arr/.style={-{Stealth[length=2.4mm]}, thick, draw=talkgray},
+    lab/.style={font=\scriptsize, text=talkgray, text width=32mm,
+                align=center}
+  ]
+    \node[box] (features) {Learned features};
+    \node[box, right=10mm of features] (projection) {projection head\scite{achard2025thesis}};
+    \node[circle, draw=talkteal, fill=talklight, inner sep=1.6mm,
+          right=10mm of projection] (concat) {$\oplus$};
+    \node[box, right=10mm of concat] (token) {transformer token};
+    \node[box, above=8mm of concat] (position) {Fourier PE};
+    \node[box, below=8mm of concat] (geometry) {regionprops};
+    \draw[arr] (features) -- (projection);
+    \draw[arr] (projection) -- (concat);
+    \draw[arr] (position) -- (concat);
+    \draw[arr] (geometry) -- (concat);
+    \draw[arr] (concat) -- (token);
+    \node[lab, below=1mm of projection] {linear + LayerNorm};
+  \end{tikzpicture}
+  \vspace{3mm}
+\end{frame}
+
+% ----------------------------------------------------------------------
+% Frame 30 -- Bacteria and DeepCell in one figure.
+% (a) Why: does the small encoder help in-domain and transfer?
+% (b) Tried: frozen DynaCLR + Achard injection, 3 seeds; Bacteria and
+%     DeepCell with the 91/27 head split.
+% (c) Novel: 1.47M from-scratch encoder versus SAM2.1 and other frozen
+%     features.
+% (d) Interpretation: competitive, not state of the art; DeepCell parity is not a win;
+%     the remaining gap to Original Trackastra is detection.
+% ----------------------------------------------------------------------
+\begin{frame}
+  \talktitle{Small encoder is competitive, not state of the art}
+  \vspace{1mm}
+  \centering
+  {\small Reference protocol \scite{achard2025thesis}; SAM2.1 \scite{ravi2024sam2}; Bacteria \scite{vanvliet2018}; DeepCell \scite{schwartz2023}.\par}
+  \vspace{1mm}
+  \includegraphics[height=0.54\textheight,keepaspectratio]{18_feature_injection_comparison.pdf}\par
+  \vspace{1mm}
+  {\footnotesize Bacteria 8.81 vs SAM2.1 7.00; DeepCell 19.35 vs 19.93; Original Trackastra 11.9 (greedy). The remaining DeepCell gap is detection.\par}
+\end{frame}
+
+% ----------------------------------------------------------------------
+% Frame 31 -- feature dependence.
+% (a) Why: is the head actually using the learned features?
+% (b) Tried: zero features; shuffle per-cell identity; compare AOGM.
+% (c) Novel: feature-dependence ablation.
+% (d) Interpretation: zeroing breaks the head; shuffling identity costs
+%     only 0.94 AOGM. The head uses features, but not their identity.
+%     Threat: one dataset.
+% ----------------------------------------------------------------------
+\begin{frame}
+  \talktitle{The head uses features, but not their identity}
+  \vspace{4mm}
+  \begin{center}
+  \small
+  \setlength{\tabcolsep}{9pt}
+  \begin{tabular}{lr}
+    \toprule
+    Feature condition & Bacteria AOGM\\
+    \midrule
+    normal & 8.81\\
+    shuffled & 9.75\\
+    zeroed & \textcolor{talkred}{\textbf{150.6}}\\
+    \bottomrule
+  \end{tabular}
+  \end{center}
+  \vspace{4mm}
+
+  \begin{center}
+  {\footnotesize Zeroing breaks the head; shuffling identity costs 0.94 AOGM.}
+  \end{center}
+\end{frame}
+
+% ----------------------------------------------------------------------
+% Frame 32 -- cosine diagnostic.
+% (a) Why: why does the reference cosine-only protocol fail?
+% (b) Tried: raw embedding cosine geometry; 0.5 threshold; AOGM.
+% (c) Novel: diagnoses near-uniform embedding geometry as the cause.
+% (d) Interpretation: not a standalone feature-quality verdict. Threat:
+%     threshold-specific.
+% ----------------------------------------------------------------------
+\begin{frame}
+  \talktitle{Raw embedding geometry near-uniform: cosine-only fails ($\sim$88332)}
+  \vspace{6mm}
+  \begin{center}
+  \fcolorbox{talkorange}{talkorange!6}{%
+    \parbox{0.72\textwidth}{%
+      \centering
+      {\fontsize{4.5mm}{5.2mm}\selectfont\color{talkorange}\textbf{AOGM $\approx 88332$}}\par
+      \vspace{3mm}
+      {\large\color{talkgray} cosine near-uniform}\par
+      \vspace{2mm}
+      {\large\color{talkteal} 0.5 threshold over-links}\par
+    }%
+  }
+  \end{center}
+  \vfill
+  \begin{center}
+  {\footnotesize Cosine-only protocol fails for this encoder; not a standalone feature-quality verdict.}
+  \end{center}
+\end{frame}
+
+% ----------------------------------------------------------------------
+% Frame 33 -- interpretation.
+% (a) Why: synthesize §4.4 without overclaiming.
+% (b) Tried: combine probe + injection + dependence + cosine results.
+% (c) Novel: small encoder competitive; position is the signal.
+% (d) Interpretation: 1.47M competitive; position/geometry dominate; no
+%     state-of-the-art claim and no low-label gain. Threat: one encoder; one crop protocol.
+% ----------------------------------------------------------------------
+\begin{frame}
+  \talktitle{\S4.4 interpretation: small encoder competitive; position is the signal}
+  \vspace{4mm}
+  \centering
+  \featureCardTfour{\textcolor{talkteal}{\textbf{1.47M}} competitive}\hfill
+  \featureCardTfour{Position is the signal}\hfill
+  \featureCardTfour{\textcolor{talkred}{Not state of the art}}\par
+  \vspace{6mm}
+\end{frame}
