@@ -1,5 +1,5 @@
 % ======================================================================
-% 30-features.tex -- SPEC 0055, frames 24-33.
+% 30-features.tex -- SPEC 0055, frames 24-31.
 %
 % §4.3/§4.4 feature story: what was actually trained, the KNN probe, the
 % frozen-encoder injection result, the feature-dependence ablation, and the
@@ -7,7 +7,7 @@
 % contrastive-learning tutorial. One claim per frame.
 % ======================================================================
 
-% Draw one of the three one-claim cards used on frames 25, 26, 28, and 33.
+% Draw one of the three one-claim cards used on frames 25, 26, 28, and 31.
 % The fixed height keeps the three-card rows visually level; the card text
 % may wrap to two lines but remains a single claim.
 \providecommand{\featureCardTfour}[1]{%
@@ -180,68 +180,7 @@
 \end{frame}
 
 % ----------------------------------------------------------------------
-% Frame 31 -- feature dependence.
-% (a) Why: is the head actually using the learned features?
-% (b) Tried: zero features; shuffle per-cell identity; compare AOGM.
-% (c) Novel: feature-dependence ablation.
-% (d) Interpretation: zeroing breaks the head; shuffling identity costs
-%     only 0.94 AOGM. The head uses features, but not their identity.
-%     Threat: one dataset.
-% ----------------------------------------------------------------------
-\begin{frame}
-  \talktitle{The head uses features, but not their identity}
-  \vspace{4mm}
-  \begin{center}
-  \small
-  \setlength{\tabcolsep}{9pt}
-  \begin{tabular}{lr}
-    \toprule
-    Feature condition & Bacteria AOGM\\
-    \midrule
-    normal & 8.81\\
-    shuffled & 9.75\\
-    zeroed & \textcolor{talkred}{\textbf{150.6}}\\
-    \bottomrule
-  \end{tabular}
-  \end{center}
-  \vspace{4mm}
-
-  \begin{center}
-  {\footnotesize Zeroing breaks the head; shuffling identity costs 0.94 AOGM.}
-  \end{center}
-\end{frame}
-
-% ----------------------------------------------------------------------
-% Frame 32 -- cosine diagnostic.
-% (a) Why: why does the reference cosine-only protocol fail?
-% (b) Tried: raw embedding cosine geometry; 0.5 threshold; AOGM.
-% (c) Novel: diagnoses near-uniform embedding geometry as the cause.
-% (d) Interpretation: not a standalone feature-quality verdict. Threat:
-%     threshold-specific.
-% ----------------------------------------------------------------------
-\begin{frame}
-  \talktitle{Raw embedding geometry near-uniform: cosine-only fails ($\sim$88332)}
-  \vspace{6mm}
-  \begin{center}
-  \fcolorbox{talkorange}{talkorange!6}{%
-    \parbox{0.72\textwidth}{%
-      \centering
-      {\fontsize{4.5mm}{5.2mm}\selectfont\color{talkorange}\textbf{AOGM $\approx 88332$}}\par
-      \vspace{3mm}
-      {\large\color{talkgray} cosine near-uniform}\par
-      \vspace{2mm}
-      {\large\color{talkteal} 0.5 threshold over-links}\par
-    }%
-  }
-  \end{center}
-  \vfill
-  \begin{center}
-  {\footnotesize Cosine-only protocol fails for this encoder; not a standalone feature-quality verdict.}
-  \end{center}
-\end{frame}
-
-% ----------------------------------------------------------------------
-% Frame 33 -- interpretation.
+% Frame 31 -- interpretation.
 % (a) Why: synthesize §4.4 without overclaiming.
 % (b) Tried: combine probe + injection + dependence + cosine results.
 % (c) Novel: small encoder competitive; position is the signal.

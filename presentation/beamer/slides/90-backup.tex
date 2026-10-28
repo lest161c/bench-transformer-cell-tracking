@@ -1,5 +1,5 @@
 % ======================================================================
-% 90-backup.tex -- SPEC 0055, backup slides B1-B9 (untimed Q&A material).
+% 90-backup.tex -- SPEC 0055, backup slides B1-B10 (untimed Q&A material).
 %
 % Every number and image here is copied from a report table/section named
 % in SPEC 0055; no talk-only figure and no stale 0053 deck asset is used.
@@ -284,6 +284,51 @@
 
 
   \end{minipage}
+\end{frame}
+
+% ----------------------------------------------------------------------
+% B10 -- feature-use and cosine controls.
+% Q&A only. The report carries these as one prose sentence. The zero row is
+% an out-of-distribution probe, not a no-feature trained baseline. The
+% cosine-only value predates the aggregation correction and has no current
+% stored artifact. Do not promote to a main-deck claim.
+% ----------------------------------------------------------------------
+\begin{frame}
+  \talktitle{Feature-use and cosine controls (report prose only)}
+  \centering
+  \begin{minipage}{0.46\textwidth}
+    \centering
+    {\small\textbf{Feature-use control}}\par\vspace{2mm}
+    \scriptsize
+    \renewcommand{\arraystretch}{1.2}
+    \begin{tabular}{@{}lr@{}}
+      \toprule
+      Feature condition & Bacteria AOGM\\
+      \midrule
+      normal & 8.81\\
+      shuffled & 9.75\\
+      zeroed (out of distribution) & 150.6\\
+      \bottomrule
+    \end{tabular}
+  \end{minipage}\hfill
+  \begin{minipage}{0.46\textwidth}
+    \centering
+    {\small\textbf{Cosine-only protocol}}\par\vspace{2mm}
+    \scriptsize
+    \renewcommand{\arraystretch}{1.2}
+    \begin{tabular}{@{}lr@{}}
+      \toprule
+      Quantity & Value\\
+      \midrule
+      AOGM & $\sim$88332\\
+      same-cell cosine & 0.987\\
+      different-cell cosine & 0.968\\
+      \bottomrule
+    \end{tabular}
+  \end{minipage}
+  \vspace{4mm}
+
+  {\footnotesize No matched no-feature trained arm exists. The zero row is an OOD probe, not evidence that features help. The cosine value predates the current aggregation correction and has no current stored artifact. Keep as Q\&A material only.}
 \end{frame}
 
 % ----------------------------------------------------------------------

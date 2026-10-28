@@ -30,6 +30,12 @@ extends the report typography rules in `docs/report_typography_rules.md`.
   compensate for a missing visual.
 - Backup frames may be denser, but must remain readable at Q&A distance and
   must not contradict the main deck.
+- A minor or out-of-distribution control does not get a main-deck slide. Put it
+  in a backup with the caveat; the main deck carries only results that can bear
+  a headline claim.
+- Do not present an OOD ablation (for example, zeroing an input the model was
+  trained with) as evidence that the input is useful. The proper control is a
+  matched trained arm without that input.
 
 ## 3. Language and terminology
 
