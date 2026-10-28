@@ -21,6 +21,10 @@ recorded):
   ``<output>.provenance.json`` recording which checkpoint (path + md5), which
   parameters and which library versions produced the numbers. The results
   JSON format (``{experiment: {TRA, AOGM}}``) is unchanged.
+* **CTC decomposition** (2026-10-28): every result also records the raw CTC
+  error counts (``decomposition``), the derived ``AOGM_A`` (association) and
+  ``AOGM_D`` (detection) terms, and the GT edge count — the convention used
+  by the injection table (``eval_etultra.py``: AOGM = AOGM_A + AOGM_D).
 
 Usage:
     python eval_cv.py --run-dir <run_dir> --heldout <cond> --data-root <root> \
@@ -368,15 +372,40 @@ def main():
                     gt_data, pred_data, CTCMatcher(), [CTCMetrics()]
                 )
 
-                tra = ctc_result[0]["results"].get("TRA", None)
-                aogm = ctc_result[0]["results"].get("AOGM", None)
+                # CTC error decomposition (CTCMetrics, TRA weights):
+                #   AOGM   = AOGM_A + AOGM_D
+                #   AOGM_A = fp_edges + 1.5*fn_edges + ws_edges   (association/linking)
+                #   AOGM_D = fp_nodes + 10*fn_nodes + 5*ns_nodes  (detection)
+                # Same convention as eval_etultra.py:126-129 (injection table).
+                metrics = ctc_result[0]["results"]
+                decomp = {k: metrics.get(k) for k in (
+                    "ns_nodes", "fp_nodes", "fn_nodes",
+                    "fp_edges", "fn_edges", "ws_edges")}
+                aogm_a = ((decomp["fp_edges"] or 0)
+                          + 1.5 * (decomp["fn_edges"] or 0)
+                          + (decomp["ws_edges"] or 0))
+                aogm_d = ((decomp["fp_nodes"] or 0)
+                          + 10 * (decomp["fn_nodes"] or 0)
+                          + 5 * (decomp["ns_nodes"] or 0))
+                gt_graph = getattr(gt_data, "graph", None)
+                gt_edges = (int(gt_graph.number_of_edges())
+                            if gt_graph is not None
+                            and hasattr(gt_graph, "number_of_edges") else None)
+
+                tra = metrics.get("TRA", None)
+                aogm = metrics.get("AOGM", None)
 
                 print(f"done ({time.time() - t0:.1f}s) "
-                      f"TRA={tra:.4f}  AOGM={aogm:.1f}")
+                      f"TRA={tra:.4f}  AOGM={aogm:.1f}  "
+                      f"AOGM_A={aogm_a:.1f}  AOGM_D={aogm_d:.1f}")
 
                 results[exp_dir.name] = {
                     "TRA": float(tra) if tra is not None else None,
                     "AOGM": float(aogm) if aogm is not None else None,
+                    "AOGM_A": float(aogm_a) if aogm is not None else None,
+                    "AOGM_D": float(aogm_d) if aogm is not None else None,
+                    "gt_edge_count": gt_edges,
+                    "decomposition": decomp,
                 }
             except Exception as exc:
                 print(f"FAILED: {exc}")
@@ -400,6 +429,12 @@ def main():
             "std_TRA": float(np.std(tra_vals)) if tra_vals else None,
             "mean_AOGM": float(np.mean(aogm_vals)) if aogm_vals else None,
             "std_AOGM": float(np.std(aogm_vals)) if aogm_vals else None,
+            "mean_AOGM_A": float(np.mean(a_vals)) if (a_vals := [
+                r["AOGM_A"] for r in valid if r.get("AOGM_A") is not None]) else None,
+            "std_AOGM_A": float(np.std(a_vals)) if a_vals else None,
+            "mean_AOGM_D": float(np.mean(d_vals)) if (d_vals := [
+                r["AOGM_D"] for r in valid if r.get("AOGM_D") is not None]) else None,
+            "std_AOGM_D": float(np.std(d_vals)) if d_vals else None,
         }
 
         print(f"\n{'=' * 60}")
@@ -407,6 +442,10 @@ def main():
         print(f"{'=' * 60}")
         print(f"  mean TRA:  {summary['mean_TRA']:.4f} ± {summary['std_TRA']:.4f}")
         print(f"  mean AOGM: {summary['mean_AOGM']:.1f} ± {summary['std_AOGM']:.1f}")
+        print(f"  mean AOGM_A (association): "
+              f"{summary['mean_AOGM_A']:.1f} ± {summary['std_AOGM_A']:.1f}")
+        print(f"  mean AOGM_D (detection):   "
+              f"{summary['mean_AOGM_D']:.1f} ± {summary['std_AOGM_D']:.1f}")
 
         # Save summary alongside results
         summary_path = output_path.with_name("summary.json")
