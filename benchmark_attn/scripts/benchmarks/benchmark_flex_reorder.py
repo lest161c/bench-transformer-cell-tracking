@@ -77,16 +77,21 @@ PUBLISHED_STEADY_MS = {4096: 21.4, 8192: 83.2, 16384: 327.3, 32768: 1374.1}
 
 
 def block_density(coords_2d: torch.Tensor) -> float:
-    """Fraction of active (query-block, key-block) pairs for the KNN graph."""
-    import numpy as np
-    from scipy.spatial import cKDTree
+    """Fraction of active (query-block, key-block) pairs for the KNN graph.
 
-    pts = coords_2d[:, :2].float().cpu().numpy()
-    n = len(pts)
+    Exact chunked KNN in torch (no scipy — the cluster benchmark venv does
+    not carry it); ties are irrelevant for a density metric.
+    """
+    import numpy as np
+
+    pts = coords_2d.detach().float()
+    n = pts.shape[0]
     nb = n // BLOCK
-    tree = cKDTree(pts)
-    _, idx = tree.query(pts, k=KNN + 1)
-    kblock = (idx[:, 1:] // BLOCK).reshape(-1)
+    kidx = torch.empty(n, KNN, dtype=torch.long, device=pts.device)
+    for i in range(0, n, 2048):
+        d2 = torch.cdist(pts[i:i + 2048], pts)
+        kidx[i:i + 2048] = d2.topk(KNN + 1, largest=False).indices[:, 1:]
+    kblock = (kidx // BLOCK).reshape(-1).cpu().numpy()
     qblock = np.repeat(np.arange(n) // BLOCK, KNN)
     active = set(zip(qblock.tolist(), kblock.tolist()))
     return len(active) / (nb * nb)
