@@ -4,7 +4,7 @@ import pytest
 import torch
 
 from src.models.attention import (
-    GatherSparseAttention,
+    SparseGatherAttention,
     KNNRelativePositionalBias,
     RelativePositionalAttention,
     RotaryPositionalEncoding,
@@ -28,7 +28,7 @@ def test_knn_relative_positional_bias_shape():
 
 
 def test_gather_sparse_attention_shape():
-    attn = GatherSparseAttention(embed_dim=64, n_head=4, knn_neighbors=8, mode="none")
+    attn = SparseGatherAttention(embed_dim=64, n_head=4, knn_neighbors=8, mode="none")
     batch_size, seq_len = 2, 10
     query = torch.randn(batch_size, seq_len, 64)
     key = torch.randn(batch_size, seq_len, 64)

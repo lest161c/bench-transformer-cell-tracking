@@ -54,6 +54,31 @@ PROBE_JSON = BASE / "results" / "probes" / "unified_probe_results_cv10.json"
 SIGNIFICANCE_JSON = BASE / "results" / "probes" / "probe_paired_significance.json"
 FIGURES.mkdir(parents=True, exist_ok=True)
 
+# ── Cutoff masked-fraction statistic (G-01) ─────────────────────────────────
+# The analysis script is self-contained: it computes the per-frame CSV only
+# when it is missing (or reuses it) and renders the PNG from the CSV alone.
+# Compute requires an interpreter with numpy/tifffile/scikit-image.
+MASKED_FRACTION_SCRIPT = BASE / "benchmark_training" / "scripts" / "analysis" / "cutoff_masked_fraction.py"
+MASKED_FRACTION_CSV = BASE / "benchmark_training" / "results" / "cutoff_masked_fraction" / "masked_fraction.csv"
+
+
+def run_masked_fraction():
+    """Execute the cutoff masked-fraction script when its CSV is not present.
+
+    If the intermediate CSV already exists, computation is skipped (the
+    script's ``--from-csv`` mode can regenerate the PNG from the CSV alone at
+    any time).
+    """
+    if MASKED_FRACTION_CSV.exists():
+        print("  CSV present; skipping masked-fraction computation")
+        return
+    subprocess.run(
+        [sys.executable, str(MASKED_FRACTION_SCRIPT),
+         "--csv", str(MASKED_FRACTION_CSV),
+         "--png", str(FIGURES / "masked_fraction.png")],
+        check=True,
+    )
+
 # ── Okabe–Ito palette (see docs/vis_guidelines.md) ────────────────────────────
 # Slot assignment kept identical to curated/generate_report.py so the same
 # semantic role (e.g. "Dense baseline") gets the same colour in every figure
@@ -545,45 +570,55 @@ def plot_probe_significance():
 
 def plot_training_step_k_sweep():
     """
-    Three-panel figure, one aspect of the sparse-attention K-sweep benchmark
-    per panel (owner decision 2026-09-28: the single 6-curve line plot was
-    unreadable because K ∈ {4,8,16} differ by ≤15% and braid into one band).
-    Source: benchmark_attn/results/speed_mem.csv, produced by
-    benchmark_training/scripts/benchmarks/benchmark_speed_mem.py — the FULL
-    training step (forward + backward + AdamW, fp32) on the A500, plus peak
-    GPU memory; K ∈ {0,4,8,16,32,64}, N ∈ {128,256,512}. NOT the attention
+    Three-panel figure, one aspect of the multi-seed sparse-attention K-sweep
+    benchmark per panel. Source: benchmark_attn/results/speed_mem_v2.csv —
+    the FULL training step (forward + backward + AdamW, fp32, B=2) on the
+    A500, multi-seed protocol (5 seeds x 10 timed iterations per cell;
+    mean +/- sd across seed runs; SPEC 0019 amended 2026-10-01 — no
+    repeat-block/machine-state protocol). K in {0,2,4,8,16,32,64},
+    N in {128,256,512}; ratio reference = dense (K=0). NOT the attention
     forward time alone (see fig:speed_vs_n for the H100 op-level benchmark).
-    Fallback: bench-transformer-cell-tracking/benchmark_combined/results/speed_mem.csv (no K=64).
 
     Panels:
-      (a) Scaling with N: absolute training-step time vs N. The K ∈ {4,8,16}
-          cluster is drawn as one gray min–max band; Dense, K=32, K=64 as
-          lines.
-      (b) Overhead vs dense: training-step-time ratio K/dense vs N; 1.0 = dense.
-      (c) Cost vs K: training-step time at the largest measured N as bars for
-          all six K values (the N is stated in the LaTeX caption, not hardcoded).
+      (a) Scaling with N: absolute training-step time vs N (seed-mean lines
+          with +/-sd bands). The gather-KNN K in {2,4,8,16} cluster is drawn
+          as one gray min-max band over the three seed-means; dense, K=32,
+          K=64 and the two cached-dist configurations (K=16) as lines.
+      (b) Overhead vs dense: training-step-time ratio K/dense vs N; 1.0 =
+          dense. Ratio sd propagates the numerator and dense sd in quadrature.
+      (c) Cost vs K: training-step time (seed-mean, sd whiskers) at the
+          largest measured N as bars for all cells; at K=16 three bars
+          (gather, cached-dist mask, cached-dist gather).
 
-    Figure stem: ``training_step_k_sweep`` — named for what the data is (the
-    full training step), not for the mislabeled "attention speed".
-    One shared figure legend (per-panel end labels collided with neighbouring
-    panels at the 3-panel width).
+    Figure stem: ``training_step_k_sweep``. One shared figure legend.
     """
-    # Try updated local copy first, then the older benchmark_combined path
-    path_local = BASE / "benchmark_attn" / "results" / "speed_mem.csv"
-    path_combined = BASE / "bench-transformer-cell-tracking" / "benchmark_combined" / "results" / "speed_mem.csv"
-
-    path = path_local if path_local.exists() else path_combined
+    path = BASE / "benchmark_attn" / "results" / "speed_mem_v2.csv"
     if not path.exists():
-        print("  ⚠ speed_mem.csv not found — skipping training_step_k_sweep.pdf")
+        print("  ⚠ speed_mem_v2.csv not found — skipping training_step_k_sweep.pdf")
         return
 
-    df = pd.read_csv(path)
+    df_raw = pd.read_csv(path)
+    df_raw = df_raw[df_raw["status"] == "ok"]
+    per_seed = (df_raw.groupby(["variant", "K", "N", "repeat_id"])["time_ms"]
+                .mean().reset_index())
+    cell = (per_seed.groupby(["variant", "K", "N"])["time_ms"]
+            .agg(["mean", "std"]).reset_index())
+    cell.columns = ["variant", "K", "N", "time_ms", "time_ms_sd"]
+    df = cell  # one row per (variant, K, N): seed-mean and sd across seeds
+
     sequence_lengths = sorted(df["N"].unique())
     largest_n = sequence_lengths[-1]
-    dense_time_by_n = df[df["K"] == 0].set_index("N")["time_ms"]
+    dense_time_by_n = (df[df["variant"] == "dense"]
+                       .set_index("N")["time_ms"])
+    dense_sd_by_n = (df[df["variant"] == "dense"]
+                     .set_index("N")["time_ms_sd"])
     df["time_over_dense"] = df.apply(
         lambda row: row["time_ms"] / dense_time_by_n[row["N"]], axis=1)
-    cluster_k_values = [4, 8, 16]  # cluster spread ≤15%; shown as one band in (a)/(b)
+    df["ratio_sd"] = df.apply(
+        lambda row: row["time_over_dense"] * np.sqrt(
+            (row["time_ms_sd"] / row["time_ms"]) ** 2
+            + (dense_sd_by_n[row["N"]] / dense_time_by_n[row["N"]]) ** 2), axis=1)
+    cluster_k_values = [2, 4, 8, 16]  # cluster spread; shown as one band in (a)/(b)
 
     fig, (ax_scaling, ax_overhead, ax_cost_k) = plt.subplots(
         1, 3, figsize=(4.8, 2.0))
@@ -592,18 +627,25 @@ def plot_training_step_k_sweep():
     dense_color = ROLE_DENSE_BASELINE
     cluster_color = "#999999"
     high_k_colors = {"K=32": ROLE_K32, "K=64": ROLE_K64}
-    line_widths = {"Dense": 1.6, "K=32": 1.0, "K=64": 1.0}
+    cached_colors = {"cached_dist_mask_knn": OI_VERMILION,
+                     "cached_dist_gather_knn": OI_PURPLE}
+    cached_labels = {"cached_dist_mask_knn": "cached-dist mask (K=16)",
+                     "cached_dist_gather_knn": "cached-dist gather (K=16)"}
+    line_widths = {"Dense": 1.6, "K=32": 1.0, "K=64": 1.0,
+                   "cached": 1.0}
 
-    # K ∈ {4,8,16} spread ≤15% at every N (vs ~2–4× gaps to Dense/K=64);
-    # drawn as one min–max band.
-    # Bounds are needed in both panels' units: absolute time (a) and the
-    # ratio to dense (b).
-    cluster_time_by_n = df[df["K"].isin(cluster_k_values)].groupby("N")["time_ms"]
-    cluster_ratio_by_n = df[df["K"].isin(cluster_k_values)].groupby("N")["time_over_dense"]
+    cluster_df = df[(df["variant"] == "gather_knn")
+                    & (df["K"].isin(cluster_k_values))]
+    cluster_time_by_n = cluster_df.groupby("N")["time_ms"]
+    cluster_ratio_by_n = cluster_df.groupby("N")["time_over_dense"]
     cluster_time_lo = cluster_time_by_n.min()[sequence_lengths]
     cluster_time_hi = cluster_time_by_n.max()[sequence_lengths]
     cluster_ratio_lo = cluster_ratio_by_n.min()[sequence_lengths]
     cluster_ratio_hi = cluster_ratio_by_n.max()[sequence_lengths]
+
+    def series_by_variant(variant, column):
+        """Ordered values of ``column`` for one variant, increasing N."""
+        return df[df["variant"] == variant].sort_values("N")[column].tolist()
 
     def cluster_color_for_k(k_value):
         """Map a K value to this figure's shared colour semantics."""
@@ -613,52 +655,92 @@ def plot_training_step_k_sweep():
             return cluster_color
         return high_k_colors[f"K={k_value}"]
 
-    def plot_lines_with_cluster_band(ax, y_by_label, cluster_lo, cluster_hi):
+    def plot_lines_with_cluster_band(ax, line_by_label, sd_by_label,
+                                     y_col, sd_col, cluster_lo, cluster_hi):
         """
-        Draw the Dense/K=32/K=64 lines plus the K∈{4,8,16} min–max band.
+        Draw the Dense/K=32/K=64 lines (+/-sd bands) plus the K∈{2,4,8,16}
+        min–max band; then the two cached-dist mean lines (+/-sd bands).
 
-        y_by_label maps "Dense"/"K=32"/"K=64" to a list of y values ordered by
-        increasing N; ``cluster_lo``/``cluster_hi`` are the band bounds in the
-        same units as the y values. Returns nothing; draws onto ``ax``.
+        line_by_label maps "Dense"/"K=32"/"K=64" and sd_by_label the matching
+        sd lists, ordered by increasing N. Band bounds in the same units.
         """
         ax.fill_between(sequence_lengths, cluster_lo, cluster_hi,
                         color=cluster_color, alpha=0.35, linewidth=0, zorder=1)
         for line_label, line_color in {"Dense": dense_color, **high_k_colors}.items():
-            ax.plot(sequence_lengths, y_by_label[line_label],
-                    color=line_color, linewidth=line_widths[line_label],
-                    marker="o", markersize=2.8, zorder=3)
+            ys = line_by_label[line_label]
+            sds = sd_by_label[line_label]
+            line, = ax.plot(sequence_lengths, ys,
+                            color=line_color, linewidth=line_widths[line_label],
+                            marker="o", markersize=2.8, zorder=3)
+            ax.fill_between(sequence_lengths, [y - s for y, s in zip(ys, sds)],
+                            [y + s for y, s in zip(ys, sds)],
+                            color=line_color, alpha=0.18, linewidth=0, zorder=2)
+        for variant, color in cached_colors.items():
+            ys = series_by_variant(variant, y_col)
+            sds = series_by_variant(variant, sd_col)
+            ax.plot(sequence_lengths, ys, color=cached_colors[variant],
+                    linewidth=1.0, marker="o", markersize=2.8, zorder=3)
+            ax.fill_between(sequence_lengths, [y - s for y, s in zip(ys, sds)],
+                            [y + s for y, s in zip(ys, sds)],
+                            color=cached_colors[variant], alpha=0.18,
+                            linewidth=0, zorder=2)
 
     # ── (a) Scaling with N ────────────────────────────────────────────────────
     time_by_label = {
-        line_label: df[df["K"] == k_value].sort_values("N")["time_ms"].tolist()
+        line_label: df[(df["variant"] == "gather_knn") & (df["K"] == k_value)]
+        .sort_values("N")["time_ms"].tolist()
         for line_label, k_value in [("Dense", 0), ("K=32", 32), ("K=64", 64)]
     }
-    plot_lines_with_cluster_band(ax_scaling, time_by_label, cluster_time_lo, cluster_time_hi)
+    time_by_label["Dense"] = series_by_variant("dense", "time_ms")
+    sd_by_label = {
+        line_label: df[(df["variant"] == "gather_knn") & (df["K"] == k_value)]
+        .sort_values("N")["time_ms_sd"].tolist()
+        for line_label, k_value in [("Dense", 0), ("K=32", 32), ("K=64", 64)]
+    }
+    sd_by_label["Dense"] = series_by_variant("dense", "time_ms_sd")
+    plot_lines_with_cluster_band(ax_scaling, time_by_label, sd_by_label,
+                                 "time_ms", "time_ms_sd",
+                                 cluster_time_lo, cluster_time_hi)
     ax_scaling.set_xlabel("Sequence length $N$")
     ax_scaling.set_ylabel("Training-step time (ms)")
     ax_scaling.set_title("(a) Scaling with $N$", fontsize=7)
 
     # ── (b) Overhead vs dense ─────────────────────────────────────────────────
     ratio_by_label = {
-        line_label: df[df["K"] == k_value].sort_values("N")["time_over_dense"].tolist()
+        line_label: df[(df["variant"] == "gather_knn") & (df["K"] == k_value)]
+        .sort_values("N")["time_over_dense"].tolist()
         for line_label, k_value in [("Dense", 0), ("K=32", 32), ("K=64", 64)]
     }
-    plot_lines_with_cluster_band(ax_overhead, ratio_by_label, cluster_ratio_lo, cluster_ratio_hi)
+    ratio_by_label["Dense"] = series_by_variant("dense", "time_over_dense")
+    ratio_sd_by_label = {
+        line_label: df[(df["variant"] == "gather_knn") & (df["K"] == k_value)]
+        .sort_values("N")["ratio_sd"].tolist()
+        for line_label, k_value in [("Dense", 0), ("K=32", 32), ("K=64", 64)]
+    }
+    ratio_sd_by_label["Dense"] = series_by_variant("dense", "ratio_sd")
+    plot_lines_with_cluster_band(ax_overhead, ratio_by_label, ratio_sd_by_label,
+                                 "time_over_dense", "ratio_sd",
+                                 cluster_ratio_lo, cluster_ratio_hi)
     ax_overhead.set_xlabel("Sequence length $N$")
     ax_overhead.set_ylabel("Time / dense (×)")
     ax_overhead.set_title("(b) Overhead vs dense", fontsize=7)
 
     # ── (c) Cost vs K at the largest measured N ───────────────────────────────
-    cost_at_largest_n = df[df["N"] == largest_n].sort_values("K")
+    cost_at_largest_n = df[df["N"] == largest_n].sort_values(["K", "variant"])
     bar_positions = np.arange(len(cost_at_largest_n))
+    bar_colors = []
+    for _, row in cost_at_largest_n.iterrows():
+        if row["variant"] == "cached_dist_mask_knn":
+            bar_colors.append(OI_VERMILION)
+        elif row["variant"] == "cached_dist_gather_knn":
+            bar_colors.append(OI_PURPLE)
+        else:
+            bar_colors.append(cluster_color_for_k(row["K"]))
     ax_cost_k.bar(bar_positions, cost_at_largest_n["time_ms"],
-                  color=[cluster_color_for_k(k) for k in cost_at_largest_n["K"]],
-                  edgecolor="white", linewidth=0.3, width=0.65)
-    # Bar value annotations. Adjacent bars with near-equal heights (e.g. the
-    # K=4/K=8 pair at 123.6/127.7 ms) would have their labels touch, so a
-    # label is raised by ``bar_label_gap_ms`` whenever its bar top lies within
-    # ``bar_label_gap_ms`` of the previous bar's top — deterministic and
-    # data-driven.
+                  yerr=cost_at_largest_n["time_ms_sd"],
+                  color=bar_colors,
+                  edgecolor="white", linewidth=0.3, width=0.65,
+                  error_kw={"elinewidth": 0.7, "capsize": 1.5})
     bar_label_gap_ms = 10
     previous_bar_time = None
     for bar_position, bar_time in zip(bar_positions, cost_at_largest_n["time_ms"]):
@@ -669,13 +751,18 @@ def plot_training_step_k_sweep():
                        ha="center", va="bottom", fontsize=5.5)
         previous_bar_time = bar_time
     ax_cost_k.set_xticks(bar_positions)
-    ax_cost_k.set_xticklabels([str(k) for k in cost_at_largest_n["K"]])
+    ax_cost_k.set_xticklabels(
+        [("K=0" if row["variant"] == "dense" else
+          "cd-mask" if row["variant"] == "cached_dist_mask_knn" else
+          "cd-gather" if row["variant"] == "cached_dist_gather_knn" else
+          f"K={int(row['K'])}")
+         for _, row in cost_at_largest_n.iterrows()],
+        fontsize=5.5, rotation=45, ha="right")
     ax_cost_k.set_xlabel("Context size $K$")
     ax_cost_k.set_ylabel("Training-step time (ms)")
-    ax_cost_k.set_ylim(0, 230)  # headroom for the bar value annotations
+    ax_cost_k.set_ylim(0, 230)
     ax_cost_k.set_title("(c) Cost vs $K$", fontsize=7)
 
-    # Axes limits, grid, spines, and the single shared legend.
     for ax in (ax_scaling, ax_overhead):
         ax.set_xscale("log", base=2)
         ax.set_xticks(sequence_lengths)
@@ -688,20 +775,25 @@ def plot_training_step_k_sweep():
     legend_handles = [
         Line2D([0], [0], color=dense_color, linewidth=1.6, marker="o",
                markersize=3, label="Dense (K=0)"),
-        Patch(facecolor=cluster_color, alpha=0.35, label="K=4–16"),
+        Patch(facecolor=cluster_color, alpha=0.35, label="K=2–16"),
         Line2D([0], [0], color=ROLE_K32, linewidth=1.0, marker="o",
                markersize=3, label="K=32"),
         Line2D([0], [0], color=ROLE_K64, linewidth=1.0, marker="o",
                markersize=3, label="K=64"),
+        Line2D([0], [0], color=OI_VERMILION, linewidth=1.0, marker="o",
+               markersize=3, label="cached-dist mask (K=16)"),
+        Line2D([0], [0], color=OI_PURPLE, linewidth=1.0, marker="o",
+               markersize=3, label="cached-dist gather (K=16)"),
     ]
-    fig.legend(handles=legend_handles, loc="upper center", ncol=4,
+    fig.legend(handles=legend_handles, loc="upper center", ncol=3,
                frameon=False, fontsize=6, columnspacing=1.2, handlelength=1.6)
-    fig.subplots_adjust(top=0.82, wspace=0.55)
+    fig.subplots_adjust(top=0.78, wspace=0.55)
 
     meta = {
         "sources": [str(path)],
         "values": [
-            {"K": int(row["K"]), "N": int(row["N"]), "time_ms": float(row["time_ms"])}
+            {"variant": row["variant"], "K": int(row["K"]), "N": int(row["N"]),
+             "time_ms": float(row["time_ms"]), "time_ms_sd": float(row["time_ms_sd"])}
             for _, row in df.iterrows()
         ],
     }
@@ -710,48 +802,82 @@ def plot_training_step_k_sweep():
 
 def plot_training_step_k_sweep_summary():
     """
-    Single-panel body summary of the K-sweep training-step benchmark:
-    training-step time ratio to dense vs sequence length N. The low-context
-    cluster K ∈ {4,8,16} is drawn as one gray min–max band (the variants agree
-    within ~15%), K=32 and K=64 as lines, dashed line at 1.0 = dense.
+    Single-panel body summary of the multi-seed K-sweep training-step
+    benchmark: training-step time ratio to dense vs sequence length N.
+    The gather-KNN cluster K ∈ {2,4,8,16} is drawn as one gray min–max band
+    (over the per-K seed-means), K=32 and K=64 as lines, dashed line at
+    1.0 = dense; the two cached-dist configurations (K=16) as lines.
     Compact companion to the three-panel ``training_step_k_sweep`` appendix
     figure: the body panel carries the one headline (sparse-attention
     overhead at training scale, largest at N=128 and shrinking as N grows),
     per-configuration detail lives in the appendix.
 
-    Source: benchmark_attn/results/speed_mem.csv — the FULL training step
-    (forward + backward + AdamW, fp32) on the A500; NOT the attention
-    forward time alone. Fallback: bench-transformer-cell-tracking path.
+    Source: benchmark_attn/results/speed_mem_v2.csv — the FULL training step
+    (forward + backward + AdamW, fp32, B=2) on the A500, multi-seed protocol
+    (5 seeds × 10 timed iterations per cell; mean ± sd across seed runs;
+    SPEC 0019 amended 2026-10-01). Ratio sd propagates the numerator and
+    dense sd in quadrature. NOT the attention forward time alone.
     """
-    path_local = BASE / "benchmark_attn" / "results" / "speed_mem.csv"
-    path_combined = BASE / "bench-transformer-cell-tracking" / "benchmark_combined" / "results" / "speed_mem.csv"
-
-    path = path_local if path_local.exists() else path_combined
+    path = BASE / "benchmark_attn" / "results" / "speed_mem_v2.csv"
     if not path.exists():
-        print("  ⚠ speed_mem.csv not found — skipping training_step_k_sweep_summary.pdf")
+        print("  ⚠ speed_mem_v2.csv not found — skipping training_step_k_sweep_summary.pdf")
         return
 
-    df = pd.read_csv(path)
+    df_raw = pd.read_csv(path)
+    df_raw = df_raw[df_raw["status"] == "ok"]
+    per_seed = (df_raw.groupby(["variant", "K", "N", "repeat_id"])["time_ms"]
+                .mean().reset_index())
+    cell = (per_seed.groupby(["variant", "K", "N"])["time_ms"]
+            .agg(["mean", "std"]).reset_index())
+    cell.columns = ["variant", "K", "N", "time_ms", "time_ms_sd"]
+    df = cell  # one row per (variant, K, N): mean and sd across the 5 seed runs
+
     sequence_lengths = sorted(df["N"].unique())
-    largest_n = sequence_lengths[-1]
-    dense_time_by_n = df[df["K"] == 0].set_index("N")["time_ms"]
+    dense_time_by_n = df[df["variant"] == "dense"].set_index("N")["time_ms"]
+    dense_sd_by_n = df[df["variant"] == "dense"].set_index("N")["time_ms_sd"]
     df["time_over_dense"] = df.apply(
         lambda row: row["time_ms"] / dense_time_by_n[row["N"]], axis=1)
-    cluster_k_values = [4, 8, 16]  # cluster spread ≤15%; shown as one band
+    df["ratio_sd"] = df.apply(
+        lambda row: row["time_over_dense"] * np.sqrt(
+            (row["time_ms_sd"] / row["time_ms"]) ** 2
+            + (dense_sd_by_n[row["N"]] / dense_time_by_n[row["N"]]) ** 2), axis=1)
+    cluster_k_values = [2, 4, 8, 16]  # cluster spread; shown as one band
+
+    def series_by_variant(variant, column):
+        """Ordered values of ``column`` for one variant, by increasing N."""
+        return df[df["variant"] == variant].sort_values("N")[column].tolist()
 
     fig, ax = plt.subplots(figsize=figsize_wide(2.2))
 
-    cluster_ratio_by_n = df[df["K"].isin(cluster_k_values)].groupby("N")["time_over_dense"]
+    cluster_df = df[(df["variant"] == "gather_knn")
+                    & (df["K"].isin(cluster_k_values))]
+    cluster_ratio_by_n = cluster_df.groupby("N")["time_over_dense"]
     cluster_lo = cluster_ratio_by_n.min()[sequence_lengths]
     cluster_hi = cluster_ratio_by_n.max()[sequence_lengths]
     ax.fill_between(sequence_lengths, cluster_lo, cluster_hi,
                     color="#999999", alpha=0.35, linewidth=0, zorder=1,
-                    label="K=4–16")
+                    label="K=2–16")
     for k_value, k_color in [(32, ROLE_K32), (64, ROLE_K64)]:
-        variant_rows = df[df["K"] == k_value].sort_values("N")
+        variant_rows = df[(df["variant"] == "gather_knn")
+                          & (df["K"] == k_value)].sort_values("N")
+        ax.fill_between(sequence_lengths,
+                        variant_rows["time_over_dense"] - variant_rows["ratio_sd"],
+                        variant_rows["time_over_dense"] + variant_rows["ratio_sd"],
+                        color=k_color, alpha=0.18, linewidth=0, zorder=2)
         ax.plot(sequence_lengths, variant_rows["time_over_dense"],
                 color=k_color, linewidth=1.0, marker="o", markersize=2.8,
                 zorder=3, label=f"K={k_value}")
+    cached_styles = [("cached_dist_mask_knn", OI_VERMILION, "cached-dist mask (K=16)"),
+                     ("cached_dist_gather_knn", OI_PURPLE, "cached-dist gather (K=16)")]
+    for variant, v_color, v_label in cached_styles:
+        rows = df[df["variant"] == variant].sort_values("N")
+        ax.fill_between(sequence_lengths,
+                        rows["time_over_dense"] - rows["ratio_sd"],
+                        rows["time_over_dense"] + rows["ratio_sd"],
+                        color=v_color, alpha=0.18, linewidth=0, zorder=2)
+        ax.plot(sequence_lengths, rows["time_over_dense"],
+                color=v_color, linewidth=1.0, marker="o", markersize=2.8,
+                zorder=3, label=v_label)
     ax.axhline(1.0, color=ROLE_DENSE_BASELINE, linewidth=1.2, linestyle="--",
                alpha=0.7, zorder=2, label="Dense (K=0)")
 
@@ -761,7 +887,8 @@ def plot_training_step_k_sweep_summary():
     ax.set_xticks(sequence_lengths)
     ax.get_xaxis().set_major_formatter(mticker.ScalarFormatter())
     ax.set_xlim(100, 700)
-    ax.set_ylim(0.85, 1.1 * df["time_over_dense"].max())
+    ax.set_ylim(0.9 * df["time_over_dense"].min(),
+                1.1 * df["time_over_dense"].max())
     add_horizontal_grid(ax)
     remove_top_right_spines(ax)
     style_legend(ax, loc="upper right", fontsize=6.5)
@@ -769,8 +896,9 @@ def plot_training_step_k_sweep_summary():
     meta = {
         "sources": [str(path)],
         "values": [
-            {"K": int(row["K"]), "N": int(row["N"]),
-             "time_over_dense": float(row["time_over_dense"])}
+            {"variant": row["variant"], "K": int(row["K"]), "N": int(row["N"]),
+             "time_over_dense": float(row["time_over_dense"]),
+             "ratio_sd": float(row["ratio_sd"])}
             for _, row in df.iterrows()
         ],
     }
@@ -782,61 +910,82 @@ def plot_training_step_k_sweep_summary():
 # ══════════════════════════════════════════════════════════════════════════════
 def plot_training_step_k_sweep_memory():
     """
-    Single-panel figure: peak GPU memory vs N for the K-sweep training-step
-    benchmark (owner decision 2026-09-28, SPEC 0015: the former second panel
-    plotted the mask-KNN mask buffer, whose measured sizes equal the
-    analytic 8·N²·4 bytes exactly — a deterministic identity, not an
-    experiment — so the panel was redundant with its own caption and with
-    the body figure caption ``fig:memory_vs_n``; the mask-buffer fact now
-    lives in this figure's caption and in the appendix text).
-    Source: benchmark_attn/results/speed_mem.csv (updated 2026-08-04,
-    K ∈ {0,4,8,16,32,64}, N ∈ {128,256,512}) — dense baseline and
-    gather-KNN sparse variants (O(NK) memory). The memory numbers are peak
-    GPU memory of the FULL training step (forward + backward + AdamW,
-    fp32, A500), same benchmark as ``training_step_k_sweep``.
-    Fallback: bench-transformer-cell-tracking/benchmark_combined/results/speed_mem.csv (no K=64).
+    Single-panel figure: peak GPU memory vs N for the multi-seed K-sweep
+    training-step benchmark. Source: benchmark_attn/results/speed_mem_v2.csv
+    — the FULL training step (forward + backward + AdamW, fp32, B=2) on the
+    A500, multi-seed protocol (5 seeds × 10 timed iterations per cell;
+    mean ± sd across seed runs; SPEC 0019 amended 2026-10-01). Dense
+    baseline, gather-KNN sparse variants (O(NK) memory) and the two
+    cached-dist configurations (K=16). Same benchmark as
+    ``training_step_k_sweep``.
 
-    Encoding: dense, K=32, K=64 as lines; the K ∈ {4,8,16} cluster as one
-    gray min–max band (spread ≤28% in memory).
+    Encoding: dense, K=32, K=64 and the two cached-dist variants as lines
+    with ±sd bands; the gather-KNN K ∈ {2,4,8,16} cluster as one gray
+    min–max band over the per-K seed-means.
 
     Figure stem: ``training_step_k_sweep_memory`` — named for what the data
     is (full training-step memory), not "attention memory".
     """
-    # Try updated local copy first, then the older benchmark_combined path
-    path_local = BASE / "benchmark_attn" / "results" / "speed_mem.csv"
-    path_combined = BASE / "bench-transformer-cell-tracking" / "benchmark_combined" / "results" / "speed_mem.csv"
-
-    path = path_local if path_local.exists() else path_combined
+    path = BASE / "benchmark_attn" / "results" / "speed_mem_v2.csv"
     if not path.exists():
-        print("  ⚠ speed_mem.csv not found — skipping training_step_k_sweep_memory.pdf")
+        print("  ⚠ speed_mem_v2.csv not found — skipping training_step_k_sweep_memory.pdf")
         return
 
-    df = pd.read_csv(path)
+    df_raw = pd.read_csv(path)
+    df_raw = df_raw[df_raw["status"] == "ok"]
+    per_seed = (df_raw.groupby(["variant", "K", "N", "repeat_id"])["peak_mem_mb"]
+                .mean().reset_index())
+    cell = (per_seed.groupby(["variant", "K", "N"])["peak_mem_mb"]
+            .agg(["mean", "std"]).reset_index())
+    cell.columns = ["variant", "K", "N", "peak_mem_mb", "peak_mem_mb_sd"]
+    df = cell  # one row per (variant, K, N): mean and sd across the 5 seed runs
+
     sequence_lengths = sorted(df["N"].unique())
-    cluster_k_values = [4, 8, 16]  # cluster spread ≤28% in memory; shown as one band
+    cluster_k_values = [2, 4, 8, 16]  # cluster spread in memory; shown as one band
 
     fig, ax = plt.subplots(figsize=figsize_wide(2.2))
 
     # ── Encodings (same vocabulary as plot_training_step_k_sweep) ────────────
     dense_color = ROLE_DENSE_BASELINE
     cluster_color = "#999999"
-    high_k_colors = {"K=32": ROLE_K32, "K=64": ROLE_K64}
-    line_widths = {"Dense": 1.6, "K=32": 1.0, "K=64": 1.0}
+    cached_colors = {"cached_dist_mask_knn": (OI_VERMILION, "cached-dist mask (K=16)"),
+                     "cached_dist_gather_knn": (OI_PURPLE, "cached-dist gather (K=16)")}
 
-    # K ∈ {4,8,16} spread ≤28% at every N (vs ~2× gaps to Dense/K=64); drawn
-    # as one min–max band.
-    cluster_mem_by_n = df[df["K"].isin(cluster_k_values)].groupby("N")["mem_mb"]
+    def series_by_variant(variant, column):
+        """Ordered values of ``column`` for one variant, by increasing N."""
+        return df[df["variant"] == variant].sort_values("N")[column].tolist()
+
+    # K ∈ {2,4,8,16} spread; drawn as one min–max band over the seed-means.
+    cluster_df = df[(df["variant"] == "gather_knn")
+                    & (df["K"].isin(cluster_k_values))]
+    cluster_mem_by_n = cluster_df.groupby("N")["peak_mem_mb"]
     cluster_mem_lo = cluster_mem_by_n.min()[sequence_lengths]
     cluster_mem_hi = cluster_mem_by_n.max()[sequence_lengths]
     ax.fill_between(sequence_lengths, cluster_mem_lo, cluster_mem_hi,
                     color=cluster_color, alpha=0.35, linewidth=0, zorder=1)
-    for line_label, k_value in [("Dense", 0), ("K=32", 32), ("K=64", 64)]:
-        variant_rows = df[df["K"] == k_value].sort_values("N")
-        ax.plot(sequence_lengths, variant_rows["mem_mb"],
-                color=dense_color if k_value == 0
-                else high_k_colors[line_label],
-                linewidth=line_widths[line_label],
-                marker="o", markersize=2.8, zorder=3)
+    for k_value, k_color, k_width in [(0, dense_color, 1.6),
+                                      (32, ROLE_K32, 1.0),
+                                      (64, ROLE_K64, 1.0)]:
+        variant_name = "dense" if k_value == 0 else "gather_knn"
+        cell_rows = df[(df["variant"] == variant_name) & (df["K"] == k_value)].sort_values("N")
+        ys = cell_rows["peak_mem_mb"].tolist()
+        sds = cell_rows["peak_mem_mb_sd"].tolist()
+        ax.fill_between(sequence_lengths,
+                        [y - s for y, s in zip(ys, sds)],
+                        [y + s for y, s in zip(ys, sds)],
+                        color=k_color, alpha=0.18, linewidth=0, zorder=2)
+        ax.plot(sequence_lengths, ys, color=k_color, linewidth=k_width,
+                marker="o", markersize=2.8, zorder=3,
+                label="Dense (K=0)" if k_value == 0 else f"K={k_value}")
+    for variant, (v_color, v_label) in cached_colors.items():
+        ys = series_by_variant(variant, "peak_mem_mb")
+        sds = series_by_variant(variant, "peak_mem_mb_sd")
+        ax.fill_between(sequence_lengths,
+                        [y - s for y, s in zip(ys, sds)],
+                        [y + s for y, s in zip(ys, sds)],
+                        color=v_color, alpha=0.18, linewidth=0, zorder=2)
+        ax.plot(sequence_lengths, ys, color=v_color, linewidth=1.0,
+                marker="o", markersize=2.8, zorder=3, label=v_label)
 
     ax.set_xlabel("Sequence length $N$")
     ax.set_ylabel("Peak memory (MB)")
@@ -850,20 +999,25 @@ def plot_training_step_k_sweep_memory():
     legend_handles = [
         Line2D([0], [0], color=dense_color, linewidth=1.6, marker="o",
                markersize=3, label="Dense (K=0)"),
-        Patch(facecolor=cluster_color, alpha=0.35, label="K=4–16"),
+        Patch(facecolor=cluster_color, alpha=0.35, label="K=2–16"),
         Line2D([0], [0], color=ROLE_K32, linewidth=1.0, marker="o",
                markersize=3, label="K=32"),
         Line2D([0], [0], color=ROLE_K64, linewidth=1.0, marker="o",
                markersize=3, label="K=64"),
+        Line2D([0], [0], color=OI_VERMILION, linewidth=1.0, marker="o",
+               markersize=3, label="cached-dist mask (K=16)"),
+        Line2D([0], [0], color=OI_PURPLE, linewidth=1.0, marker="o",
+               markersize=3, label="cached-dist gather (K=16)"),
     ]
     ax.legend(handles=legend_handles, loc="upper left", frameon=False,
               fontsize=6.5, handlelength=1.6)
 
-    # Meta: record the speed_mem.csv series (gather/dense lines).
     meta = {
         "sources": [str(path)],
         "values": [
-            {"K": int(row["K"]), "N": int(row["N"]), "mem_mb": float(row["mem_mb"])}
+            {"variant": row["variant"], "K": int(row["K"]), "N": int(row["N"]),
+             "peak_mem_mb": float(row["peak_mem_mb"]),
+             "peak_mem_mb_sd": float(row["peak_mem_mb_sd"])}
             for _, row in df.iterrows()
         ],
     }
@@ -946,39 +1100,111 @@ def plot_pipeline_breakdown():
     savefig("pipeline_breakdown.pdf", fig, meta=meta)
 
 
+def plot_epoch_decomposition_pie():
+    """
+    Pie chart of the measured epoch wall-time distribution (SPEC 0041).
+
+    Single-partition leaf decomposition of one training epoch into backward,
+    forward (excluding the attention module), the attention module itself,
+    optimizer + host remainder, validation, and dataloader data wait.
+    Phase shares (data wait, batch compute, validation) come from the
+    EpochDecompositionProfiler callback (median over 18 measured epochs on
+    five exclusive H100 nodes); the within-step span split (backward /
+    forward / attention / host remainder) comes from the PyTorch trace of
+    the profile leg, aggregated in ``results/epoch_profile/trace_aggregation.json``.
+    Replaces the deprecated hardcoded ``pipeline_breakdown`` composition.
+
+    Sources: results/epoch_profile/*/epoch_profile.json (7 runs);
+    results/epoch_profile/trace_aggregation.json.
+    """
+    trace_path = BASE / "results" / "epoch_profile" / "trace_aggregation.json"
+    with open(trace_path) as fh:
+        trace = json.load(fh)
+    parts = trace["epoch_leaf_partition_pct"]
+    labels_full = [
+        ("Backward (autograd + backward kernels)", parts["backward"], OI_ORANGE),
+        ("Forward, model excl. attention", parts["forward_excl_attention"], OI_BLUE),
+        ("Attention module", parts["attention_module"], OI_SKYBLUE),
+        ("Optimizer + host dispatch", parts["optimizer_and_host"], OI_GREEN),
+        ("Validation", parts["validation"], palette.NEUTRAL),
+        ("Data wait (loader)", parts["data_wait"], OI_YELLOW),
+    ]
+    values = [v for _, v, _ in labels_full]
+    colors = [c for _, _, c in labels_full]
+
+    fig, ax = plt.subplots(figsize=(4.6, 3.4))
+    wedges, _ = ax.pie(
+        values,
+        colors=colors,
+        startangle=90,
+        counterclock=False,
+        wedgeprops={"edgecolor": "white", "linewidth": 0.6},
+    )
+    # Legend carries name + share; wedge labels would collide on the two
+    # sub-percent slices (validation 1.1%, data wait 0.5%).
+    legend_labels = [f"{name}  ({value:.1f}%)" for name, value, _ in labels_full]
+    style_legend(
+        ax,
+        handles=wedges,
+        labels=legend_labels,
+        loc="center left",
+        bbox_to_anchor=(0.98, 0.5),
+        fontsize=7,
+    )
+    ax.set_aspect("equal")
+
+    fig.tight_layout(pad=0.8)
+    meta = {
+        "sources": [
+            str(trace_path),
+            "results/epoch_profile/*/epoch_profile.json (SPEC 0041, job 4422737)",
+        ],
+        "values": {name: value for name, value, _ in labels_full},
+        "note": (
+            "Phase shares measured by EpochDecompositionProfiler on five "
+            "exclusive H100 nodes (spread 1.4%); span split within the step "
+            "from the 10-step PyTorch trace (profiler inflates host shares "
+            "~20%). Supersedes the deprecated hardcoded pipeline_breakdown."
+        ),
+    }
+    savefig("epoch_decomposition.pdf", fig, meta=meta)
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  8. Backward Pass Comparison
 # ══════════════════════════════════════════════════════════════════════════════
 def plot_backward_pass():
     """
     Bar chart comparing forward+backward time for different attention methods.
-    Source: benchmark_attn/results/sparse_backward_results.csv
-    (legacy path benchmark_backward/ is kept as a fallback for older runs).
+    Source: benchmark_attn/results/sparse_backward_results_v2.csv
+    (consolidated backward benchmark, SPEC 0023; N=8192 chosen as the most
+    discriminative shape).
     """
-    path_new = BASE / "benchmark_attn" / "results" / "sparse_backward_results.csv"
-    path_old = BASE / "benchmark_backward" / "sparse_backward_results.csv"
+    path_new = BASE / "benchmark_attn" / "results" / "sparse_backward_results_v2.csv"
+    path_old = BASE / "benchmark_backward" / "sparse_backward_results_v2.csv"
     path = path_new if path_new.exists() else path_old
     if not path.exists():
-        print("  ⚠ sparse_backward_results.csv not found — skipping backward_pass.pdf")
+        print("  ⚠ sparse_backward_results_v2.csv not found — skipping backward_pass.pdf")
         return
 
     df = pd.read_csv(path)
 
-    # Filter to N=512 for clean comparison
-    df_n512 = df[df["N"] == 512].copy()
+    # Filter to N=8192 for clean comparison
+    df_n8192 = df[df["N"] == 8192].copy()
 
     # Simplify method labels
     method_display = {
-        "mask_knn": "mask-KNN",
-        "gather_knn": "gather-KNN",
-        "sparse_softmax": "sparse softmax",
-        "dense_masked": "dense masked",
-        "dense_flash": "dense flash",
+        "mask_knn": "Mask-KNN",
+        "gather_knn": "Gather-KNN",
+        "sparse_softmax": "Sparse softmax",
+        "dense_masked": "Dense masked",
+        "dense_flash": "Dense flash",
+        "flex_attn": "FlexAttention",
     }
-    df_n512["method_short"] = df_n512["method"].map(method_display)
+    df_n8192["method_short"] = df_n8192["method"].map(method_display)
 
     # Compare K=16
-    df_k16 = df_n512[df_n512["K"] == 16].copy()
+    df_k16 = df_n8192[df_n8192["K"] == 16].copy()
     df_k16_long = pd.melt(df_k16, id_vars=["method_short"],
                           value_vars=["forward_ms", "backward_ms"],
                           var_name="phase", value_name="time_ms")
@@ -1164,6 +1390,185 @@ def plot_knn_tra_parity():
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  10. Multi-seed K-Sweep — Tracking Metrics and Per-Epoch Runtime
+# ══════════════════════════════════════════════════════════════════════════════
+# K axis runs in ascending K with the dense baseline LAST: dense means all
+# neighbours, i.e. the K->infinity limit, so it belongs at the right end of
+# the axis (owner directive 2026-10-15; leftmost placement broke the ordinal
+# K axis and produced misleading curve shapes).
+K_SWEEP_CONFIGS = ["k2", "k4", "k8", "k16", "k32", "k64", "baseline"]
+K_SWEEP_TICKS = ["2", "4", "8", "16", "32", "64", "dense"]
+
+
+def plot_knn_sweep_metrics():
+    """
+    Two-panel body figure for the multi-seed tracking K-sweep: TRA (left)
+    and AOGM (right) vs neighbour count K, each with the two evaluation
+    scopes of the corrected protocol — the in-sample mean over the five
+    training conditions and the genuinely held-out trpL condition — as
+    mean ± std across the three training seeds (42/43/44).
+
+    Source: results/knn_sweep_multiseed/summary.csv, written by
+    report/scripts/aggregate_multiseed_eval.py from the per-condition
+    evaluation files of the corrected-protocol rerun (trpL excluded from
+    training). The previous-protocol "trpL in training" pair of the report
+    table is deliberately NOT plotted: it exists only for the five
+    configurations trained before the launcher fix, not for K=2/8.
+    """
+    path = BASE / "results" / "knn_sweep_multiseed" / "summary.csv"
+    if not path.exists():
+        print("  ⚠ summary.csv not found — skipping knn_sweep_metrics.pdf")
+        return
+    import csv, statistics
+
+    rows = list(csv.DictReader(open(path)))
+    metrics = [("tra_insample", "tra_trpl_heldout", "TRA"),
+               ("aogm_insample", "aogm_trpl_heldout", "AOGM")]
+
+    stats = {}
+    for config in K_SWEEP_CONFIGS:
+        sel = [r for r in rows if r["config"] == config]
+        if not sel:
+            continue
+        for insample_key, heldout_key, _ in metrics:
+            for key in (insample_key, heldout_key):
+                values = [float(r[key]) for r in sel]
+                stats[(config, key)] = (statistics.mean(values),
+                                        statistics.stdev(values) if len(values) > 1 else 0.0)
+
+    positions = list(range(len(K_SWEEP_CONFIGS)))
+    # wspace raised above the matplotlib default: the right panel's y-label
+    # ("AOGM") otherwise collides with the left panel's plot area.
+    fig, axes = plt.subplots(1, 2, figsize=figsize_wide(2.4),
+                             gridspec_kw={"wspace": 0.45})
+    for ax, (insample_key, heldout_key, y_label) in zip(axes, metrics):
+        for color, marker, key, label in [
+                (OI_BLUE, "o", insample_key, "training conds. (in-sample)"),
+                (OI_VERMILION, "s", heldout_key, "trpL (held out)")]:
+            xs, means, stds = [], [], []
+            for pos, config in zip(positions, K_SWEEP_CONFIGS):
+                if (config, key) not in stats:
+                    continue
+                mean, std = stats[(config, key)]
+                xs.append(pos); means.append(mean); stds.append(std)
+            ax.fill_between(xs, [m - s for m, s in zip(means, stds)],
+                            [m + s for m, s in zip(means, stds)],
+                            color=color, alpha=0.18, linewidth=0, zorder=1)
+            ax.plot(xs, means, color=color, marker=marker, markersize=3.2,
+                    linewidth=1.1, zorder=3, label=label)
+        ax.set_xticks(positions)
+        ax.set_xticklabels(K_SWEEP_TICKS, fontsize=7)
+        ax.set_xlabel("Neighbour count $K$")
+        ax.set_ylabel(y_label)
+        add_horizontal_grid(ax)
+        remove_top_right_spines(ax)
+    axes[0].set_ylim(0.9755, 0.9965)
+    axes[1].set_ylim(0, 400)
+    # Reserve a bottom band for tick labels, x-labels, and the shared legend;
+    # without it the legend anchored below the axes overlaps them.
+    fig.subplots_adjust(bottom=0.32)
+    # One shared legend below both panels, inside the reserved band, so it
+    # cannot overlap the data or the axis labels (previously it sat inside
+    # the TRA panel and covered the curves).
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="lower center", ncol=2, frameon=False,
+               fontsize=7, bbox_to_anchor=(0.5, 0.0), borderaxespad=0.0)
+    meta = {
+        "sources": [str(path)],
+        "values": [
+            {"config": config, "metric": key, "mean": mean, "std": std}
+            for (config, key), (mean, std) in sorted(stats.items())
+        ],
+    }
+    savefig("knn_sweep_metrics.pdf", fig, meta=meta)
+
+
+def plot_knn_sweep_epoch_time():
+    """
+    Single-panel figure: wall time per training epoch vs neighbour count K
+    for the multi-seed K-sweep (refreshed 500-epoch pipeline, H100 cluster).
+    One marker per (config, seed) run — per-epoch time is the per-run median
+    over epochs (robust to single-epoch stalls) — plus the median and the
+    min-max range across the three seeds per configuration.
+
+    The centre marker is the median across seeds, not the mean, so the
+    curve shape tracks the configuration effect directly: with n=3 seeds a
+    single slow node (the K=16 seed at ~272 s/epoch throughout) cannot move
+    a median, and the measured flatness-in-K stays visible as a flat curve;
+    a mean would manufacture a phantom K=16 bump on an otherwise flat
+    profile. The min-max whiskers keep the node-to-node variance visible,
+    with the y-axis clipped to the healthy range (180-235 s): the slow
+    run's whisker runs off the top edge and is annotated with its value,
+    so one environment artifact cannot dominate the visual field.
+
+    Source: results/knn_sweep_multiseed/epoch_times.json, written by
+    report/scripts/extract_epoch_times.py from the tensorboard ``val_loss``
+    wall-time stamps of the completed cluster runs. Node-to-node variance on
+    the cluster (one k16 seed ran at ~272 s/epoch throughout) exceeds any
+    configuration effect: no K-dependence is resolvable, consistent with the
+    Amdahl analysis in the report.
+    """
+    path = BASE / "results" / "knn_sweep_multiseed" / "epoch_times.json"
+    if not path.exists():
+        print("  ⚠ epoch_times.json not found — skipping knn_sweep_epoch_time.pdf")
+        return
+    import json, statistics
+
+    runs = json.load(open(path))
+    by_config = {}
+    for run in runs.values():
+        by_config.setdefault(run["config"], []).append(run)
+
+    positions = list(range(len(K_SWEEP_CONFIGS)))
+    fig, ax = plt.subplots(figsize=figsize_wide(1.6))
+    xs, centers, lows, highs, meta_values = [], [], [], [], []
+    for pos, config in zip(positions, K_SWEEP_CONFIGS):
+        runs_cfg = by_config.get(config, [])
+        if not runs_cfg:
+            continue
+        medians = [run["median_epoch_s"] for run in runs_cfg]
+        ax.plot([pos] * len(medians), medians, marker="o", linestyle="none",
+                markersize=3.5, color=OI_BLUE, alpha=0.55, zorder=2)
+        center = statistics.median(medians)
+        xs.append(pos)
+        centers.append(center)
+        lows.append(center - min(medians))
+        highs.append(max(medians) - center)
+        meta_values.append({"config": config, "n_runs": len(runs_cfg),
+                            "median_epoch_s": medians,
+                            "median_across_seeds_s": center,
+                            "min_s": min(medians), "max_s": max(medians),
+                            "mean_of_medians_s": statistics.mean(medians),
+                            "n_epochs": [run["n_epochs"] for run in runs_cfg]})
+    ax.errorbar(xs, centers, yerr=[lows, highs], color=OI_BLACK, marker="D",
+                markersize=3.5, linewidth=1.1, capsize=2.5, zorder=3,
+                label="median, min–max range (3 seeds)")
+    y_top = 235.0
+    ax.set_ylim(180, y_top)
+    ax.set_yticks([180, 200, 220])
+    for pos, runs_cfg in zip(xs, [by_config.get(config, [])
+                                  for config in K_SWEEP_CONFIGS]):
+        if not runs_cfg:
+            continue
+        worst = max(run["median_epoch_s"] for run in runs_cfg)
+        if worst > y_top:
+            ax.annotate(f"1 seed: {worst:.0f} s (off scale)",
+                        xy=(pos, y_top - 1), xytext=(pos + 0.55, y_top - 6),
+                        fontsize=6.5, color="#262626", ha="left", va="top",
+                        arrowprops=dict(arrowstyle="->", color="#262626",
+                                        lw=0.8))
+    ax.set_xticks(positions)
+    ax.set_xticklabels(K_SWEEP_TICKS, fontsize=7)
+    ax.set_xlabel("Neighbour count $K$")
+    ax.set_ylabel("Wall time per epoch (s)")
+    add_horizontal_grid(ax)
+    remove_top_right_spines(ax)
+    style_legend(ax, loc="upper left", fontsize=7)
+    meta = {"sources": [str(path)], "values": meta_values}
+    savefig("knn_sweep_epoch_time.pdf", fig, meta=meta)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  Main
 # ══════════════════════════════════════════════════════════════════════════════
 def main():
@@ -1172,6 +1577,7 @@ def main():
     print("=" * 60)
 
     funcs = [
+        ("0/9", "Masked Fraction (cutoff statistic)", run_masked_fraction),
         ("1/9", "CNN Convergence Curves", plot_cnn_convergence),
         ("2/9", "CNN Variant Ranking", plot_cnn_variant_ranking),
         ("3/9", "Edge Probe — Balanced Accuracy", plot_edge_probe_bal_acc),
@@ -1181,8 +1587,11 @@ def main():
         ("5b/9", "Probe Significance (forest)", plot_probe_significance),
         ("6/9", "K-Sweep Training Memory", plot_training_step_k_sweep_memory),
         ("7/9", "Pipeline Breakdown", plot_pipeline_breakdown),
+        ("7a/9", "Epoch Phase Decomposition (pie, SPEC 0041)", plot_epoch_decomposition_pie),
         ("8/9", "Backward Pass Comparison", plot_backward_pass),
         ("9/9", "KNN TRA Parity", plot_knn_tra_parity),
+        ("9a/9", "K-Sweep Tracking Metrics (multi-seed)", plot_knn_sweep_metrics),
+        ("9b/9", "K-Sweep Per-Epoch Runtime (multi-seed)", plot_knn_sweep_epoch_time),
     ]
 
     for num, name, func in funcs:

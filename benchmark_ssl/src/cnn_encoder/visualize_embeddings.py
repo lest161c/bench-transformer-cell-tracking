@@ -347,9 +347,7 @@ def main():
                         help="Number of frame pairs to load")
     parser.add_argument("--min-cells", type=int, default=4)
     parser.add_argument("--checkpoint", type=str,
-                        default="probe/cnn_ntxent_large.pt"
-                        if os.path.basename(os.getcwd()) == "cnn_encoder"
-                        else "benchmark_ssl/cnn_encoder/probe/cnn_ntxent_large.pt",
+                        default=str(Path(__file__).resolve().parents[3] / "benchmark_ssl" / "results" / "checkpoints" / "cnn" / "cnn_ntxent_large.pt"),
                         help="Path to NT-Xent pretrained CNN for feature extraction")
     parser.add_argument("--scale", choices=["small", "medium", "large"],
                         default="large",

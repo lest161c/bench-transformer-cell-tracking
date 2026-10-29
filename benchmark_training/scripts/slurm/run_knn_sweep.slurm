@@ -20,6 +20,12 @@
 # --knn_neighbors and --seed.  No --init_encoder (all train from
 # scratch) to keep the sweep controlled.
 #
+# trpL is NOT part of --input_train (SPEC 0030 launcher fix): its evaluation
+# is therefore genuinely held out, and the in-sample scope pools the other
+# five conditions. Do not re-add trpL to --input_train; doing so reintroduces
+# the audited leak and makes new rows incomparable to the 2026-10-07 rerun
+# (jobs 4386557/4386561).
+#
 # Array index mapping:
 #   0=baseline_s42   1=baseline_s43   2=baseline_s44
 #   3=k4_s42         4=k4_s43         5=k4_s44
@@ -45,6 +51,11 @@ DATA_DIR="${DATA_DIR}/vanvliet"
 
 VARIANTS=(baseline k4 k16 k32 k64)
 SEEDS=(42 43 44)
+
+# VARIANTS_OVERRIDE: subset of VARIANTS to run (e.g. "k2 k8"); unset = all (current behavior).
+if [ -n "${VARIANTS_OVERRIDE:-}" ]; then
+    VARIANTS=(${VARIANTS_OVERRIDE})
+fi
 
 NUM_VARIANTS=${#VARIANTS[@]}
 NUM_SEEDS=${#SEEDS[@]}
@@ -74,8 +85,14 @@ case "$VARIANT" in
     baseline)
         KNN_NEIGHBORS=-1
         ;;
+    k2)
+        KNN_NEIGHBORS=2
+        ;;
     k4)
         KNN_NEIGHBORS=4
+        ;;
+    k8)
+        KNN_NEIGHBORS=8
         ;;
     k16)
         KNN_NEIGHBORS=16
@@ -99,7 +116,7 @@ CACHE_DIR=".cache_knn_sweep_${SLURM_ARRAY_TASK_ID}"
 EXTRA_ARGS="--name ${RUN_NAME} \
     --ndim 2 --window 4 --epochs 500 --warmup_epochs 5 \
     --detection_folders TRA \
-    --input_train ${DATA_DIR}/rpsM ${DATA_DIR}/recA ${DATA_DIR}/pheA ${DATA_DIR}/metA ${DATA_DIR}/cib ${DATA_DIR}/trpL \
+    --input_train ${DATA_DIR}/rpsM ${DATA_DIR}/recA ${DATA_DIR}/pheA ${DATA_DIR}/metA ${DATA_DIR}/cib \
     --input_val ${DATA_DIR}/rpsM ${DATA_DIR}/recA ${DATA_DIR}/pheA \
     --outdir runs --distributed False \
     --cachedir ${CACHE_DIR} \
@@ -126,8 +143,14 @@ if [ "$TEST" = "1" ]; then
 fi
 
 # -----------------------------------------------------------------------
-# Normal mode: launch training
+# Normal mode: launch training (skipped in EVAL_ONLY=1: evaluate the
+# newest existing run dir with model.pt instead of retraining — used to
+# recover the k2/k8 evals after the traccuracy-venv fix below).
 # -----------------------------------------------------------------------
+if [ "${EVAL_ONLY:-0}" = "1" ]; then
+    echo "  EVAL_ONLY=1: skipping training, evaluating newest run dir with model.pt"
+    EXIT_CODE=0
+else
 PY="$TRK/.venv/bin/python"
 
 echo "  Launching: $PY scripts/train.py $EXTRA_ARGS"
@@ -138,6 +161,56 @@ $PY scripts/train.py $EXTRA_ARGS
 EXIT_CODE=$?
 echo ""
 echo "  Training exited with code ${EXIT_CODE} at $(date)"
+fi
+
+# -----------------------------------------------------------------------
+# Evaluation runs after training completes (SPEC 0027 T2).
+# Mirrors run_cv.slurm's in-job eval: resolve the run dir this training
+# task just created (newest *_knn_sweep_<variant>_s<seed> with model.pt),
+# then evaluate each of the 6 held-out conditions into eval_<COND>.csv
+# inside the run dir. Existing eval CSVs are skipped (resumable).
+# -----------------------------------------------------------------------
+
+if [ $EXIT_CODE -ne 0 ]; then
+    echo "  Training failed (exit ${EXIT_CODE}); skipping evaluation"
+    exit $EXIT_CODE
+fi
+
+RUN_DIR=""
+for candidate in $(ls -dt "$TRK"/runs/*_knn_sweep_${VARIANT}_s${SEED} 2>/dev/null); do
+    if [ -f "$candidate/model.pt" ]; then
+        RUN_DIR="$candidate"
+        break
+    fi
+done
+
+if [ -z "$RUN_DIR" ]; then
+    echo "  ERROR: no run dir found for ${VARIANT}_s${SEED}"
+    exit 1
+fi
+
+CONDITIONS=(rpsM recA pheA metA cib trpL)
+# The eval needs traccuracy, which lives in the benchmark_training venv
+# (run_eval_multiseed.slurm's VENV REQUIREMENT); the trackastra training
+# venv does not have it (root cause of the empty k2/k8 evals, 4395864).
+EVAL_PY="$BENCH/benchmark_training/.venv/bin/python"
+if [ ! -x "$EVAL_PY" ]; then
+    echo "  ERROR: eval venv missing: $EVAL_PY"
+    exit 1
+fi
+for COND in "${CONDITIONS[@]}"; do
+    OUT="$RUN_DIR/eval_${COND}.csv"
+    if [ -s "$OUT" ]; then
+        echo "  Skip $COND (already evaluated: $OUT)"
+        continue
+    fi
+    "$EVAL_PY" "$BENCH/benchmark_training/scripts/eval_cv.py" \
+        --run-dir "$RUN_DIR" \
+        --heldout "$COND" \
+        --data-root "$DATA_DIR" \
+        --output "$OUT" \
+        --device cuda
+done
 
 # Clean up per-task cache to avoid 90GB of duplicate caches
 rm -rf "${CACHE_DIR}" 2>/dev/null

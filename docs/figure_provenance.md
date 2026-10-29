@@ -14,10 +14,12 @@ disk as artifacts.
 **Variant note (2026-10-23).** The owner's current working report is the
 shortened variant under `report-shorten/` (untracked, local workflow like
 the `report/` tex sources). Both variants consume the same
-`curated/figures/` panels; `19_b64_saturation` and `20_mask_decomposition`
-are integrated in both (`report/evaluation.tex` and
-`report-shorten/evaluation.tex`, each with variant-appropriate prose; the
-shorten variant enforces its own editorial rules, e.g. no em dashes).
+`curated/figures/` panels; `20_mask_decomposition` is integrated in both
+(`report/evaluation.tex` and `report-shorten/evaluation.tex`, each with
+variant-appropriate prose; the shorten variant enforces its own editorial
+rules, e.g. no em dashes). `19_b64_saturation` was removed from the
+shortened report on 2026-10-23 because `fig:speed_vs_n` already carries the
+B=64 data; its canonical artifact remains in `curated/figures/`.
 
 ## 1. Pipeline summary (current truth)
 
@@ -37,23 +39,22 @@ The report resolves figures via `\graphicspath{{assets/}{figs/}}`
 rule, tracked-file updates flow through the owner's git workflow; the copy
 step is local-only.
 
-Total figures **actually used** in `main.pdf`: **10** (8 body, 2 appendix).
+Total figures **actually used** in `main.pdf`: **9** (7 body, 2 appendix).
 Every used figure has a `.meta.json` sidecar next to it in `report/figs/`.
 
-## 2. Per-figure provenance table (10 used figures, in report order)
+## 2. Per-figure provenance table (9 used figures, in report order)
 
 | # | Figure file | Generator (panel) | Data source | Sidecar |
 |---|---|---|---|---|
-| 1 | `01_speed_vs_n_h100.pdf` (evaluation.tex) | `curated/generate_report.py::panel_speed_vs_n_h100` | `benchmark_attn/results/full_bench_v2_h100_cache_on.csv` (verified v2 grid, jobs 4375584+4377261) | ✓ |
-| 2 | `04_memory_vs_n.pdf` (evaluation.tex) | `curated/generate_report.py::panel_memory_vs_n` | same v2 grid CSV (`memory_mb` column) | ✓ |
-| 3 | `19_b64_saturation.pdf` (evaluation.tex) — added 2026-10-23, batch-saturation re-run | `curated/generate_report.py::panel_b64_saturation` | `benchmark_attn/results/full_bench_b64_h100_cache_on.csv` (B=64 grid, job 4456180) + `full_bench_v2_h100_cache_on.csv` (B=1 reference) | ✓ |
-| 4 | `20_mask_decomposition.pdf` (evaluation.tex) — added 2026-10-23, mask-overhead decomposition incl. stage-E causal/bool arms | `curated/generate_report.py::panel_mask_decomposition` | `benchmark_attn/results/cudnn_vs_fa2_mask_decomposition.csv` (job 4456340) + `_env.json` provenance sidecar | ✓ |
-| 5 | `knn_sweep_metrics.pdf` (evaluation.tex) | `results/generate_plots.py::plot_knn_sweep_metrics` | `results/knn_sweep_multiseed/summary.csv` (corrected 5-condition protocol, trpL held out) | ✓ |
-| 6 | `16_dist_cache_effect.pdf` (evaluation.tex) — reworked after owner review 2026-10-12 (canonical palette: vermilion/sky-blue; 2 series matching the claim; legend/labels fixed; title removed; caption observation-first; §3.5 numbers synced to v2 grid: 1.76/1.26 and 2.22–2.60) | `curated/generate_report.py::panel_dist_cache_effect` | `benchmark_attn/results/full_bench_v2_h100_cache_{on,off}.csv` | ✓ |
-| 7 | `18_feature_injection_comparison.pdf` (evaluation.tex) | `report/scripts/generate_feature_injection_figure.py` | see generator docstring / sidecar | ✓ |
-| 8 | `masked_fraction.png` (appendix.tex) — SPEC 0029 G-01 | `benchmark_training/scripts/analysis/cutoff_masked_fraction.py` (plot stage; `results/generate_plots.py` step 0/9 triggers it when the CSV is missing) | `benchmark_training/results/cutoff_masked_fraction/masked_fraction.csv` (per-frame rows from `data/vanvliet` TRA masks) | ✓ |
-| 9 | `01_speed_vs_n_h100_detail.pdf` (appendix.tex) | `curated/generate_report.py::panel_speed_vs_n_h100` (detail panels a/b) | same v2 grid CSV | ✓ |
-| 10 | `epoch_decomposition.pdf` (evaluation.tex, §Amdahl) | `results/generate_plots.py::plot_epoch_decomposition_pie` | `results/epoch_profile/*/epoch_profile.json` (SPEC 0041, cluster job 4422737: phase shares from the `EpochDecompositionProfiler` callback on five exclusive H100 nodes) + `results/epoch_profile/trace_aggregation.json` (within-step span split from the PyTorch trace; norm span from fork commit 155aa29) | ✓ |
+| 1 | `01_speed_vs_n_h100.pdf` (evaluation.tex) | `curated/generate_report.py::panel_speed_vs_n_h100` | `benchmark_attn/results/full_bench_b64_h100_cache_on_isolation_nograd.csv` + `full_bench_b64_h100_cache_off_isolation_nograd.csv` (B=64 isolation grid, inference mode `torch.no_grad`) | ✓ |
+| 2 | `04_memory_vs_n.pdf` (evaluation.tex) | `curated/generate_report.py::panel_memory_vs_n` | `benchmark_attn/results/full_bench_b64_h100_cache_on_isolation_nograd.csv` + `full_bench_b64_h100_cache_off_isolation_nograd.csv` (B=64 isolation grid, inference mode `torch.no_grad`, `memory_mb` column) | ✓ |
+| 3 | `20_mask_decomposition.pdf` (evaluation.tex) — added 2026-10-23, mask-overhead decomposition incl. stage-E causal/bool arms | `curated/generate_report.py::panel_mask_decomposition` | `benchmark_attn/results/cudnn_vs_fa2_mask_decomposition.csv` (job 4456340) + `_env.json` provenance sidecar | ✓ |
+| 4 | `knn_sweep_metrics.pdf` (evaluation.tex) | `results/generate_plots.py::plot_knn_sweep_metrics` | `results/knn_sweep_multiseed/summary.csv` (corrected 5-condition protocol, trpL held out) | ✓ |
+| 5 | `16_dist_cache_effect.pdf` (evaluation.tex) — reworked after owner review 2026-10-12 (canonical palette: vermilion/sky-blue; 2 series matching the claim; legend/labels fixed; title removed; caption observation-first; §3.5 numbers synced to v2 grid: 1.76/1.26 and 2.22–2.60) | `curated/generate_report.py::panel_dist_cache_effect` | `benchmark_attn/results/full_bench_v2_h100_cache_{on,off}.csv` | ✓ |
+| 6 | `18_feature_injection_comparison.pdf` (evaluation.tex) | `report/scripts/generate_feature_injection_figure.py` | see generator docstring / sidecar | ✓ |
+| 7 | `masked_fraction.png` (appendix.tex) — SPEC 0029 G-01 | `benchmark_training/scripts/analysis/cutoff_masked_fraction.py` (plot stage; `results/generate_plots.py` step 0/9 triggers it when the CSV is missing) | `benchmark_training/results/cutoff_masked_fraction/masked_fraction.csv` (per-frame rows from `data/vanvliet` TRA masks) | ✓ |
+| 8 | `01_speed_vs_n_h100_detail.pdf` (appendix.tex) | `curated/generate_report.py::panel_speed_vs_n_h100` (detail panels a/b) | same v2 grid CSV | ✓ |
+| 9 | `epoch_decomposition.pdf` (evaluation.tex, §Amdahl) | `results/generate_plots.py::plot_epoch_decomposition_pie` | `results/epoch_profile/*/epoch_profile.json` (SPEC 0041, cluster job 4422737: phase shares from the `EpochDecompositionProfiler` callback on five exclusive H100 nodes) + `results/epoch_profile/trace_aggregation.json` (within-step span split from the PyTorch trace; norm span from fork commit 155aa29) | ✓ |
 
 ## 2a. Removed from the report by SPEC 0040 (artifacts kept)
 
@@ -72,6 +73,12 @@ The `pipeline_breakdown.pdf` shares (57/22/13/5/2) originated from the same
 deprecated roadmap profiling session (`deprecated/roadmap/progress_roadmap.html`
 Charts 6/9); both the figure and the composition are retired — the measured
 decomposition (`epoch_decomposition.pdf`, trace_aggregation.json) replaces them.
+
+## 2b. Removed from the report on 2026-10-23 (artifact kept)
+
+| Figure file | Former role | Why removed |
+|---|---|---|
+| `19_b64_saturation.pdf` (body §3.5) | batch-saturation re-run of the forward-time ranking | removed from the report 2026-10-23; the B=64 data is already carried by `01_speed_vs_n_h100.pdf` (`fig:speed_vs_n`); artifact kept in `curated/figures` |
 
 ## 3. Generation commands (current)
 

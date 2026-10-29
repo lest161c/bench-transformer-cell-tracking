@@ -9,7 +9,7 @@ The legacy A500 sweep (``benchmark_sparse_results.csv``) used the pre-fix
 benchmark that had two bugs:
 1. ``dense_masked`` was mapped to ``RelativePositionalAttention``
    (per-layer cdist, O(N²) × 12 layers).
-2. KNN index computation was excluded from ``mask_knn`` timing.
+2. KNN index computation was excluded from ``sparse_mask`` timing.
 
 These bugs made sparse attention appear 2.7× faster than dense at N=2048.
 After the fixes, dense is faster at N≤2048 and sparse only wins at N≥4096.
@@ -62,13 +62,13 @@ RESULT_DIR = Path(__file__).resolve().parents[1] / "results"
 H100_COLOR_MAP = {
     "dense_flash": "tab:cyan",
     "dense_masked": "tab:blue",
-    "mask_knn": "tab:orange",
-    "gather_sdpa": "tab:green",
+    "sparse_mask": "tab:orange",
+    "sparse_gather_sdpa": "tab:green",
     "nsa": "tab:purple",
     "minimax": "tab:red",
-    "gather_fused": "tab:olive",
-    "gather_matmul": "tab:brown",
-    "knn_relpos": "tab:pink",
+    "sparse_gather_fused": "tab:olive",
+    "sparse_gather_matmul": "tab:brown",
+    "sparse_gather_relpos": "tab:pink",
 }
 
 
@@ -288,7 +288,7 @@ def load_h100_results():
 
     Returns:
         A pandas DataFrame with columns ``method``, ``N``, ``K``, ``time_ms``,
-        ``memory_mb``, and a ``label`` column (e.g. ``"mask_knn K=4"``).
+        ``memory_mb``, and a ``label`` column (e.g. ``"sparse_mask K=4"``).
     """
     df = pd.read_csv(RESULT_DIR / "full_bench_h100.csv")
     df = df.dropna(subset=["time_ms"])
@@ -303,7 +303,7 @@ def select_lowest_k_rows(df):
     """Keep only the lowest-K row per method for each N.
 
     Dense methods (K=0) keep their single row; K-gated methods (gather_*,
-    mask_knn, knn_relpos) collapse onto K=4 so every method contributes
+    sparse_mask, sparse_gather_relpos) collapse onto K=4 so every method contributes
     exactly one line to the H100 time/memory figures.
 
     Args:
@@ -397,10 +397,10 @@ def plot_h100_memory_vs_n(df):
 
 
 def plot_crossover_analysis(df):
-    """Generate a figure showing where mask_knn crosses dense_masked.
+    """Generate a figure showing where sparse_mask crosses dense_masked.
 
-    Plots ``dense_masked`` and ``mask_knn K=4`` time vs N (log-log) and draws
-    a vertical line at the crossover N (~4000) where ``mask_knn`` becomes
+    Plots ``dense_masked`` and ``sparse_mask K=4`` time vs N (log-log) and draws
+    a vertical line at the crossover N (~4000) where ``sparse_mask`` becomes
     faster than ``dense_masked``.
 
     Args:
@@ -410,18 +410,18 @@ def plot_crossover_analysis(df):
         A matplotlib Figure, or None if the required methods are missing.
     """
     dense = df[df["method"] == "dense_masked"].sort_values("N")
-    knn = df[(df["method"] == "mask_knn") & (df["K"] == 4)].sort_values("N")
+    knn = df[(df["method"] == "sparse_mask") & (df["K"] == 4)].sort_values("N")
     if dense.empty or knn.empty:
         return None
 
     fig, ax = plt.subplots(figsize=(9, 5))
     ax.plot(dense["N"], dense["time_ms"], "o-", color=H100_COLOR_MAP["dense_masked"],
             label="dense_masked", markersize=7, linewidth=2)
-    ax.plot(knn["N"], knn["time_ms"], "s-", color=H100_COLOR_MAP["mask_knn"],
-            label="mask_knn K=4", markersize=7, linewidth=2)
+    ax.plot(knn["N"], knn["time_ms"], "s-", color=H100_COLOR_MAP["sparse_mask"],
+            label="sparse_mask K=4", markersize=7, linewidth=2)
     ax.axvline(4000, color="red", linestyle="--", alpha=0.7, linewidth=1.5,
                label="crossover ~ N=4000")
-    ax.set_title("Crossover: mask_knn vs dense_masked (corrected H100)")
+    ax.set_title("Crossover: sparse_mask vs dense_masked (corrected H100)")
     ax.set_xlabel("N")
     ax.set_ylabel("Time (ms)")
     ax.set_xscale("log", base=2)
@@ -476,14 +476,14 @@ def main():
         "<ol>",
         "<li><b class='bad'>Sparse attention does NOT accelerate cell tracking.</b> "
         "At the vanvliet training regime (N≈140), <code>dense_masked</code> is "
-        "<b>1.7× faster</b> than <code>mask_knn</code> (0.199 ms vs 0.335 ms at N=128). "
+        "<b>1.7× faster</b> than <code>sparse_mask</code> (0.199 ms vs 0.335 ms at N=128). "
         "The crossover where sparse becomes faster is at <b>N≈4000</b> — "
         "28× above the vanvliet scale.</li>",
         "<li><b class='warn'>dense_flash is an unrealistic upper bound.</b> "
         "It uses no mask → dispatches FlashAttention-2. But training always enforces "
         "the spatial cutoff mask → forces fallback to EfficientAttention. "
         "No training configuration can use FlashAttention-2.</li>",
-        "<li><b>Both <code>dense_masked</code> and <code>mask_knn</code> use "
+        "<li><b>Both <code>dense_masked</code> and <code>sparse_mask</code> use "
         "EfficientAttention</b> at training scale. The difference is only the mask "
         "construction: dense uses (dist_2d &gt; cutoff) comparison, sparse uses "
         "KNN scatter.</li>",
@@ -494,9 +494,9 @@ def main():
 
         # ── Crossover table ──
         "<div class='box'>",
-        "<h2 style='margin-top:0'>Crossover Table: dense_masked vs mask_knn K=4</h2>",
+        "<h2 style='margin-top:0'>Crossover Table: dense_masked vs sparse_mask K=4</h2>",
         "<table>",
-        "<tr><th>N</th><th>dense_masked (ms)</th><th>mask_knn K=4 (ms)</th>"
+        "<tr><th>N</th><th>dense_masked (ms)</th><th>sparse_mask K=4 (ms)</th>"
         "<th>Winner</th><th>Sparse speedup</th></tr>",
         "<tr><td>128</td><td>0.199</td><td>0.335</td>"
         "<td class='good'>dense_masked</td><td>0.59× (1.68× slower)</td></tr>",
@@ -509,9 +509,9 @@ def main():
         "<tr><td>2048</td><td>0.344</td><td>0.396</td>"
         "<td class='good'>dense_masked</td><td>0.87× (1.15× slower)</td></tr>",
         "<tr><td>4096</td><td>1.311</td><td>0.895</td>"
-        "<td class='warn'>mask_knn</td><td>1.47× faster</td></tr>",
+        "<td class='warn'>sparse_mask</td><td>1.47× faster</td></tr>",
         "<tr><td>8192</td><td>5.113</td><td>2.914</td>"
-        "<td class='warn'>mask_knn</td><td>1.75× faster</td></tr>",
+        "<td class='warn'>sparse_mask</td><td>1.75× faster</td></tr>",
         "</table>",
         "<p><b>Crossover at ~N=4000.</b> The vanvliet training regime "
         "(N≈140, window=4, ~35 cells/frame) is <b>28× below</b> the crossover.</p>",
@@ -522,7 +522,7 @@ def main():
     figure_titles = [
         "Figure 1: H100 Time vs N (corrected) — all methods",
         "Figure 2: H100 Peak Memory vs N (corrected)",
-        "Figure 3: Crossover Analysis — dense_masked vs mask_knn K=4",
+        "Figure 3: Crossover Analysis — dense_masked vs sparse_mask K=4",
     ]
     for i, fig in enumerate(figures):
         b64 = fig_to_b64(fig)
@@ -544,8 +544,8 @@ def main():
                       "behavior where KNN indices are recomputed every forward pass.</li>")
     html_parts.append("</ol>")
     html_parts.append("<p><b>Effect at N=2048:</b> dense_masked 0.41→0.344 ms (faster), "
-                      "mask_knn K=4 0.15→0.396 ms (slower). Ranking flipped — dense_masked is "
-                      "now faster than mask_knn at N≤2048.</p>")
+                      "sparse_mask K=4 0.15→0.396 ms (slower). Ranking flipped — dense_masked is "
+                      "now faster than sparse_mask at N≤2048.</p>")
     html_parts.append("</div>")
 
     html_parts.append("<hr><p style='text-align:center;color:#8b949e;font-size:0.8em'>")

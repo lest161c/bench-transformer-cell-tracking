@@ -83,16 +83,22 @@ def select_runs(train_outdir: Path, expected_seeds) -> list[Path]:
 
 
 def _video_rows(eval_root: Path) -> list[pd.DataFrame]:
-    """Collapse each run/video ``metrics.csv`` with his ``aggregate_metrics``."""
+    """Return the full-video metric row per run/video.
+
+    Achard's ``metrics.csv`` is cumulative over frames, so its LAST row holds the
+    video's totals. Summing the whole column with ``aggregate_metrics`` (the
+    original behaviour) double-counts and inflated every AOGM by ~5-45x; we take
+    the last row instead.
+    """
     rows = []
     for csv_path in sorted(eval_root.glob("*/tracked_*/metrics/metrics.csv")):
         parts = csv_path.relative_to(eval_root).parts
         run_name = parts[0]
         video = parts[1].replace("tracked_", "")
-        agg = aggregate_metrics(pd.read_csv(csv_path))
-        agg.insert(0, "video", video)
-        agg.insert(0, "run", run_name)
-        rows.append(agg)
+        last = pd.read_csv(csv_path).iloc[[-1]].reset_index(drop=True)
+        last.insert(0, "video", video)
+        last.insert(0, "run", run_name)
+        rows.append(last)
     return rows
 
 
@@ -125,11 +131,17 @@ def evaluate(train_outdir: Path, config_path: str, eval_root: Path, seeds) -> No
     per_video.to_csv(eval_root / "summary_per_video.csv", index=False)
 
     numeric = per_video.select_dtypes(include="number").copy()
-    numeric["run"] = per_video["run"]
-    per_run = numeric.groupby("run").mean()
-    per_run.to_csv(eval_root / "summary_per_run.csv")
+    numeric["video"] = per_video["video"]
+    per_video_mean = numeric.groupby("video").mean()  # mean over runs, per video
+    per_video_mean.to_csv(eval_root / "summary_per_video_mean_over_runs.csv")
+    per_video_std = numeric.groupby("video").std()  # std over runs, per video
 
-    summary = per_run.agg(["mean", "std"]).T
+    # Reference convention (his thesis Tables 3.4/3.5): the reported value is the
+    # MEAN ACROSS TEST VIDEOS, and the reported spread is the mean across videos of
+    # the across-run standard deviation.
+    summary = pd.DataFrame(
+        {"mean": per_video_mean.mean(), "std": per_video_std.mean()}
+    )
     summary.to_csv(eval_root / "summary_mean_std.csv")
     print(summary)
     print("EVAL_DONE_OK")

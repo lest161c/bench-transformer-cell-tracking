@@ -4,8 +4,8 @@ from src.models.cell_embedder import CellEmbedder
 from src.models.attention import (
     RotaryPositionalEncoding,
     KNNRelativePositionalBias,
-    KNNRelativePositionalAttention,
-    GatherSparseAttention,
+    SparseGatherRelativePositionalAttention,
+    SparseGatherAttention,
     RelativePositionalBias,
     RelativePositionalAttention,
     SpatialReorder,

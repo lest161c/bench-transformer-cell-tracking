@@ -27,7 +27,7 @@ import yaml
 
 from src.data import SSLDataset, collate_ssl, load_experiment_frames
 from src.distortions import DistortionPipeline
-from src.models.attention import GatherSparseAttention
+from src.models.attention import SparseGatherAttention
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -107,7 +107,7 @@ class SparseTransformerEncoder(nn.Module):
         self.pos_enc = SinusoidalPE(d_model)
         self.layers = nn.ModuleList()
         for _ in range(num_layers):
-            attn = GatherSparseAttention(d_model, nhead, knn_k, dropout=dropout, mode="none")
+            attn = SparseGatherAttention(d_model, nhead, knn_k, dropout=dropout, mode="none")
             layer = nn.TransformerEncoderLayer(d_model, nhead, dim_feedforward, dropout,
                                                 activation="gelu", batch_first=True, norm_first=True)
             self.layers.append(nn.ModuleDict({

@@ -1,67 +1,8 @@
 {
   "figure": "11_profiler_breakdown",
-  "created_utc": "2026-09-28T21:41:59.704436+00:00",
+  "created_utc": "2026-10-16T15:31:33.476808+00:00",
   "generator": "curated/generate_report.py",
-  "sources": [],
-  "note": "measured values hardcoded from torch.profiler run (N=256, K=16, B=2, d=256, h=4); no CSV artifact",
-  "values": [
-    {
-      "method": "Sparse Gather",
-      "total_us": 1084,
-      "operations": [
-        {
-          "operation": "SDPA q_len=1",
-          "time_us": 533
-        },
-        {
-          "operation": "Gather (index)",
-          "time_us": 277
-        },
-        {
-          "operation": "Copy/reshape",
-          "time_us": 210
-        },
-        {
-          "operation": "QKV+out proj",
-          "time_us": 64
-        }
-      ]
-    },
-    {
-      "method": "KNN Mask (scatter)",
-      "total_us": 97,
-      "operations": [
-        {
-          "operation": "EfficientAttn",
-          "time_us": 36
-        },
-        {
-          "operation": "QKV+out proj",
-          "time_us": 37
-        },
-        {
-          "operation": "Mask fill",
-          "time_us": 13
-        },
-        {
-          "operation": "scatter_ in-place",
-          "time_us": 11
-        }
-      ]
-    },
-    {
-      "method": "Dense Flash",
-      "total_us": 54,
-      "operations": [
-        {
-          "operation": "QKV+out proj",
-          "time_us": 37
-        },
-        {
-          "operation": "FlashAttn",
-          "time_us": 17
-        }
-      ]
-    }
-  ]
+  "sources": "panel_profiler_breakdown() in curated/generate_report.py; data sources documented in its docstring",
+  "values": "plotted values defined in panel_profiler_breakdown() source",
+  "panel_docstring": "Small multiples of the per-operation CUDA time breakdown at N=256\n(torch.profiler, N=256, K=16, B=2, d=256, h=4; measured values hardcoded\nfrom the profiler run). One panel per method, each with its own x-scale,\nso every operation segment and its \u03bcs value stays legible \u2014 the previous\nsingle shared-axis stacked bars squeezed the 11\u201354 \u03bcs bars against the\n1084 \u03bcs gather bar until their in-bar labels overlapped. The totals in\nthe panel titles carry the magnitude story (gather is ~11\u00d7 scatter and\n~20\u00d7 dense flash); bars are named on the y-axis, so no legend is needed."
 }

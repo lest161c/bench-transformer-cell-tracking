@@ -55,9 +55,9 @@ fixed (`dense_masked` class fix + `--with-knn` KNN cost inclusion):
 
 - **`dense_flash` is unrealistic for training** — no mask → FlashAttention-2
   kernel. Training always enforces the spatial cutoff mask → EfficientAttention.
-- **Realistic comparison: `dense_masked` vs `mask_knn`** (both EfficientAttention):
+- **Realistic comparison: `dense_masked` vs `sparse_mask`** (both EfficientAttention):
   - At **N≤2048**, `dense_masked` is faster (0.344 vs 0.396 ms at N=2048).
-  - At **N≥4096**, `mask_knn` is faster (2.914 vs 5.113 ms at N=8192).
+  - At **N≥4096**, `sparse_mask` is faster (2.914 vs 5.113 ms at N=8192).
   - Crossover at ~N=4000.
 - **Vanvliet training regime (N≈140) is well below the crossover** — the
   dense-mask overhead is small at cell-tracking scale, and the N² memory model

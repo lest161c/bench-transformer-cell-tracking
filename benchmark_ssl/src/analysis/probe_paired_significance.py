@@ -24,25 +24,55 @@ Two statistical units
   is reported for reference only.  With n folds the exact sign-flip
   enumeration has ``2**n`` assignments.
 
+Multi-seed pooling (SPEC 0021)
+------------------------------
+With more than one ``--input`` file (one probe artifact per training seed,
+identical protocol and pair dumps), the per-frame-pair metrics are averaged
+across seeds per feature set *before* the deltas are formed:
+
+    d_i(f) = mean_s( m_f,s(i) - m_rp,s(i) ),  s in {42, 43, 44}
+
+The frame pair stays the statistical unit (n = 29).  Seeds are repeated
+measures on the same 29 pairs, NOT independent units, so averaging per pair
+is the correct reduction; the cross-seed spread of each delta is stored
+descriptively (per-seed deltas and their sd) and never tested.  The scope
+limit from the seed audit (``docs/agent-state/research/13-edge-probe-seed-audit.md``)
+survives: probe seeds sample only probe-head init / fold-shuffle /
+batch-order noise; the frozen encoders are identical across seeds, so
+encoder-level uncertainty is not addressed.
+
+``--check`` validates whichever mode ran: the single-file path against the
+SPEC 0006 ``EXPECTED`` table, the pooled path against ``EXPECTED_SEEDAVG``
+(filled from the first verified run, SPEC 0021 implementation record).
+
 Data provenance
 ---------------
 Per-fold and per-frame-pair metrics of the unified edge probe, produced by
 ``python -m src.edge_probing.unified_edge_probe --features all --probe both
---cv-folds <k> --max-pairs 30 --seed 42 --dump-predictions`` and stored in
-``results/probes/unified_probe_results_cv10.json`` of this subproject.  The
-frozen encoders (DINOv2, CNN NT-Xent checkpoint) are identical across folds
-and feature sets, so the only paired quantity that varies between feature
-sets is the probe training itself.
+--cv-folds <k> --max-pairs 30 --seed <s> --dump-predictions`` for seeds
+42/43/44 and stored in ``results/probes/unified_probe_results_cv10{,_s43,_s44}.json``
+of this repository's ``results/probes/`` directory (seed 42 copy also in
+``benchmark_ssl/results/probes/``).  The frozen encoders (DINOv2, CNN
+NT-Xent checkpoint) are identical across folds, feature sets and seeds, so
+the only paired quantity that varies between feature sets is the probe
+training itself.
 
 Usage
 -----
-    python -m src.analysis.probe_paired_significance [--check] [--unit both]
+    python -m src.analysis.probe_paired_significance [--check]
+    python -m src.analysis.probe_paired_significance \
+        --input results/probes/unified_probe_results_cv10.json \
+               results/probes/unified_probe_results_cv10_s43.json \
+               results/probes/unified_probe_results_cv10_s44.json \
+        [--check]
 
-Without ``--check`` the script prints a human-readable summary and the LaTeX
-rows used in the report.  With ``--check`` it validates the computed
-statistics against the values recorded in
-``docs/agent-state/specs/0006-probe-ci/SPEC.md`` and exits non-zero on any
-deviation, so the reported numbers can be verified mechanically.
+Single ``--input`` reproduces the original single-seed analysis (SPEC 0006).
+Multiple ``--input`` files run the seed-averaged analysis (SPEC 0021) and
+write to ``results/probes/probe_paired_significance_multiseed.json`` by
+default.  With ``--check`` the computed statistics are validated against the
+values recorded in this file (``EXPECTED`` / ``EXPECTED_SEEDAVG``) and the
+process exits non-zero on any deviation, so the reported numbers can be
+verified mechanically.
 """
 
 from __future__ import annotations
@@ -109,6 +139,25 @@ EXPECTED: dict[tuple[str, str], tuple[float, ...]] = {
     ("rp_fourier", "f1"): (0.304429, 8.031930, 0.00000001, 0.229657, 0.375192, 1.491492, 0.00001000, 0.00000004),
 }
 CHECK_RTOL = 5e-3
+
+# SPEC 0021 verified values for the seed-averaged (pooled) analysis, keyed by
+# (feature, metric) with the same tuple layout as ``EXPECTED``.  Filled from
+# the first verified multi-seed run over seeds 42/43/44; ``--check`` compares
+# against this table when the pooled path runs.
+EXPECTED_SEEDAVG: dict[tuple[str, str], tuple[float, ...]] = {
+    ("cnn_e2e", "bal_acc"): (-0.233318, -9.477483, 0.00000000, -0.278977, -0.184258, -1.759924, 0.00001000, 0.00000000),
+    ("cnn_e2e", "f1"): (-0.405032, -21.168545, 0.00000000, -0.443253, -0.370322, -3.930900, 0.00001000, 0.00000000),
+    ("cnn_frozen", "bal_acc"): (0.063956, 1.710757, 0.09818520, -0.008618, 0.136615, 0.317680, 0.09804902, 0.19637040),
+    ("cnn_frozen", "f1"): (0.093678, 2.519900, 0.01772109, 0.020822, 0.164919, 0.467934, 0.01916981, 0.01772109),
+    ("dino", "bal_acc"): (0.163285, 7.815466, 0.00000002, 0.123450, 0.203098, 1.451296, 0.00001000, 0.00000008),
+    ("dino", "f1"): (0.303493, 14.388782, 0.00000000, 0.263281, 0.344660, 2.671930, 0.00001000, 0.00000000),
+    ("hoct2d_fourier", "bal_acc"): (0.131886, 6.044089, 0.00000163, 0.088462, 0.171721, 1.122359, 0.00003000, 0.00000488),
+    ("hoct2d_fourier", "f1"): (0.265456, 7.878224, 0.00000001, 0.197986, 0.327074, 1.462950, 0.00001000, 0.00000004),
+    ("hoct2d", "bal_acc"): (0.027556, 1.301423, 0.20372082, -0.013797, 0.067534, 0.241668, 0.20162798, 0.20372082),
+    ("hoct2d", "f1"): (0.108283, 4.073663, 0.00034479, 0.057451, 0.159117, 0.756460, 0.00034000, 0.00068957),
+    ("rp_fourier", "bal_acc"): (0.131607, 6.649934, 0.00000032, 0.093664, 0.170060, 1.234862, 0.00001000, 0.00000130),
+    ("rp_fourier", "f1"): (0.266444, 8.959829, 0.00000000, 0.207552, 0.321004, 1.663798, 0.00001000, 0.00000000),
+}
 
 
 @dataclass
@@ -199,7 +248,7 @@ def load_pair_values(probe_json: dict, feature: str, probe: str, metric: str) ->
             pair_id = pair.get("pair_id")
             if pair_id is not None:
                 # Pair-dump rows are keyed directly by metric ("bal_acc"/"f1"),
-            # unlike fold_results entries (which use "final_bal_acc"/"final_f1").
+                # unlike fold_results entries (which use "final_bal_acc"/"final_f1").
                 values[pair_id] = float(pair[metric])
     return values or None
 
@@ -380,75 +429,137 @@ def compute_results(probe_json: dict, reference: str, probe: str) -> dict:
     return results
 
 
-def compute_pair_results(probe_json: dict, reference: str, probe: str) -> dict | None:
+def seed_average_pair_values(probe_jsons: list[dict], feature: str, probe: str,
+                             metric: str) -> dict[str, float] | None:
+    """Average per-frame-pair metric values across seed artifacts by pair id.
+
+    With a single artifact this is the identity map onto that artifact's
+    values (SPEC 0006 behaviour).  With several artifacts (one per training
+    seed, identical protocol), frame pairs missing from any artifact are
+    dropped with a warning, so every comparison runs on the intersection.
+
+    Args:
+        probe_jsons: One or more parsed probe results files, one per seed.
+        feature: Short feature key (see :data:`FEATURE_LABELS`).
+        probe: Probe type, ``"mlp"`` or ``"linear"``.
+        metric: Metric key, ``"bal_acc"`` or ``"f1"``.
+
+    Returns:
+        Mapping ``pair_id -> seed-averaged metric value``, or ``None`` when
+        no artifact carries a per-pair dump for this feature set.
+    """
+    per_seed = [load_pair_values(probe_json, feature, probe, metric) for probe_json in probe_jsons]
+    per_seed = [values for values in per_seed if values is not None]
+    if not per_seed:
+        return None
+    common = set(per_seed[0])
+    for values in per_seed[1:]:
+        common &= set(values)
+    dropped = set().union(*(set(values) for values in per_seed)) - common
+    if dropped:
+        print(f"WARNING: seed-averaging drops {len(dropped)} non-shared frame pairs "
+              f"for {feature}/{probe}/{metric}")
+    return {
+        pair_id: sum(values[pair_id] for values in per_seed) / len(per_seed)
+        for pair_id in sorted(common)
+    }
+
+
+def compute_pair_results(probe_jsons: list[dict], reference: str, probe: str
+                         ) -> tuple[dict, dict] | None:
     """Compute per-frame-pair paired comparisons against the reference feature.
 
     Frame pairs whose id is present for the reference but missing for a
-    feature set (or vice versa) are counted and dropped, so every comparison
-    runs on the matched subset.
+    feature set (or vice versa, or missing from any seed artifact) are
+    counted and dropped, so every comparison runs on the matched subset.
+    With more than one artifact the per-frame-pair metrics are seed-averaged
+    per feature set before the deltas are formed (SPEC 0021); the frame pair
+    stays the statistical unit and seeds are never tested independently.
 
     Args:
-        probe_json: Parsed probe results file.
+        probe_jsons: One or more parsed probe results files (one per seed).
         reference: Short key of the reference feature set.
         probe: Probe type, ``"mlp"`` or ``"linear"``.
 
     Returns:
-        ``{(feature, metric): PairedResult}`` computed on the matched
-        frame-pair subset with a bootstrap CI and Monte-Carlo sign-flip
-        permutation p value, or ``None`` when no feature set carries a dump.
+        Tuple of (results, per_seed_deltas).  ``results`` maps
+        ``(feature, metric)`` to a :class:`PairedResult` computed on the
+        matched frame-pair subset with a bootstrap CI and Monte-Carlo
+        sign-flip permutation p value and Holm-adjusted p.  ``per_seed_deltas``
+        maps ``(feature, metric)`` to ``{pair_id: [per-seed delta]}`` and is
+        empty for the single-artifact path.  ``None`` when no feature set
+        carries a dump.
     """
-    reference_pairs = load_pair_values(probe_json, reference, probe, "bal_acc")
+    reference_pairs = seed_average_pair_values(probe_jsons, reference, probe, "bal_acc")
     if reference_pairs is None:
         return None
     features = [
-        key for key in probe_json["results"]
-        if key != reference and load_pair_values(probe_json, key, probe, "bal_acc") is not None
+        key for key in probe_jsons[0]["results"]
+        if key != reference
+        and seed_average_pair_values(probe_jsons, key, probe, "bal_acc") is not None
     ]
     if not features:
         return None
 
     results: dict[tuple[str, str], PairedResult] = {}
+    per_seed_deltas: dict[tuple[str, str], dict[str, list[float]]] = {}
     for metric in METRIC_FIELDS:
-        reference_values = load_pair_values(probe_json, reference, probe, metric)
+        reference_values = seed_average_pair_values(probe_jsons, reference, probe, metric)
         metric_results: dict[str, PairedResult] = {}
         for feature in features:
-            feature_values = load_pair_values(probe_json, feature, probe, metric)
+            feature_values = seed_average_pair_values(probe_jsons, feature, probe, metric)
             matched = sorted(set(reference_values) & set(feature_values))
             dropped = len(set(reference_values) ^ set(feature_values))
             reference_aligned = [reference_values[p] for p in matched]
             feature_aligned = [feature_values[p] for p in matched]
             result = paired_statistics(reference_aligned, feature_aligned)
-            result.ci_low, result.ci_high = bootstrap_ci_mean(
-                [feature_values[p] - reference_values[p] for p in matched]
-            )
-            result.permutation_p = monte_carlo_sign_flip_p(
-                [feature_values[p] - reference_values[p] for p in matched]
-            )
+            differences = [feature_values[p] - reference_values[p] for p in matched]
+            result.ci_low, result.ci_high = bootstrap_ci_mean(differences)
+            result.permutation_p = monte_carlo_sign_flip_p(differences)
             result.unit_count = len(matched)
             result.dropped_units = dropped
+            if len(probe_jsons) > 1:
+                per_seed_reference = [load_pair_values(j, reference, probe, metric) for j in probe_jsons]
+                per_seed_feature = [load_pair_values(j, feature, probe, metric) for j in probe_jsons]
+                per_seed = {}
+                for pair_id in matched:
+                    deltas = [
+                        seed_feature[pair_id] - seed_reference[pair_id]
+                        for seed_reference, seed_feature in zip(per_seed_reference, per_seed_feature)
+                        if seed_reference is not None and seed_feature is not None
+                        and pair_id in seed_reference and pair_id in seed_feature
+                    ]
+                    if len(deltas) == len(probe_jsons):
+                        per_seed[pair_id] = deltas
+                per_seed_deltas[(feature, metric)] = per_seed
             metric_results[feature] = result
         adjusted = holm_adjust([metric_results[feature].p_value for feature in features])
         for feature, adjusted_p in zip(features, adjusted):
             metric_results[feature].holm_p = adjusted_p
             results[(feature, metric)] = metric_results[feature]
-    return results
+    return results, per_seed_deltas
 
 
-def check_expected(results: dict) -> bool:
+def check_expected(results: dict, expected_table: dict | None = None) -> bool:
     """Validate computed statistics against the SPEC-recorded values.
 
     Args:
         results: Output of :func:`compute_pair_results` (primary unit).
+        expected_table: Table to validate against — ``EXPECTED`` for the
+            single-seed path (SPEC 0006) or ``EXPECTED_SEEDAVG`` for the
+            seed-averaged path (SPEC 0021).  Defaults to ``EXPECTED``.
 
     Returns:
         True when every recorded statistic matches within
         :data:`CHECK_RTOL`; False otherwise, with mismatches printed.
     """
-    if not EXPECTED:
+    if expected_table is None:
+        expected_table = EXPECTED
+    if not expected_table:
         print("WARNING: no EXPECTED values recorded; skipping --check.")
         return True
     all_ok = True
-    for key, expected in EXPECTED.items():
+    for key, expected in expected_table.items():
         if key not in results:
             print(f"MISSING comparison {key}")
             all_ok = False
@@ -514,58 +625,103 @@ def result_to_dict(result: PairedResult) -> dict:
 def main() -> int:
     """Run the paired significance tests and optionally validate them.
 
+    Single ``--input`` runs the original single-seed analysis (SPEC 0006);
+    multiple ``--input`` artifacts run the seed-averaged analysis (SPEC 0021).
+
     Returns
     -------
     int
         Process exit status (0 on success, 1 on a failed ``--check``).
     """
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--input", default="results/probes/unified_probe_results_cv10.json",
-                        help="Probe results JSON (dump-enabled run)")
+    parser.add_argument("--input", nargs="+",
+                        default=["results/probes/unified_probe_results_cv10.json"],
+                        help="Probe results JSON file(s), one per training seed "
+                             "(dump-enabled runs); multiple files trigger the "
+                             "seed-averaged analysis")
     parser.add_argument("--reference", default=REFERENCE_FEATURE,
                         help="Short key of the reference feature set")
     parser.add_argument("--probe", default="mlp", choices=["mlp", "linear"])
-    parser.add_argument("--output", default="results/probes/probe_paired_significance.json",
-                        help="Where to write the computed statistics")
+    parser.add_argument("--output", default=None,
+                        help="Where to write the computed statistics "
+                             "(default: probe_paired_significance.json, or "
+                             "probe_paired_significance_multiseed.json for "
+                             "the seed-averaged analysis)")
     parser.add_argument("--check", action="store_true",
-                        help="Validate against the SPEC-recorded values")
+                        help="Validate against the SPEC-recorded values of "
+                             "the active mode (single-seed: EXPECTED, "
+                             "seed-averaged: EXPECTED_SEEDAVG)")
     args = parser.parse_args()
 
-    probe_json = json.loads(Path(args.input).read_text())
-    fold_results = compute_results(probe_json, args.reference, args.probe)
-    pair_results = compute_pair_results(probe_json, args.reference, args.probe)
+    pooled = len(args.input) > 1
+    if args.output is None:
+        args.output = ("results/probes/probe_paired_significance_multiseed.json"
+                       if pooled else "results/probes/probe_paired_significance.json")
 
-    fold_count = len(probe_json["results"][args.reference][args.probe]["fold_results"])
-    print(f"Reference: {FEATURE_LABELS[args.reference]} | probe: {args.probe} | folds: {fold_count}")
-    if pair_results is not None:
-        print("-- per-frame-pair comparisons (primary) --")
+    probe_jsons = [json.loads(Path(path).read_text()) for path in args.input]
+    probe_seeds = [probe_json.get("args", {}).get("seed") for probe_json in probe_jsons]
+    if pooled and any(seed is None for seed in probe_seeds):
+        print("WARNING: an input artifact lacks args.seed; seed list contains None.")
+    fold_results = compute_results(probe_jsons[0], args.reference, args.probe)
+    pair_computation = compute_pair_results(probe_jsons, args.reference, args.probe)
+
+    fold_count = len(probe_jsons[0]["results"][args.reference][args.probe]["fold_results"])
+    seeds_label = "/".join(str(seed) for seed in probe_jsons)
+    print(f"Reference: {FEATURE_LABELS[args.reference]} | probe: {args.probe} "
+          f"| folds: {fold_count} | inputs: {len(probe_jsons)} | seeds: {seeds_label}")
+    if pair_computation is not None:
+        pair_results, per_seed_deltas = pair_computation
+        print(f"-- per-frame-pair comparisons ({'seed-averaged' if pooled else 'single-seed'}, primary) --")
         for (feature, metric), result in sorted(pair_results.items()):
             print(f"n={result.unit_count} dropped={result.dropped_units} "
                   + latex_table_row(feature, metric, result))
+    else:
+        pair_results, per_seed_deltas = {}, {}
+
     print("-- per-fold comparisons (secondary) --")
     for (feature, metric), result in sorted(fold_results.items()):
         print(latex_table_row(feature, metric, result))
 
     if args.check:
-        primary = pair_results if pair_results is not None else fold_results
-        return 0 if check_expected(primary) else 1
+        expected_table = EXPECTED_SEEDAVG if pooled else EXPECTED
+        if pooled and not expected_table:
+            print("WARNING: EXPECTED_SEEDAVG not yet recorded; cannot --check the pooled path.")
+            return 1
+        return 0 if check_expected(pair_results if pair_results else fold_results,
+                                   expected_table) else 1
 
     payload = {
         "reference": args.reference,
         "probe": args.probe,
-        "input": args.input,
-        "primary_unit": "pairs" if pair_results is not None else "folds",
-        "args": probe_json.get("args", {}),
+        "inputs": args.input,
+        "seeds": probe_seeds,
+        "pooled": pooled,
+        "primary_unit": "pairs" if pair_results else "folds",
         "comparisons_pairs": (
             {f"{feature}|{metric}": result_to_dict(result)
              for (feature, metric), result in pair_results.items()}
-            if pair_results is not None else {}
         ),
         "comparisons_folds": {
             f"{feature}|{metric}": result_to_dict(result)
             for (feature, metric), result in fold_results.items()
         },
     }
+    if not pooled:
+        payload["args"] = probe_jsons[0].get("args", {})
+    else:
+        payload["per_seed_deltas"] = {
+            f"{feature}|{metric}": per_seed
+            for (feature, metric), per_seed in per_seed_deltas.items()
+        }
+        payload["seed_spread"] = {
+            f"{feature}|{metric}": {
+                "mean_pair_sd": float(np.mean([np.std(deltas, ddof=1)
+                                               for deltas in per_seed.values() if len(deltas) > 1])),
+                "max_pair_sd": float(np.max([np.std(deltas, ddof=1)
+                                             for deltas in per_seed.values() if len(deltas) > 1])),
+            }
+            for (feature, metric), per_seed in per_seed_deltas.items()
+        }
     Path(args.output).write_text(json.dumps(payload, indent=2))
     print(f"Wrote {args.output}")
     return 0

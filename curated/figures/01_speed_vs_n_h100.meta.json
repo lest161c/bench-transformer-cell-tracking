@@ -1,193 +1,143 @@
 {
   "figure": "01_speed_vs_n_h100",
-  "created_utc": "2026-10-23T16:25:47.679909+00:00",
+  "created_utc": "2026-10-25T14:54:12.742783+00:00",
   "generator": "curated/generate_report.py",
   "sources": [
-    "/home/leonard.starke@mediainterface.de/Dokumente/Uni/research-proj/benchmark_attn/results/full_bench_v2_h100_cache_on.csv",
-    "/home/leonard.starke@mediainterface.de/Dokumente/Uni/research-proj/benchmark_attn/results/full_bench_b64_h100_cache_on.csv"
+    "/home/leonard.starke@mediainterface.de/Dokumente/Uni/research-proj/benchmark_attn/results/full_bench_b64_h100_cache_on_isolation_nograd.csv",
+    "/home/leonard.starke@mediainterface.de/Dokumente/Uni/research-proj/benchmark_attn/results/full_bench_b64_h100_cache_off_isolation_nograd.csv"
   ],
   "values": [
     {
       "series": "dense_flash",
-      "batch": 1,
-      "points": [
-        {
-          "N": 128,
-          "time_ms": 0.139
-        },
-        {
-          "N": 256,
-          "time_ms": 0.14
-        },
-        {
-          "N": 512,
-          "time_ms": 0.141
-        },
-        {
-          "N": 1024,
-          "time_ms": 0.142
-        },
-        {
-          "N": 2048,
-          "time_ms": 0.138
-        },
-        {
-          "N": 4096,
-          "time_ms": 0.139
-        },
-        {
-          "N": 8192,
-          "time_ms": 0.354
-        }
-      ]
-    },
-    {
-      "series": "dense_flash",
       "batch": 64,
+      "source": "cache_on+cache_off",
+      "method": "dense_flash",
+      "backend": "",
       "points": [
         {
           "N": 128,
-          "time_ms": 0.153
+          "time_ms": 0.122
         },
         {
           "N": 256,
-          "time_ms": 0.154
+          "time_ms": 0.115
         },
         {
           "N": 512,
-          "time_ms": 0.218
+          "time_ms": 0.217
         },
         {
           "N": 1024,
-          "time_ms": 0.549
+          "time_ms": 0.564
         },
         {
           "N": 2048,
-          "time_ms": 1.752
+          "time_ms": 1.75
         },
         {
           "N": 4096,
-          "time_ms": 5.91
+          "time_ms": 5.726
         },
         {
           "N": 8192,
-          "time_ms": 21.267
+          "time_ms": 20.952
         },
         {
           "N": 16384,
-          "time_ms": 79.028
+          "time_ms": 79.205
         },
         {
           "N": 32768,
-          "time_ms": 320.452
+          "time_ms": 319.571
         }
-      ]
+      ],
+      "kind": "measured"
     },
     {
       "series": "dense_masked",
-      "batch": 1,
+      "batch": 64,
+      "source": "cache_on",
+      "method": "dense_masked",
+      "backend": "cudnn_flash",
       "points": [
         {
           "N": 128,
-          "time_ms": 0.245
+          "time_ms": 0.225
         },
         {
           "N": 256,
-          "time_ms": 0.245
+          "time_ms": 0.427
         },
         {
           "N": 512,
-          "time_ms": 0.246
+          "time_ms": 1.412
         },
         {
           "N": 1024,
-          "time_ms": 0.247
+          "time_ms": 5.253
         },
         {
           "N": 2048,
-          "time_ms": 0.338
+          "time_ms": 20.202
         },
         {
           "N": 4096,
-          "time_ms": 1.307
-        },
-        {
-          "N": 8192,
-          "time_ms": 5.109
+          "time_ms": 85.327
         }
       ]
     },
     {
       "series": "dense_masked",
       "batch": 64,
+      "kind": "projected",
+      "source": "cache_on",
+      "method": "dense_masked",
+      "fit": "quadratic: 5.333e-06\u00b7N^2 + -1.137e-03\u00b7N^1 + 4.565e-01\u00b7N^0",
       "points": [
         {
-          "N": 128,
-          "time_ms": 0.255
-        },
-        {
-          "N": 256,
-          "time_ms": 0.425
-        },
-        {
-          "N": 512,
-          "time_ms": 1.406
-        },
-        {
-          "N": 1024,
-          "time_ms": 5.212
-        },
-        {
-          "N": 2048,
-          "time_ms": 20.085
-        },
-        {
           "N": 4096,
-          "time_ms": 83.245
-        }
-      ]
-    },
-    {
-      "series": "mask_knn_K16",
-      "batch": 1,
-      "points": [
-        {
-          "N": 128,
-          "time_ms": 0.186
+          "time_ms": 85.327
         },
         {
-          "N": 256,
-          "time_ms": 0.187
+          "N": 8192.0,
+          "time_ms": 349.05519166666653
         },
         {
-          "N": 512,
-          "time_ms": 0.187
+          "N": 12288.0,
+          "time_ms": 791.7887675196848
         },
         {
-          "N": 1024,
-          "time_ms": 0.189
+          "N": 16384.0,
+          "time_ms": 1413.478505052493
         },
         {
-          "N": 2048,
-          "time_ms": 0.188
+          "N": 20480.0,
+          "time_ms": 2214.124404265091
         },
         {
-          "N": 4096,
-          "time_ms": 0.373
+          "N": 24576.0,
+          "time_ms": 3193.726465157479
         },
         {
-          "N": 8192,
-          "time_ms": 1.258
+          "N": 28672.0,
+          "time_ms": 4352.284687729656
+        },
+        {
+          "N": 32768.0,
+          "time_ms": 5689.799071981624
         }
       ]
     },
     {
       "series": "mask_knn_K16",
       "batch": 64,
+      "source": "cache_on",
+      "method": "sparse_mask",
+      "backend": "cudnn_flash",
       "points": [
         {
           "N": 128,
-          "time_ms": 0.196
+          "time_ms": 0.171
         },
         {
           "N": 256,
@@ -195,149 +145,158 @@
         },
         {
           "N": 512,
-          "time_ms": 0.611
+          "time_ms": 0.615
         },
         {
           "N": 1024,
-          "time_ms": 1.922
+          "time_ms": 1.941
         },
         {
           "N": 2048,
-          "time_ms": 6.334
+          "time_ms": 6.381
         },
         {
           "N": 4096,
-          "time_ms": 21.699
+          "time_ms": 21.938
+        },
+        {
+          "N": 8192,
+          "time_ms": 79.69
         }
       ]
     },
     {
-      "series": "gather_sdpa_K16",
-      "batch": 1,
+      "series": "mask_knn_K16",
+      "batch": 64,
+      "kind": "projected",
+      "source": "cache_on",
+      "method": "sparse_mask",
+      "fit": "quadratic: 1.069e-06\u00b7N^2 + 9.884e-04\u00b7N^1 + -1.021e-01\u00b7N^0",
       "points": [
         {
-          "N": 128,
-          "time_ms": 0.283
-        },
-        {
-          "N": 256,
-          "time_ms": 0.282
-        },
-        {
-          "N": 512,
-          "time_ms": 0.284
-        },
-        {
-          "N": 1024,
-          "time_ms": 0.284
-        },
-        {
-          "N": 2048,
-          "time_ms": 0.281
-        },
-        {
-          "N": 4096,
-          "time_ms": 0.5
-        },
-        {
           "N": 8192,
-          "time_ms": 0.99
+          "time_ms": 79.69
+        },
+        {
+          "N": 11702.857142857143,
+          "time_ms": 157.80806913926023
+        },
+        {
+          "N": 15213.714285714286,
+          "time_ms": 262.2547685394963
+        },
+        {
+          "N": 18724.571428571428,
+          "time_ms": 393.04315264441556
+        },
+        {
+          "N": 22235.428571428572,
+          "time_ms": 550.1732214540183
+        },
+        {
+          "N": 25746.285714285714,
+          "time_ms": 733.644974968304
+        },
+        {
+          "N": 29257.142857142855,
+          "time_ms": 943.458413187273
+        },
+        {
+          "N": 32768.0,
+          "time_ms": 1179.6135361109255
         }
       ]
     },
     {
       "series": "gather_sdpa_K16",
       "batch": 64,
+      "source": "cache_on",
+      "method": "sparse_gather_matmul",
+      "backend": "matmul_cublas",
       "points": [
         {
           "N": 128,
-          "time_ms": 1.244
+          "time_ms": 1.088
         },
         {
           "N": 256,
-          "time_ms": 2.443
+          "time_ms": 2.13
         },
         {
           "N": 512,
-          "time_ms": 4.831
-        }
-      ]
-    },
-    {
-      "series": "flex_attn",
-      "batch": 1,
-      "points": [
-        {
-          "N": 128,
-          "time_ms": 0.222
-        },
-        {
-          "N": 256,
-          "time_ms": 0.222
-        },
-        {
-          "N": 512,
-          "time_ms": 0.224
+          "time_ms": 4.225
         },
         {
           "N": 1024,
-          "time_ms": 0.221
+          "time_ms": 8.355
         },
         {
           "N": 2048,
-          "time_ms": 0.219
+          "time_ms": 16.63
         },
         {
           "N": 4096,
-          "time_ms": 0.229
+          "time_ms": 33.129
         },
         {
           "N": 8192,
-          "time_ms": 0.844
-        }
-      ]
-    },
-    {
-      "series": "flex_attn",
-      "batch": 64,
-      "points": [
-        {
-          "N": 128,
-          "time_ms": 0.238
-        },
-        {
-          "N": 256,
-          "time_ms": 0.235
-        },
-        {
-          "N": 512,
-          "time_ms": 0.352
-        },
-        {
-          "N": 1024,
-          "time_ms": 1.017
-        },
-        {
-          "N": 2048,
-          "time_ms": 3.529
-        },
-        {
-          "N": 4096,
-          "time_ms": 13.822
-        },
-        {
-          "N": 8192,
-          "time_ms": 64.897
+          "time_ms": 66.777
         },
         {
           "N": 16384,
-          "time_ms": 264.664
+          "time_ms": 133.208
         },
         {
           "N": 32768,
-          "time_ms": 1101.017
+          "time_ms": 266.814
         }
       ]
+    },
+    {
+      "series": "flex_attn",
+      "batch": 64,
+      "source": "cache_on+cache_off",
+      "method": "flex_attn",
+      "backend": "",
+      "points": [
+        {
+          "N": 128,
+          "time_ms": 0.161
+        },
+        {
+          "N": 256,
+          "time_ms": 0.178
+        },
+        {
+          "N": 512,
+          "time_ms": 0.508
+        },
+        {
+          "N": 1024,
+          "time_ms": 1.643
+        },
+        {
+          "N": 2048,
+          "time_ms": 5.741
+        },
+        {
+          "N": 4096,
+          "time_ms": 21.496
+        },
+        {
+          "N": 8192,
+          "time_ms": 83.778
+        },
+        {
+          "N": 16384,
+          "time_ms": 329.397
+        },
+        {
+          "N": 32768,
+          "time_ms": 1379.714
+        }
+      ],
+      "kind": "measured"
     }
   ]
 }

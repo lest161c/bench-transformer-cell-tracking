@@ -27,7 +27,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from skimage.measure import regionprops as sk_regionprops
 from tifffile import imread
-
+from src.models.scaled_cnn import checkpoint_uses_batch_norm
 warnings.filterwarnings("ignore", category=UserWarning)
 logging.basicConfig(
     level=logging.INFO,
@@ -57,7 +57,7 @@ if torch.cuda.is_available():
 
 class ScaledCNN(nn.Module):
     """ConvNet for 64×64 grayscale patches. Output: 128-dim embedding."""
-    def __init__(self, scale="medium", out_dim=CNN_FEAT_DIM):
+    def __init__(self, scale="medium", out_dim=CNN_FEAT_DIM, batch_norm=False):
         super().__init__()
         PATCH_SIZE = 64
         if scale == "small":
@@ -69,7 +69,10 @@ class ScaledCNN(nn.Module):
         layers = []
         in_ch = 1
         for c in ch:
-            layers += [nn.Conv2d(in_ch, c, 3, padding=1), nn.ReLU(), nn.MaxPool2d(2)]
+            if batch_norm:
+                layers += [nn.Conv2d(in_ch, c, 3, padding=1), nn.BatchNorm2d(c), nn.ReLU(), nn.MaxPool2d(2)]
+            else:
+                layers += [nn.Conv2d(in_ch, c, 3, padding=1), nn.ReLU(), nn.MaxPool2d(2)]
             in_ch = c
         self.conv = nn.Sequential(*layers)
         spatial = PATCH_SIZE // (2 ** len(ch))
@@ -96,8 +99,9 @@ class CNNPatchExtractor:
     """
     def __init__(self, checkpoint_path, scale="medium"):
         self.cpu = torch.device("cpu")
-        self.model = ScaledCNN(scale=scale, out_dim=CNN_FEAT_DIM)
         ckpt = torch.load(checkpoint_path, map_location=self.cpu)
+        batch_norm = ckpt.get("batch_norm", checkpoint_uses_batch_norm(ckpt["model_state_dict"]))
+        self.model = ScaledCNN(scale=scale, out_dim=CNN_FEAT_DIM, batch_norm=batch_norm)
         self.model.load_state_dict(ckpt["model_state_dict"])
         self.model.eval()
         for p in self.model.parameters():

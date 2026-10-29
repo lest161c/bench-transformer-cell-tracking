@@ -6,7 +6,7 @@
   <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
    <cc:Work>
     <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
-    <dc:date>2026-09-28T23:41:58.853275</dc:date>
+    <dc:date>2026-10-16T17:31:32.604941</dc:date>
     <dc:format>image/svg+xml</dc:format>
     <dc:creator>
      <cc:Agent>
@@ -43,7 +43,7 @@ L 117.139902 16227.653983
 L 117.139902 113.014285 
 L 64.002699 113.014285 
 z
-" clip-path="url(#p3b725e9067)"/>
+" clip-path="url(#pe23935d85c)"/>
    </g>
    <g id="patch_4">
     <path d="M 152.564705 16227.653983 
@@ -51,7 +51,7 @@ L 205.701908 16227.653983
 L 205.701908 122.718976 
 L 152.564705 122.718976 
 z
-" clip-path="url(#p3b725e9067)" style="fill: #e69f00"/>
+" clip-path="url(#pe23935d85c)" style="fill: #e69f00"/>
    </g>
    <g id="patch_5">
     <path d="M 241.126711 16227.653983 
@@ -59,7 +59,7 @@ L 294.263914 16227.653983
 L 294.263914 98.457248 
 L 241.126711 98.457248 
 z
-" clip-path="url(#p3b725e9067)" style="fill: #d55e00"/>
+" clip-path="url(#pe23935d85c)" style="fill: #d55e00"/>
    </g>
    <g id="patch_6">
     <path d="M 329.688717 16227.653983 
@@ -67,7 +67,7 @@ L 382.82592 16227.653983
 L 382.82592 113.014285 
 L 329.688717 113.014285 
 z
-" clip-path="url(#p3b725e9067)" style="fill: #56b4e9"/>
+" clip-path="url(#pe23935d85c)" style="fill: #56b4e9"/>
    </g>
    <g id="patch_7">
     <path d="M 418.250723 16227.653983 
@@ -75,29 +75,136 @@ L 471.387926 16227.653983
 L 471.387926 103.309594 
 L 418.250723 103.309594 
 z
-" clip-path="url(#p3b725e9067)" style="fill: #cc79a7"/>
+" clip-path="url(#pe23935d85c)" style="fill: #cc79a7"/>
    </g>
    <g id="matplotlib.axis_1">
     <g id="xtick_1">
      <g id="line2d_1">
       <path d="M 90.571301 295.785969 
 L 90.571301 20.819719 
-" clip-path="url(#p3b725e9067)" style="fill: none; stroke: #cccccc; stroke-width: 0.5; stroke-linecap: square"/>
+" clip-path="url(#pe23935d85c)" style="fill: none; stroke: #cccccc; stroke-width: 0.5; stroke-linecap: square"/>
      </g>
      <g id="line2d_2">
       <defs>
-       <path id="m955903586d" d="M 0 0 
+       <path id="m6b964e3d82" d="M 0 0 
 L 0 3.5 
 " style="stroke: #262626; stroke-width: 0.8"/>
       </defs>
       <g>
-       <use xlink:href="#m955903586d" x="90.571301" y="295.785969" style="fill: #262626; stroke: #262626; stroke-width: 0.8"/>
+       <use xlink:href="#m6b964e3d82" x="90.571301" y="295.785969" style="fill: #262626; stroke: #262626; stroke-width: 0.8"/>
       </g>
      </g>
      <g id="text_1">
-      <!-- Baseline (K=-1) -->
-      <g style="fill: #262626" transform="translate(58.468723 309.319406) scale(0.09 -0.09)">
+      <!-- Dense Baseline -->
+      <g style="fill: #262626" transform="translate(60.684973 309.319406) scale(0.09 -0.09)">
        <defs>
+        <path id="TeXGyrePagella-Regular-44" d="M 141 4237 
+L 397 4218 
+C 691 4198 723 4141 723 3642 
+L 723 608 
+C 723 422 666 282 563 230 
+L 365 128 
+L 365 -19 
+C 659 -6 960 0 1254 0 
+C 1562 0 1875 -19 2182 -19 
+C 3002 -19 3616 192 4064 634 
+C 4525 1088 4806 1779 4806 2464 
+C 4806 3654 3923 4429 2573 4429 
+C 2202 4429 1830 4410 1459 4410 
+C 1018 4410 582 4416 141 4429 
+L 141 4237 
+z
+M 1331 314 
+L 1331 4122 
+C 1498 4154 1722 4173 2042 4173 
+C 2752 4173 3328 4045 3667 3706 
+C 3974 3398 4122 2938 4122 2298 
+C 4122 1581 3904 1030 3482 685 
+C 3098 371 2714 262 1990 262 
+C 1696 262 1498 275 1331 314 
+z
+" transform="scale(0.015625)"/>
+        <path id="TeXGyrePagella-Regular-65" d="M 166 1402 
+C 166 998 256 653 435 410 
+C 685 70 1120 -128 1600 -128 
+C 1837 -128 2074 -77 2336 38 
+C 2509 109 2643 192 2669 230 
+L 2797 448 
+L 2714 512 
+C 2304 269 2157 211 1882 211 
+C 1466 211 1120 397 941 710 
+C 819 922 774 1101 762 1472 
+L 1696 1472 
+C 2138 1472 2413 1491 2854 1562 
+C 2861 1651 2867 1709 2867 1786 
+C 2867 2522 2394 3002 1677 3002 
+C 1440 3002 1165 2918 902 2765 
+C 378 2464 166 2067 166 1402 
+z
+M 774 1728 
+C 774 2029 800 2170 883 2336 
+C 1018 2618 1293 2790 1600 2790 
+C 1811 2790 1978 2707 2093 2534 
+C 2234 2323 2298 2138 2298 1709 
+L 1581 1690 
+C 1286 1690 1120 1696 774 1728 
+z
+" transform="scale(0.015625)"/>
+        <path id="TeXGyrePagella-Regular-6e" d="M 38 -19 
+C 301 -6 570 0 832 0 
+C 1094 0 1363 -6 1626 -19 
+L 1626 173 
+L 1338 192 
+C 1120 205 1101 250 1101 653 
+L 1101 2010 
+C 1101 2298 1523 2611 1914 2611 
+C 2342 2611 2624 2291 2624 1798 
+L 2624 -19 
+C 2790 -6 2963 0 3130 0 
+C 3309 0 3482 -6 3661 -19 
+L 3661 173 
+L 3398 192 
+C 3181 205 3162 243 3162 653 
+L 3162 1888 
+C 3162 2637 2810 3002 2093 3002 
+C 1856 3002 1722 2957 1587 2842 
+L 1101 2419 
+L 1101 2976 
+L 1043 3002 
+C 717 2867 384 2778 45 2739 
+L 45 2560 
+L 282 2560 
+C 538 2560 563 2515 563 2093 
+L 563 653 
+C 563 250 544 205 326 192 
+L 38 173 
+L 38 -19 
+z
+" transform="scale(0.015625)"/>
+        <path id="TeXGyrePagella-Regular-73" d="M 192 26 
+C 525 -83 774 -128 1069 -128 
+C 1907 -128 2502 320 2502 947 
+C 2502 1146 2451 1293 2323 1421 
+C 2157 1587 1946 1658 1382 1766 
+C 858 1869 685 1997 685 2291 
+C 685 2611 909 2790 1299 2790 
+C 1728 2790 2054 2566 2054 2266 
+L 2054 2118 
+L 2234 2118 
+C 2240 2490 2246 2643 2266 2842 
+C 1926 2957 1696 3002 1434 3002 
+C 691 3002 237 2650 237 2074 
+C 237 1766 378 1549 672 1414 
+C 845 1338 1184 1235 1619 1139 
+C 1907 1075 2029 941 2029 698 
+C 2029 352 1709 109 1254 109 
+C 787 109 454 333 454 653 
+L 454 915 
+L 262 915 
+C 262 474 243 282 192 26 
+z
+" transform="scale(0.015625)"/>
+        <path id="TeXGyrePagella-Regular-20" transform="scale(0.015625)"/>
         <path id="TeXGyrePagella-Regular-42" d="M 166 4237 
 L 397 4218 
 C 698 4192 723 4147 723 3642 
@@ -163,55 +270,6 @@ C 1888 531 1485 288 1235 288
 C 979 288 755 525 755 800 
 z
 " transform="scale(0.015625)"/>
-        <path id="TeXGyrePagella-Regular-73" d="M 192 26 
-C 525 -83 774 -128 1069 -128 
-C 1907 -128 2502 320 2502 947 
-C 2502 1146 2451 1293 2323 1421 
-C 2157 1587 1946 1658 1382 1766 
-C 858 1869 685 1997 685 2291 
-C 685 2611 909 2790 1299 2790 
-C 1728 2790 2054 2566 2054 2266 
-L 2054 2118 
-L 2234 2118 
-C 2240 2490 2246 2643 2266 2842 
-C 1926 2957 1696 3002 1434 3002 
-C 691 3002 237 2650 237 2074 
-C 237 1766 378 1549 672 1414 
-C 845 1338 1184 1235 1619 1139 
-C 1907 1075 2029 941 2029 698 
-C 2029 352 1709 109 1254 109 
-C 787 109 454 333 454 653 
-L 454 915 
-L 262 915 
-C 262 474 243 282 192 26 
-z
-" transform="scale(0.015625)"/>
-        <path id="TeXGyrePagella-Regular-65" d="M 166 1402 
-C 166 998 256 653 435 410 
-C 685 70 1120 -128 1600 -128 
-C 1837 -128 2074 -77 2336 38 
-C 2509 109 2643 192 2669 230 
-L 2797 448 
-L 2714 512 
-C 2304 269 2157 211 1882 211 
-C 1466 211 1120 397 941 710 
-C 819 922 774 1101 762 1472 
-L 1696 1472 
-C 2138 1472 2413 1491 2854 1562 
-C 2861 1651 2867 1709 2867 1786 
-C 2867 2522 2394 3002 1677 3002 
-C 1440 3002 1165 2918 902 2765 
-C 378 2464 166 2067 166 1402 
-z
-M 774 1728 
-C 774 2029 800 2170 883 2336 
-C 1018 2618 1293 2790 1600 2790 
-C 1811 2790 1978 2707 2093 2534 
-C 2234 2323 2298 2138 2298 1709 
-L 1581 1690 
-C 1286 1690 1120 1696 774 1728 
-z
-" transform="scale(0.015625)"/>
         <path id="TeXGyrePagella-Regular-6c" d="M 134 -19 
 C 403 -6 666 0 934 0 
 C 1203 0 1466 -6 1734 -19 
@@ -254,165 +312,21 @@ C 1254 3974 1126 4109 941 4109
 C 742 4109 614 3981 614 3789 
 z
 " transform="scale(0.015625)"/>
-        <path id="TeXGyrePagella-Regular-6e" d="M 38 -19 
-C 301 -6 570 0 832 0 
-C 1094 0 1363 -6 1626 -19 
-L 1626 173 
-L 1338 192 
-C 1120 205 1101 250 1101 653 
-L 1101 2010 
-C 1101 2298 1523 2611 1914 2611 
-C 2342 2611 2624 2291 2624 1798 
-L 2624 -19 
-C 2790 -6 2963 0 3130 0 
-C 3309 0 3482 -6 3661 -19 
-L 3661 173 
-L 3398 192 
-C 3181 205 3162 243 3162 653 
-L 3162 1888 
-C 3162 2637 2810 3002 2093 3002 
-C 1856 3002 1722 2957 1587 2842 
-L 1101 2419 
-L 1101 2976 
-L 1043 3002 
-C 717 2867 384 2778 45 2739 
-L 45 2560 
-L 282 2560 
-C 538 2560 563 2515 563 2093 
-L 563 653 
-C 563 250 544 205 326 192 
-L 38 173 
-L 38 -19 
-z
-" transform="scale(0.015625)"/>
-        <path id="TeXGyrePagella-Regular-20" transform="scale(0.015625)"/>
-        <path id="TeXGyrePagella-Regular-28" d="M 794 1344 
-C 794 320 1331 -678 2214 -1562 
-C 2234 -1523 2259 -1491 2291 -1459 
-C 2323 -1427 2355 -1402 2394 -1382 
-C 1581 -570 1203 403 1203 1344 
-L 1203 1856 
-C 1203 2797 1581 3770 2394 4582 
-C 2355 4602 2323 4627 2291 4659 
-C 2259 4691 2234 4723 2214 4762 
-C 1331 3878 794 2880 794 1856 
-L 794 1344 
-z
-" transform="scale(0.015625)"/>
-        <path id="TeXGyrePagella-Regular-4b" d="M 141 -19 
-C 454 -6 762 0 1075 0 
-C 1389 0 1702 -6 2016 -19 
-L 2016 173 
-L 1709 192 
-C 1414 211 1382 262 1382 768 
-L 1382 2080 
-L 1446 2125 
-L 3674 -19 
-C 3846 -6 4013 0 4186 0 
-C 4326 0 4461 -6 4602 -19 
-L 4602 173 
-L 4467 186 
-C 4371 192 4269 262 4070 448 
-L 1958 2445 
-L 3661 3981 
-C 3834 4134 3994 4218 4160 4224 
-L 4429 4237 
-L 4429 4429 
-C 4256 4416 4090 4410 3917 4410 
-C 3725 4410 3539 4416 3347 4429 
-L 3347 4256 
-C 3347 4218 3264 4109 3162 4006 
-L 1382 2272 
-L 1382 3642 
-C 1382 4147 1414 4198 1709 4218 
-L 2016 4237 
-L 2016 4429 
-C 1702 4416 1389 4410 1075 4410 
-C 762 4410 454 4416 141 4429 
-L 141 4237 
-L 448 4218 
-C 742 4198 774 4147 774 3642 
-L 774 768 
-C 774 262 742 211 448 192 
-L 141 173 
-L 141 -19 
-z
-" transform="scale(0.015625)"/>
-        <path id="TeXGyrePagella-Regular-3d" d="M 512 704 
-L 4352 704 
-C 4339 768 4333 832 4333 896 
-C 4333 960 4339 1024 4352 1088 
-L 512 1088 
-C 525 1024 531 960 531 896 
-C 531 832 525 768 512 704 
-z
-M 512 2112 
-L 4352 2112 
-C 4339 2176 4333 2240 4333 2304 
-C 4333 2368 4339 2432 4352 2496 
-L 512 2496 
-C 525 2432 531 2368 531 2304 
-C 531 2240 525 2176 512 2112 
-z
-" transform="scale(0.015625)"/>
-        <path id="TeXGyrePagella-Regular-2d" d="M 109 1408 
-L 141 1376 
-L 1805 1376 
-L 1997 1805 
-L 1965 1837 
-L 282 1837 
-L 109 1408 
-z
-" transform="scale(0.015625)"/>
-        <path id="TeXGyrePagella-Regular-31" d="M 384 3827 
-L 429 3552 
-L 493 3552 
-L 1318 3923 
-L 1338 3930 
-C 1376 3930 1389 3872 1389 3718 
-L 1389 614 
-C 1389 282 1318 211 973 192 
-L 614 173 
-L 614 -19 
-C 966 -6 1318 0 1670 0 
-C 2003 0 2342 -6 2675 -19 
-L 2675 173 
-L 2342 192 
-C 1990 211 1926 282 1926 614 
-L 1926 4410 
-L 1837 4442 
-C 1421 4224 966 4032 384 3827 
-z
-" transform="scale(0.015625)"/>
-        <path id="TeXGyrePagella-Regular-29" d="M 525 -1382 
-C 563 -1402 595 -1427 627 -1459 
-C 659 -1491 685 -1523 704 -1562 
-C 1587 -678 2125 320 2125 1344 
-L 2125 1856 
-C 2125 2880 1587 3878 704 4762 
-C 685 4723 659 4691 627 4659 
-C 595 4627 563 4602 525 4582 
-C 1338 3770 1715 2797 1715 1856 
-L 1715 1344 
-C 1715 403 1338 -570 525 -1382 
-z
-" transform="scale(0.015625)"/>
        </defs>
-       <use xlink:href="#TeXGyrePagella-Regular-42"/>
-       <use xlink:href="#TeXGyrePagella-Regular-61" transform="translate(61.099991 0)"/>
-       <use xlink:href="#TeXGyrePagella-Regular-73" transform="translate(111.099976 0)"/>
-       <use xlink:href="#TeXGyrePagella-Regular-65" transform="translate(153.499969 0)"/>
-       <use xlink:href="#TeXGyrePagella-Regular-6c" transform="translate(201.399963 0)"/>
-       <use xlink:href="#TeXGyrePagella-Regular-69" transform="translate(230.499954 0)"/>
-       <use xlink:href="#TeXGyrePagella-Regular-6e" transform="translate(259.199951 0)"/>
-       <use xlink:href="#TeXGyrePagella-Regular-65" transform="translate(317.399948 0)"/>
-       <use xlink:href="#TeXGyrePagella-Regular-20" transform="translate(365.299942 0)"/>
-       <use xlink:href="#TeXGyrePagella-Regular-28" transform="translate(390.299927 0)"/>
-       <use xlink:href="#TeXGyrePagella-Regular-4b" transform="translate(435.899918 0)"/>
-       <use xlink:href="#TeXGyrePagella-Regular-3d" transform="translate(508.499908 0)"/>
-       <use xlink:href="#TeXGyrePagella-Regular-2d" transform="translate(584.499893 0)"/>
-       <use xlink:href="#TeXGyrePagella-Regular-31" transform="translate(617.799881 0)"/>
-       <use xlink:href="#TeXGyrePagella-Regular-29" transform="translate(667.799866 0)"/>
+       <use xlink:href="#TeXGyrePagella-Regular-44"/>
+       <use xlink:href="#TeXGyrePagella-Regular-65" transform="translate(77.399994 0)"/>
+       <use xlink:href="#TeXGyrePagella-Regular-6e" transform="translate(125.299988 0)"/>
+       <use xlink:href="#TeXGyrePagella-Regular-73" transform="translate(183.499985 0)"/>
+       <use xlink:href="#TeXGyrePagella-Regular-65" transform="translate(225.899979 0)"/>
+       <use xlink:href="#TeXGyrePagella-Regular-20" transform="translate(273.799973 0)"/>
+       <use xlink:href="#TeXGyrePagella-Regular-42" transform="translate(298.799957 0)"/>
+       <use xlink:href="#TeXGyrePagella-Regular-61" transform="translate(359.899948 0)"/>
+       <use xlink:href="#TeXGyrePagella-Regular-73" transform="translate(409.899933 0)"/>
+       <use xlink:href="#TeXGyrePagella-Regular-65" transform="translate(452.299927 0)"/>
+       <use xlink:href="#TeXGyrePagella-Regular-6c" transform="translate(500.199921 0)"/>
+       <use xlink:href="#TeXGyrePagella-Regular-69" transform="translate(529.299911 0)"/>
+       <use xlink:href="#TeXGyrePagella-Regular-6e" transform="translate(557.999908 0)"/>
+       <use xlink:href="#TeXGyrePagella-Regular-65" transform="translate(616.199905 0)"/>
       </g>
      </g>
     </g>
@@ -420,11 +334,11 @@ z
      <g id="line2d_3">
       <path d="M 179.133307 295.785969 
 L 179.133307 20.819719 
-" clip-path="url(#p3b725e9067)" style="fill: none; stroke: #cccccc; stroke-width: 0.5; stroke-linecap: square"/>
+" clip-path="url(#pe23935d85c)" style="fill: none; stroke: #cccccc; stroke-width: 0.5; stroke-linecap: square"/>
      </g>
      <g id="line2d_4">
       <g>
-       <use xlink:href="#m955903586d" x="179.133307" y="295.785969" style="fill: #262626; stroke: #262626; stroke-width: 0.8"/>
+       <use xlink:href="#m6b964e3d82" x="179.133307" y="295.785969" style="fill: #262626; stroke: #262626; stroke-width: 0.8"/>
       </g>
      </g>
      <g id="text_2">
@@ -517,6 +431,62 @@ L 134 173
 L 134 -19 
 z
 " transform="scale(0.015625)"/>
+        <path id="TeXGyrePagella-Regular-4b" d="M 141 -19 
+C 454 -6 762 0 1075 0 
+C 1389 0 1702 -6 2016 -19 
+L 2016 173 
+L 1709 192 
+C 1414 211 1382 262 1382 768 
+L 1382 2080 
+L 1446 2125 
+L 3674 -19 
+C 3846 -6 4013 0 4186 0 
+C 4326 0 4461 -6 4602 -19 
+L 4602 173 
+L 4467 186 
+C 4371 192 4269 262 4070 448 
+L 1958 2445 
+L 3661 3981 
+C 3834 4134 3994 4218 4160 4224 
+L 4429 4237 
+L 4429 4429 
+C 4256 4416 4090 4410 3917 4410 
+C 3725 4410 3539 4416 3347 4429 
+L 3347 4256 
+C 3347 4218 3264 4109 3162 4006 
+L 1382 2272 
+L 1382 3642 
+C 1382 4147 1414 4198 1709 4218 
+L 2016 4237 
+L 2016 4429 
+C 1702 4416 1389 4410 1075 4410 
+C 762 4410 454 4416 141 4429 
+L 141 4237 
+L 448 4218 
+C 742 4198 774 4147 774 3642 
+L 774 768 
+C 774 262 742 211 448 192 
+L 141 173 
+L 141 -19 
+z
+" transform="scale(0.015625)"/>
+        <path id="TeXGyrePagella-Regular-3d" d="M 512 704 
+L 4352 704 
+C 4339 768 4333 832 4333 896 
+C 4333 960 4339 1024 4352 1088 
+L 512 1088 
+C 525 1024 531 960 531 896 
+C 531 832 525 768 512 704 
+z
+M 512 2112 
+L 4352 2112 
+C 4339 2176 4333 2240 4333 2304 
+C 4333 2368 4339 2432 4352 2496 
+L 512 2496 
+C 525 2432 531 2368 531 2304 
+C 531 2240 525 2176 512 2112 
+z
+" transform="scale(0.015625)"/>
         <path id="TeXGyrePagella-Regular-34" d="M 13 1306 
 L 83 1158 
 L 1792 1158 
@@ -564,17 +534,37 @@ z
      <g id="line2d_5">
       <path d="M 267.695312 295.785969 
 L 267.695312 20.819719 
-" clip-path="url(#p3b725e9067)" style="fill: none; stroke: #cccccc; stroke-width: 0.5; stroke-linecap: square"/>
+" clip-path="url(#pe23935d85c)" style="fill: none; stroke: #cccccc; stroke-width: 0.5; stroke-linecap: square"/>
      </g>
      <g id="line2d_6">
       <g>
-       <use xlink:href="#m955903586d" x="267.695312" y="295.785969" style="fill: #262626; stroke: #262626; stroke-width: 0.8"/>
+       <use xlink:href="#m6b964e3d82" x="267.695312" y="295.785969" style="fill: #262626; stroke: #262626; stroke-width: 0.8"/>
       </g>
      </g>
      <g id="text_3">
       <!-- Sparse K=16 -->
       <g style="fill: #262626" transform="translate(242.225313 309.319406) scale(0.09 -0.09)">
        <defs>
+        <path id="TeXGyrePagella-Regular-31" d="M 384 3827 
+L 429 3552 
+L 493 3552 
+L 1318 3923 
+L 1338 3930 
+C 1376 3930 1389 3872 1389 3718 
+L 1389 614 
+C 1389 282 1318 211 973 192 
+L 614 173 
+L 614 -19 
+C 966 -6 1318 0 1670 0 
+C 2003 0 2342 -6 2675 -19 
+L 2675 173 
+L 2342 192 
+C 1990 211 1926 282 1926 614 
+L 1926 4410 
+L 1837 4442 
+C 1421 4224 966 4032 384 3827 
+z
+" transform="scale(0.015625)"/>
         <path id="TeXGyrePagella-Regular-36" d="M 205 1581 
 C 205 525 717 -128 1542 -128 
 C 2374 -128 2995 531 2995 1402 
@@ -613,11 +603,11 @@ z
      <g id="line2d_7">
       <path d="M 356.257318 295.785969 
 L 356.257318 20.819719 
-" clip-path="url(#p3b725e9067)" style="fill: none; stroke: #cccccc; stroke-width: 0.5; stroke-linecap: square"/>
+" clip-path="url(#pe23935d85c)" style="fill: none; stroke: #cccccc; stroke-width: 0.5; stroke-linecap: square"/>
      </g>
      <g id="line2d_8">
       <g>
-       <use xlink:href="#m955903586d" x="356.257318" y="295.785969" style="fill: #262626; stroke: #262626; stroke-width: 0.8"/>
+       <use xlink:href="#m6b964e3d82" x="356.257318" y="295.785969" style="fill: #262626; stroke: #262626; stroke-width: 0.8"/>
       </g>
      </g>
      <g id="text_4">
@@ -690,11 +680,11 @@ z
      <g id="line2d_9">
       <path d="M 444.819324 295.785969 
 L 444.819324 20.819719 
-" clip-path="url(#p3b725e9067)" style="fill: none; stroke: #cccccc; stroke-width: 0.5; stroke-linecap: square"/>
+" clip-path="url(#pe23935d85c)" style="fill: none; stroke: #cccccc; stroke-width: 0.5; stroke-linecap: square"/>
      </g>
      <g id="line2d_10">
       <g>
-       <use xlink:href="#m955903586d" x="444.819324" y="295.785969" style="fill: #262626; stroke: #262626; stroke-width: 0.8"/>
+       <use xlink:href="#m6b964e3d82" x="444.819324" y="295.785969" style="fill: #262626; stroke: #262626; stroke-width: 0.8"/>
       </g>
      </g>
      <g id="text_5">
@@ -720,16 +710,16 @@ L 444.819324 20.819719
      <g id="line2d_11">
       <path d="M 43.633437 279.611483 
 L 491.757187 279.611483 
-" clip-path="url(#p3b725e9067)" style="fill: none; stroke: #cccccc; stroke-width: 0.5; stroke-linecap: square"/>
+" clip-path="url(#pe23935d85c)" style="fill: none; stroke: #cccccc; stroke-width: 0.5; stroke-linecap: square"/>
      </g>
      <g id="line2d_12">
       <defs>
-       <path id="m0c24852cfe" d="M 0 0 
+       <path id="m93c9f7e88f" d="M 0 0 
 L -3.5 0 
 " style="stroke: #262626; stroke-width: 0.8"/>
       </defs>
       <g>
-       <use xlink:href="#m0c24852cfe" x="43.633437" y="279.611483" style="fill: #262626; stroke: #262626; stroke-width: 0.8"/>
+       <use xlink:href="#m93c9f7e88f" x="43.633437" y="279.611483" style="fill: #262626; stroke: #262626; stroke-width: 0.8"/>
       </g>
      </g>
      <g id="text_6">
@@ -816,11 +806,11 @@ z
      <g id="line2d_13">
       <path d="M 43.633437 247.262513 
 L 491.757187 247.262513 
-" clip-path="url(#p3b725e9067)" style="fill: none; stroke: #cccccc; stroke-width: 0.5; stroke-linecap: square"/>
+" clip-path="url(#pe23935d85c)" style="fill: none; stroke: #cccccc; stroke-width: 0.5; stroke-linecap: square"/>
      </g>
      <g id="line2d_14">
       <g>
-       <use xlink:href="#m0c24852cfe" x="43.633437" y="247.262513" style="fill: #262626; stroke: #262626; stroke-width: 0.8"/>
+       <use xlink:href="#m93c9f7e88f" x="43.633437" y="247.262513" style="fill: #262626; stroke: #262626; stroke-width: 0.8"/>
       </g>
      </g>
      <g id="text_7">
@@ -838,11 +828,11 @@ L 491.757187 247.262513
      <g id="line2d_15">
       <path d="M 43.633437 214.913542 
 L 491.757187 214.913542 
-" clip-path="url(#p3b725e9067)" style="fill: none; stroke: #cccccc; stroke-width: 0.5; stroke-linecap: square"/>
+" clip-path="url(#pe23935d85c)" style="fill: none; stroke: #cccccc; stroke-width: 0.5; stroke-linecap: square"/>
      </g>
      <g id="line2d_16">
       <g>
-       <use xlink:href="#m0c24852cfe" x="43.633437" y="214.913542" style="fill: #262626; stroke: #262626; stroke-width: 0.8"/>
+       <use xlink:href="#m93c9f7e88f" x="43.633437" y="214.913542" style="fill: #262626; stroke: #262626; stroke-width: 0.8"/>
       </g>
      </g>
      <g id="text_8">
@@ -860,11 +850,11 @@ L 491.757187 214.913542
      <g id="line2d_17">
       <path d="M 43.633437 182.564572 
 L 491.757187 182.564572 
-" clip-path="url(#p3b725e9067)" style="fill: none; stroke: #cccccc; stroke-width: 0.5; stroke-linecap: square"/>
+" clip-path="url(#pe23935d85c)" style="fill: none; stroke: #cccccc; stroke-width: 0.5; stroke-linecap: square"/>
      </g>
      <g id="line2d_18">
       <g>
-       <use xlink:href="#m0c24852cfe" x="43.633437" y="182.564572" style="fill: #262626; stroke: #262626; stroke-width: 0.8"/>
+       <use xlink:href="#m93c9f7e88f" x="43.633437" y="182.564572" style="fill: #262626; stroke: #262626; stroke-width: 0.8"/>
       </g>
      </g>
      <g id="text_9">
@@ -882,11 +872,11 @@ L 491.757187 182.564572
      <g id="line2d_19">
       <path d="M 43.633437 150.215601 
 L 491.757187 150.215601 
-" clip-path="url(#p3b725e9067)" style="fill: none; stroke: #cccccc; stroke-width: 0.5; stroke-linecap: square"/>
+" clip-path="url(#pe23935d85c)" style="fill: none; stroke: #cccccc; stroke-width: 0.5; stroke-linecap: square"/>
      </g>
      <g id="line2d_20">
       <g>
-       <use xlink:href="#m0c24852cfe" x="43.633437" y="150.215601" style="fill: #262626; stroke: #262626; stroke-width: 0.8"/>
+       <use xlink:href="#m93c9f7e88f" x="43.633437" y="150.215601" style="fill: #262626; stroke: #262626; stroke-width: 0.8"/>
       </g>
      </g>
      <g id="text_10">
@@ -904,11 +894,11 @@ L 491.757187 150.215601
      <g id="line2d_21">
       <path d="M 43.633437 117.866631 
 L 491.757187 117.866631 
-" clip-path="url(#p3b725e9067)" style="fill: none; stroke: #cccccc; stroke-width: 0.5; stroke-linecap: square"/>
+" clip-path="url(#pe23935d85c)" style="fill: none; stroke: #cccccc; stroke-width: 0.5; stroke-linecap: square"/>
      </g>
      <g id="line2d_22">
       <g>
-       <use xlink:href="#m0c24852cfe" x="43.633437" y="117.866631" style="fill: #262626; stroke: #262626; stroke-width: 0.8"/>
+       <use xlink:href="#m93c9f7e88f" x="43.633437" y="117.866631" style="fill: #262626; stroke: #262626; stroke-width: 0.8"/>
       </g>
      </g>
      <g id="text_11">
@@ -926,11 +916,11 @@ L 491.757187 117.866631
      <g id="line2d_23">
       <path d="M 43.633437 85.51766 
 L 491.757187 85.51766 
-" clip-path="url(#p3b725e9067)" style="fill: none; stroke: #cccccc; stroke-width: 0.5; stroke-linecap: square"/>
+" clip-path="url(#pe23935d85c)" style="fill: none; stroke: #cccccc; stroke-width: 0.5; stroke-linecap: square"/>
      </g>
      <g id="line2d_24">
       <g>
-       <use xlink:href="#m0c24852cfe" x="43.633437" y="85.51766" style="fill: #262626; stroke: #262626; stroke-width: 0.8"/>
+       <use xlink:href="#m93c9f7e88f" x="43.633437" y="85.51766" style="fill: #262626; stroke: #262626; stroke-width: 0.8"/>
       </g>
      </g>
      <g id="text_12">
@@ -948,11 +938,11 @@ L 491.757187 85.51766
      <g id="line2d_25">
       <path d="M 43.633437 53.168689 
 L 491.757187 53.168689 
-" clip-path="url(#p3b725e9067)" style="fill: none; stroke: #cccccc; stroke-width: 0.5; stroke-linecap: square"/>
+" clip-path="url(#pe23935d85c)" style="fill: none; stroke: #cccccc; stroke-width: 0.5; stroke-linecap: square"/>
      </g>
      <g id="line2d_26">
       <g>
-       <use xlink:href="#m0c24852cfe" x="43.633437" y="53.168689" style="fill: #262626; stroke: #262626; stroke-width: 0.8"/>
+       <use xlink:href="#m93c9f7e88f" x="43.633437" y="53.168689" style="fill: #262626; stroke: #262626; stroke-width: 0.8"/>
       </g>
      </g>
      <g id="text_13">
@@ -970,11 +960,11 @@ L 491.757187 53.168689
      <g id="line2d_27">
       <path d="M 43.633437 20.819719 
 L 491.757187 20.819719 
-" clip-path="url(#p3b725e9067)" style="fill: none; stroke: #cccccc; stroke-width: 0.5; stroke-linecap: square"/>
+" clip-path="url(#pe23935d85c)" style="fill: none; stroke: #cccccc; stroke-width: 0.5; stroke-linecap: square"/>
      </g>
      <g id="line2d_28">
       <g>
-       <use xlink:href="#m0c24852cfe" x="43.633437" y="20.819719" style="fill: #262626; stroke: #262626; stroke-width: 0.8"/>
+       <use xlink:href="#m93c9f7e88f" x="43.633437" y="20.819719" style="fill: #262626; stroke: #262626; stroke-width: 0.8"/>
       </g>
      </g>
      <g id="text_14">
@@ -1140,19 +1130,19 @@ z
     </g>
    </g>
    <g id="line2d_29">
-    <path clip-path="url(#p3b725e9067)" style="fill: none; stroke: #000000; stroke-opacity: 0.6; stroke-width: 1.5; stroke-linecap: square"/>
+    <path clip-path="url(#pe23935d85c)" style="fill: none; stroke: #000000; stroke-opacity: 0.6; stroke-width: 1.5; stroke-linecap: square"/>
    </g>
    <g id="line2d_30">
-    <path clip-path="url(#p3b725e9067)" style="fill: none; stroke: #000000; stroke-opacity: 0.6; stroke-width: 1.5; stroke-linecap: square"/>
+    <path clip-path="url(#pe23935d85c)" style="fill: none; stroke: #000000; stroke-opacity: 0.6; stroke-width: 1.5; stroke-linecap: square"/>
    </g>
    <g id="line2d_31">
-    <path clip-path="url(#p3b725e9067)" style="fill: none; stroke: #000000; stroke-opacity: 0.6; stroke-width: 1.5; stroke-linecap: square"/>
+    <path clip-path="url(#pe23935d85c)" style="fill: none; stroke: #000000; stroke-opacity: 0.6; stroke-width: 1.5; stroke-linecap: square"/>
    </g>
    <g id="line2d_32">
-    <path clip-path="url(#p3b725e9067)" style="fill: none; stroke: #000000; stroke-opacity: 0.6; stroke-width: 1.5; stroke-linecap: square"/>
+    <path clip-path="url(#pe23935d85c)" style="fill: none; stroke: #000000; stroke-opacity: 0.6; stroke-width: 1.5; stroke-linecap: square"/>
    </g>
    <g id="line2d_33">
-    <path clip-path="url(#p3b725e9067)" style="fill: none; stroke: #000000; stroke-opacity: 0.6; stroke-width: 1.5; stroke-linecap: square"/>
+    <path clip-path="url(#pe23935d85c)" style="fill: none; stroke: #000000; stroke-opacity: 0.6; stroke-width: 1.5; stroke-linecap: square"/>
    </g>
    <g id="patch_8">
     <path d="M 43.633437 295.785969 
@@ -2036,7 +2026,7 @@ z
   </g>
  </g>
  <defs>
-  <clipPath id="p3b725e9067">
+  <clipPath id="pe23935d85c">
    <rect x="43.633437" y="20.819719" width="448.12375" height="274.96625"/>
   </clipPath>
  </defs>

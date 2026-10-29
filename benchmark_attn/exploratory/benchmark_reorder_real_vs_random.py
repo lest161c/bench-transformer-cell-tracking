@@ -1,6 +1,6 @@
 """Compare token reorder speedup: real cell centroids vs random points.
 
-Benchmarks :class:`GatherSparseAttention` with and without spatial token
+Benchmarks :class:`SparseGatherAttention` with and without spatial token
 reordering (:class:`SpatialReorder`). Real centroids from vanvliet
 microscopy data have spatial structure (clusters) that may make reordering
 more effective than with uniform random data.
@@ -61,7 +61,7 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, '.')
 
-from src.attention_modules import GatherSparseAttention, SpatialReorder
+from src.attention_modules import SparseGatherAttention, SpatialReorder
 
 
 def load_real_centroids() -> np.ndarray:
@@ -107,7 +107,7 @@ def bench_n(n_points: int, knn_neighbors: int, real_pool, device,
             dtype=torch.float16, n_trials: int = 50,
             batch_size: int = 1, n_head: int = 4, head_dim: int = 64,
             n_layers: int = 1, seed: int = 0):
-    """Benchmark GatherSparseAttention with and without spatial reorder.
+    """Benchmark SparseGatherAttention with and without spatial reorder.
 
     Both branches share the same module, weights, and dtype. The KNN graph
     is remapped correctly for the reordered space: recomputing ``cdist`` on
@@ -140,7 +140,7 @@ def bench_n(n_points: int, knn_neighbors: int, real_pool, device,
     torch.manual_seed(seed)
 
     embed_dim = n_head * head_dim
-    attn = GatherSparseAttention(
+    attn = SparseGatherAttention(
         embed_dim=embed_dim, n_head=n_head,
         knn_neighbors=knn_neighbors, mode='none'
     ).to(device, dtype)
@@ -204,7 +204,7 @@ def parse_args() -> argparse.Namespace:
         ``seed``, default 0.
     """
     parser = argparse.ArgumentParser(
-        description="Benchmark GatherSparseAttention with/without spatial token reorder"
+        description="Benchmark SparseGatherAttention with/without spatial token reorder"
     )
     parser.add_argument("--n-points", type=str, default=None,
                         help="Number of points: an integer, or 'all' for the full real "

@@ -15,20 +15,20 @@ Two benchmark bugs were fixed:
 | N | Method | H100 time (ms) | H100 mem (MB) | vs dense_masked |
 |---|--------|----------------|---------------|-----------------|
 | 2048 | dense_masked | 0.344 | 143.8 | 1× |
-| 2048 | mask_knn K=4 | 0.396 | 70.9 | 0.87× (1.15× slower) |
-| 2048 | gather_sdpa K=4 | 0.480 | 19.9 | 0.72× (1.39× slower) |
+| 2048 | sparse_mask K=4 | 0.396 | 70.9 | 0.87× (1.15× slower) |
+| 2048 | sparse_gather_sdpa K=4 | 0.480 | 19.9 | 0.72× (1.39× slower) |
 | 2048 | dense_flash | 0.111 | 6.8 | 3.1× faster (unrealistic — no mask) |
 | 8192 | dense_masked | 5.113 | 2255.0 | 1× |
-| 8192 | mask_knn K=4 | 2.914 | 1049.5 | **1.8× faster** |
-| 8192 | gather_sdpa K=4 | 2.268 | 268.7 | **2.3× faster** |
+| 8192 | sparse_mask K=4 | 2.914 | 1049.5 | **1.8× faster** |
+| 8192 | sparse_gather_sdpa K=4 | 2.268 | 268.7 | **2.3× faster** |
 | 8192 | dense_flash | 0.351 | 25.3 | 14.6× faster (unrealistic — no mask) |
 
 Key observations:
 
 - **`dense_flash` is not a realistic baseline.** It uses no mask → gets FlashAttention-2 kernel. But in training, the spatial cutoff mask IS always enforced → forces fallback to EfficientAttention. `dense_flash` is an upper bound on speed.
-- **Realistic comparison: `dense_masked` vs `mask_knn`.** Both use EfficientAttention. At N≤2048, `dense_masked` is faster. At N≥4096, `mask_knn` is faster. Crossover at ~N=4000.
-- **Sparse attention wins at high N (≥4096).** `mask_knn` is 1.8× faster than `dense_masked` at N=8192. `gather_sdpa` is 2.3× faster.
-- **Vanvliet training regime (N≈140):** `dense_masked` (0.199 ms) is 1.7× faster than `mask_knn` (0.335 ms). Sparse attention is NOT faster at cell-tracking scale.
+- **Realistic comparison: `dense_masked` vs `sparse_mask`.** Both use EfficientAttention. At N≤2048, `dense_masked` is faster. At N≥4096, `sparse_mask` is faster. Crossover at ~N=4000.
+- **Sparse attention wins at high N (≥4096).** `sparse_mask` is 1.8× faster than `dense_masked` at N=8192. `sparse_gather_sdpa` is 2.3× faster.
+- **Vanvliet training regime (N≈140):** `dense_masked` (0.199 ms) is 1.7× faster than `sparse_mask` (0.335 ms). Sparse attention is NOT faster at cell-tracking scale.
 - **NSA timing is near-constant ~2.5 ms** up to N=4096 on the H100 (2.46–2.62 ms), jumping to 5.9 ms at N=8192.
 - **minimax@8192 uses 44 GB** on the H100 — the largest single-layer footprint, closest to the 80 GB limit.
 - **Zero OOMs across all 168 configurations** on the H100 (9 methods × 7 N values × up to 4 K values).
@@ -47,26 +47,31 @@ All scripts run from the `benchmark_attn/` directory. After `uv sync`,
 invoke any script via `uv run python <script>`:
 
 ```bash
-uv run python scripts/benchmarks/benchmark_sweep.py --methods gather_sdpa,dense_flash --Ks 4,16
+uv run python scripts/benchmarks/benchmark_sweep.py --methods sparse_gather_sdpa,dense_flash --Ks 4,16
 ```
 
 ### Core benchmarks
 
 ```bash
 # Main sparse vs dense sweep (N up to 8192, K 4-64; extend via --Ns/--Ks flags)
-uv run python scripts/benchmarks/benchmark_sweep.py --methods gather_sdpa,dense_flash,dense_masked --Ks 4,16,64
+uv run python scripts/benchmarks/benchmark_sweep.py --methods sparse_gather_sdpa,dense_flash,dense_masked --Ks 4,16,64
 
-# Unified benchmark: all methods × all N, forward + peak memory (mask_knn at N>=2048)
-uv run python scripts/benchmarks/benchmark_sweep.py --methods gather_sdpa,gather_fused,gather_matmul,mask_knn,knn_relpos,minimax,nsa,dense_flash,dense_masked
+# Unified benchmark: all methods × all N, forward + peak memory (sparse_mask at N>=2048)
+uv run python scripts/benchmarks/benchmark_sweep.py --methods sparse_gather_sdpa,sparse_gather_fused,sparse_gather_matmul,sparse_mask,sparse_gather_relpos,minimax,nsa,dense_flash,dense_masked
 
 # CachedDistAttention real measurement (classes in local src/attention_modules.py)
 uv run python scripts/benchmarks/benchmark_cached_dist.py
 
-# Gather variants: gather_sdpa (GatherSparseAttention), gather_fused (GatherSparseFusedAttention), gather_matmul (GatherSparseMatmulAttention)
-uv run python scripts/benchmarks/benchmark_sweep.py --methods gather_sdpa,gather_fused,gather_matmul
+# cuDNN flash vs FA2 mask-overhead decomposition (SPEC 0045): kernel census,
+# unmasked kernel pair, isolated mask build, mask carriage, end-to-end anchor
+# → results/cudnn_vs_fa2_mask_decomposition.csv (+ *_env.json manifest)
+uv run python scripts/benchmarks/benchmark_cudnn_vs_fa2_mask.py --d-heads 40,64
+
+# Gather variants: sparse_gather_sdpa (SparseGatherAttention), sparse_gather_fused (SparseGatherFusedAttention), sparse_gather_matmul (SparseGatherMatmulAttention)
+uv run python scripts/benchmarks/benchmark_sweep.py --methods sparse_gather_sdpa,sparse_gather_fused,sparse_gather_matmul
 
 # Profiler (per-operation CUDA time breakdown) → profiler_out/profile_gather_results.json
-# Merged profiler: general mode (dense/sparse sweep) or gather mode (GatherSparseAttention)
+# Merged profiler: general mode (dense/sparse sweep) or gather mode (SparseGatherAttention)
 uv run python scripts/benchmarks/benchmark_operator_breakdown.py --mode general
 uv run python scripts/benchmarks/benchmark_operator_breakdown.py --mode gather
 
@@ -84,7 +89,7 @@ uv run python analysis/plot_sparse.py
 uv run python scripts/benchmarks/benchmark_operator_breakdown.py
 
 # Small-N behavior (N ≤ 512)
-uv run python scripts/benchmarks/benchmark_sweep.py --methods gather_sdpa,gather_fused,gather_matmul --Ns 128,256,512 --Ks 16 --layers 1
+uv run python scripts/benchmarks/benchmark_sweep.py --methods sparse_gather_sdpa,sparse_gather_fused,sparse_gather_matmul --Ns 128,256,512 --Ks 16 --layers 1
 ```
 
 **Not included:** FlexAttention (PyTorch's `torch.nn.attention.flex_attention`) is not benchmarked here because the sweep's claim (which sparse attention variant is fastest at cell-tracking scale) does not depend on it. FlexAttention with spatial cutoff has been compared informally against the gathered/masked variants; the gathered/masked KNN approaches dominate at the N ranges used in cell tracking.
@@ -159,8 +164,8 @@ benchmark_attn/
 - Hassani, A., Walton, S., Li, J., Li, S., & Shi, H. (2023). *Neighborhood Attention Transformer.* CVPR 2023. arXiv:2204.07143.
 - Hassani, A., Hwu, W.-M., & Shi, H. (2024). *Faster Neighborhood Attention: Reducing the O(n²) Cost of Self Attention at the Threadblock Level.* NeurIPS 2024. arXiv:2403.04690.
 - Wu, X., Jiang, L., Wang, P.-S., Liu, Z., Liu, X., Qiao, Y., Ouyang, W., He, T., & Zhao, H. (2024). *Point Transformer V3: Simpler, Faster, Stronger.* CVPR 2024. arXiv:2312.10035.
-- Dao, T. (2023). *FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning.* arXiv:2307.08691.
-- Yuan, J., Gao, H., Dai, D., et al. (2025). *Native Sparse Attention: Hardware-Aligned and Natively Trainable Sparse Attention.* arXiv:2502.11089.
+- Dao, T. (2024). *FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning.* ICLR 2024. arXiv:2307.08691.
+- Yuan, J., Gao, H., Dai, D., et al. (2025). *Native Sparse Attention: Hardware-Aligned and Natively Trainable Sparse Attention.* ACL 2025. arXiv:2502.11089.
 - Lai, X., Xu, W., Yang, Y., et al. (2026). *MiniMax Sparse Attention.* arXiv:2606.13392.
 
 ## Further reading

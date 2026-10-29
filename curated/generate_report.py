@@ -193,8 +193,8 @@ def panel_speed_vs_n():
 #     plotting. flex_attn has K=0 only; the other methods sweep K∈{2..128}.
 # ═══════════════════════════════════════════════════════════════
 H100_CSV = ROOT / 'benchmark_attn' / 'results' / 'full_bench_v2_h100_cache_on.csv'
-B64_CSV = ROOT / 'benchmark_attn' / 'results' / 'full_bench_b64_h100_cache_on.csv'
-B64_CACHE_OFF_CSV = ROOT / 'benchmark_attn' / 'results' / 'full_bench_b64_h100_cache_off.csv'
+B64_CSV = ROOT / 'benchmark_attn' / 'results' / 'full_bench_b64_h100_cache_on_isolation_nograd.csv'
+B64_CACHE_OFF_CSV = ROOT / 'benchmark_attn' / 'results' / 'full_bench_b64_h100_cache_off_isolation_nograd.csv'
 # Alias retained for panel_b64_saturation (figure 19), which is out of scope
 # for the cache-off-continuation change.
 B64_CSV_OFF = B64_CACHE_OFF_CSV
@@ -210,6 +210,71 @@ H100_LABELS = {
     'gather_sdpa':  'SparseGather ($K{=}16$)',
     'flex_attn':    'FlexAttention',
 }
+
+# Shared geometry and x-grid for the two body H100 panels
+# (fig:speed_vs_n and fig:memory_vs_n), so both figures keep the same
+# physical size and tick positions.
+H100_FIGSIZE = (5.6, 2.6)
+H100_XTICKS = [128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768]
+
+
+def _style_h100_log_axis(ax, *, ylabel, title, yticks, y_log_math=False):
+    """Apply the shared log-log axis style of the H100 body panels.
+
+    Both attention figures use the same sequence-length grid. The y major
+    ticks are formatted as plain decimal numbers by default; with
+    ``y_log_math=True`` they are rendered as base-10 powers (``10^2`` ...
+    ``10^6``). Both H100 body panels use the math formatter so their
+    decades are evenly spaced. Minor ticks are always left unlabeled
+    to avoid clutter at the printed width. Called by
+    :func:`panel_speed_vs_n_h100` and :func:`panel_memory_vs_n`.
+
+    Args:
+        ax: Matplotlib axes to style.
+        ylabel: Y-axis label.
+        title: Panel title.
+        yticks: Explicit major tick locations on the logarithmic y-axis.
+        y_log_math: When true, label y major ticks with
+            ``LogFormatterMathtext`` instead of a plain ``ScalarFormatter``.
+    """
+    ax.set_xscale('log', base=2)
+    ax.set_yscale('log')
+    ax.set_xticks(H100_XTICKS)
+    ax.set_xlim(128, 32768)
+    ax.set_yticks(list(yticks))
+    x_formatter = mticker.ScalarFormatter()
+    x_formatter.set_scientific(False)
+    ax.get_xaxis().set_major_formatter(x_formatter)
+    ax.get_xaxis().set_minor_formatter(mticker.NullFormatter())
+    if y_log_math:
+        ax.get_yaxis().set_major_formatter(
+            mticker.LogFormatterMathtext(base=10))
+    else:
+        # The time panel spans 0.2 ... 10000 ms; disabling the scientific
+        # shorthand keeps its ticks as plain decimal numbers.
+        y_formatter = mticker.ScalarFormatter(useOffset=False)
+        y_formatter.set_scientific(False)
+        ax.get_yaxis().set_major_formatter(y_formatter)
+    ax.get_yaxis().set_minor_formatter(mticker.NullFormatter())
+    ax.set_xlabel('Sequence length $N$')
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
+
+
+def _add_h100_legends(ax, method_handles, style_handles):
+    """Add the two shared legends (method and line style) to an H100 panel.
+
+    The method legend is created first in the upper-left and preserved with
+    ``ax.add_artist`` before the style key is created in the lower-right;
+    creating the second legend first without preserving it would let the
+    style key replace the method colors. Called by
+    :func:`panel_speed_vs_n_h100` and :func:`panel_memory_vs_n`.
+    """
+    method_legend = ax.legend(handles=method_handles, fontsize=5.5,
+                              frameon=False, loc='upper left')
+    ax.add_artist(method_legend)
+    ax.legend(handles=style_handles, fontsize=5.5, frameon=False,
+              loc='lower right')
 
 
 def _h100_series(df, method, k=None):
@@ -407,28 +472,66 @@ def style_time_axis(ax, title):
     ax.set_axisbelow(True)
 
 
+def _project_time(ns, times, model, n_to=32768, n_points=8):
+    """Fit time(N) on measured points and project it to ``n_to``.
+
+    Args:
+        ns: Measured sequence lengths (sorted).
+        times: Measured forward times in milliseconds, same order.
+        model: ``'quad'`` (quadratic dominant term) or ``'lin'`` (linear
+            scaling).
+        n_to: Upper projection bound.
+        n_points: Number of points in the projection grid, including the
+            last measured N (which is dropped from the returned array, so
+            callers can prepend the measured endpoint themselves).
+
+    Returns:
+        (projected_ns, projected_times, coeff_description) where the
+        projection covers (last measured N, n_to]; empty arrays and an
+        empty description when fewer than two measured points exist or the
+        measured series already reaches ``n_to``. Called by
+        :func:`panel_speed_vs_n_h100` to extend the masked and gathered
+        series beyond their last successful measurement.
+    """
+    if len(ns) < 2 or ns[-1] >= n_to:
+        return [], [], ''
+    degree = 2 if model == 'quad' else 1
+    coefficients = np.polyfit(ns, times, degree)
+    projected = np.linspace(ns[-1], n_to, n_points)[1:]
+    values = np.polyval(coefficients, projected)
+    model_label = 'quadratic' if model == 'quad' else 'linear'
+    terms = model_label + ': ' + ' + '.join(
+        f'{coefficient:.3e}\u00b7N^{degree - index}'
+        for index, coefficient in enumerate(coefficients))
+    return (list(projected), list(np.maximum(values, 0.0)), terms)
+
+
 def panel_speed_vs_n_h100():
     """
     Two report figures from the VERIFIED H100 v2 grid (SPEC 0022 jobs
     4375584 + 4377261; dist_cache=on; backend labels probe-verified,
-    stray-transpose bug fixed), the B=64 saturation grid
-    (``full_bench_b64_h100_cache_on.csv``, dist_cache=on), and the B=64
-    cache-off run (``full_bench_b64_h100_cache_off.csv``). Error rows —
+    stray-transpose bug fixed), the B=64 isolation grid measured in
+    inference mode (``full_bench_b64_h100_cache_on_isolation_nograd.csv``,
+    dist_cache=on), and the B=64 cache-off inference run
+    (``full_bench_b64_h100_cache_off_isolation_nograd.csv``). Error rows —
     including OOM and CUDA launch-configuration failures — are excluded
     before plotting, so each curve is a gap-free run of successful
     measurements and ends where a configuration fails.
 
     Body figure ``01_speed_vs_n_h100.pdf`` — single panel, five series
     (SPEC 0026 T1): dense_flash (K=0), dense_masked (K=0), mask_knn
-    (K=16), gather_sdpa (K=16), flex_attn (K=0), each drawn at B=1
-    (dashed, v2 grid, N up to 8192) and B=64 (solid, B=64 cache-on grid,
-    x-axis up to 32768). The B=64 grid renames mask_knn→sparse_mask;
-    SparseGather at B=64 uses ``sparse_gather_matmul`` K=16 because the
-    SDPA arm errors at N>=1024. DenseFlash and FlexAttention have cache-on
-    rows only to N=8192 (cache-on OOMs above that), so their B=64 curves
-    continue from the cache-off 8192 point with a thinner dotted line and
-    open markers to N=32768; no cache-off points are used for the masked
-    or gathered series. Log-log axes (time_ms vs N).
+    (K=16), gather_sdpa (K=16), flex_attn (K=0), each drawn at B=64
+    (solid over the measured range, x-axis up to 32768). The B=64 grid
+    renames mask_knn→sparse_mask; SparseGather at B=64 uses
+    ``sparse_gather_matmul`` K=16 because the SDPA arm errors at N>=1024.
+    DenseFlash and FlexAttention are cache-regime-independent
+    (``dist_cache == 'na'``): their cache-on and cache-off measurements
+    are pooled per :func:`_b64_pooled_frame`, so one solid measured curve
+    spans N=128..32768. The masked and gathered series use cache-on rows
+    only; those that OOM in the cache-on run end their solid curve at the
+    last measured N and continue with a markerless dotted projection to
+    N=32768, fitted with a quadratic (CachedDistAttention, SparseMask) or
+    linear (SparseGather) polynomial. Log-log axes (time_ms vs N).
 
     Okabe–Ito slot assignment (vis_guidelines §1; colourblind-safe,
     print-safe, one hue per series):
@@ -439,8 +542,7 @@ def panel_speed_vs_n_h100():
         flex_attn    → OI_PURPLE   #CC79A7  (attention-overlay slot)
 
     Legend labels: H100_LABELS (CamelCase display names shared with
-    panel_memory_vs_n), so both H100 panels cannot drift apart. A second,
-    small line-style legend distinguishes B=1 (dashed) from B=64 (solid).
+    panel_memory_vs_n), so both H100 panels cannot drift apart.
 
     Appendix figure ``01_speed_vs_n_h100_detail.pdf`` — (a) forward-time
     ratio vs CachedDistAttention for the other four architectures (linear
@@ -462,15 +564,11 @@ def panel_speed_vs_n_h100():
                           (df_b64_on['L'] == 1)].copy()
     df_b64_on['N'] = df_b64_on['N'].astype(int)
 
-    # The cache-off run is used only as a continuation for the two methods
-    # whose rows are regime-independent (dist_cache == 'na'): the cache-on
-    # run OOMs at N >= 16384, while cache-off measured dense_flash
-    # 79.0/320.5 ms and flex_attn 264.7/1101.0 ms at 16384/32768. Masked
-    # and gathered series stay on their cache-on rows.
-    df_b64_off = pd.read_csv(B64_CACHE_OFF_CSV)
-    df_b64_off = df_b64_off[df_b64_off['error'].isna() &
-                            (df_b64_off['L'] == 1)].copy()
-    df_b64_off['N'] = df_b64_off['N'].astype(int)
+    # DenseFlash and FlexAttention are regime-independent (dist_cache ==
+    # 'na'), so their cache-on and cache-off rows are pooled into one
+    # measured curve. Masked and gathered series stay on their cache-on
+    # rows because the cache regime changes what they measure.
+    df_b64_pooled = _b64_pooled_frame()
 
     series_specs = [
         ('dense_flash',  0, OI_BLACK),
@@ -489,93 +587,99 @@ def panel_speed_vs_n_h100():
         'gather_sdpa':  'sparse_gather_matmul',
         'flex_attn':    'flex_attn',
     }
-    cache_off_continuation = {'dense_flash', 'flex_attn'}
+    pooled_methods = {'dense_flash', 'flex_attn'}
+    # Fitted projections for series whose cache-on run ends at an OOM. The
+    # masked methods grow quadratically with N; the matmul SparseGather arm
+    # is linear in N (the SDPA arm does not run at B=64 for N >= 1024).
+    projection_models = {
+        'dense_masked': 'quad',
+        'mask_knn': 'quad',
+        'gather_sdpa': 'lin',
+    }
 
-    fig, ax_ranking = plt.subplots(figsize=(5.6, 2.4))
+    fig, ax_ranking = plt.subplots(figsize=H100_FIGSIZE)
     method_handles = []
     meta_values = []
     for method, k, colour in series_specs:
         series_name = method if k == 0 else f'{method}_K{k}'
-
-        # B=1 reference (v2 grid, cache on).
-        group_b1 = _h100_series(df, method, k)
-        ax_ranking.plot(group_b1.N, group_b1.time_ms, 'o--',
-                        ms=2.2, lw=0.8, color=colour, zorder=3)
-        meta_values.append({
-            'series': series_name,
-            'batch': 1,
-            'source': 'cache_on',
-            'method': method,
-            'backend': _h100_backend_label(df, method, k),
-            'points': [{'N': int(row.N), 'time_ms': float(row.time_ms)}
-                       for row in group_b1.itertuples()],
-        })
-
-        # B=64 solid curve from the cache-on run.
         b64_method = b64_methods[method]
-        group_b64 = _h100_series(df_b64_on, b64_method, k)
+
+        # DenseFlash/FlexAttention use the pooled cache-on + cache-off frame;
+        # the other series use their cache-on rows only.
+        if method in pooled_methods:
+            source_frame = df_b64_pooled
+            source = 'cache_on+cache_off'
+        else:
+            source_frame = df_b64_on
+            source = 'cache_on'
+        group_b64 = _h100_series(source_frame, b64_method, k)
         ax_ranking.plot(group_b64.N, group_b64.time_ms, 'o-',
                         ms=2.2, lw=0.8, color=colour, zorder=3)
-        meta_values.append({
+        measured_entry = {
             'series': series_name,
             'batch': 64,
-            'source': 'cache_on',
+            'source': source,
             'method': b64_method,
-            'backend': _h100_backend_label(df_b64_on, b64_method, k),
+            'backend': _h100_backend_label(source_frame, b64_method, k),
             'points': [{'N': int(row.N), 'time_ms': float(row.time_ms)}
                        for row in group_b64.itertuples()],
-        })
+        }
+        if method in pooled_methods:
+            measured_entry['kind'] = 'measured'
+        meta_values.append(measured_entry)
 
-        # DenseFlash/FlexAttention continue past the cache-on OOM with the
-        # cache-off measurement, starting at the shared N=8192 point so the
-        # dotted line visibly joins the solid curve.
-        if method in cache_off_continuation:
-            continuation = _h100_series(df_b64_off, b64_method, k)
-            continuation = continuation[continuation.N >= 8192]
-            ax_ranking.plot(continuation.N, continuation.time_ms,
-                            linestyle=':', marker='o', ms=2.2, lw=0.65,
-                            markerfacecolor='none', markeredgewidth=0.6,
-                            color=colour, zorder=3)
-            meta_values.append({
-                'series': series_name,
-                'batch': 64,
-                'source': 'cache_off',
-                'method': b64_method,
-                'backend': _h100_backend_label(df_b64_off, b64_method, k),
-                'points': [{'N': int(row.N), 'time_ms': float(row.time_ms)}
-                           for row in continuation.itertuples()],
-            })
+        if method not in pooled_methods:
+            # The masked and gathered series end at their cache-on OOM;
+            # continue them with a fitted polynomial projection through the
+            # full N range. The markerless dotted segment shows values that
+            # were not measured.
+            projected_ns, projected_times, fit_terms = _project_time(
+                group_b64['N'].to_numpy(dtype=float),
+                group_b64['time_ms'].to_numpy(dtype=float),
+                projection_models[method])
+            if projected_ns:
+                last_n = int(group_b64['N'].iloc[-1])
+                last_measured_time = float(group_b64['time_ms'].iloc[-1])
+                ax_ranking.plot(
+                    [last_n] + projected_ns,
+                    [last_measured_time] + projected_times,
+                    linestyle=':', lw=0.65, color=colour, zorder=3)
+                meta_values.append({
+                    'series': series_name,
+                    'batch': 64,
+                    'kind': 'projected',
+                    'source': 'cache_on',
+                    'method': b64_method,
+                    'fit': fit_terms,
+                    'points': [
+                        {'N': last_n, 'time_ms': last_measured_time},
+                    ] + [
+                        {'N': float(n), 'time_ms': float(t)}
+                        for n, t in zip(projected_ns, projected_times)
+                    ],
+                })
 
         method_handles.append(mlines.Line2D(
             [], [], color=colour, lw=0.8, marker='o', ms=2.2,
             label=H100_LABELS[method]))
-    ax_ranking.set_xscale('log', base=2)
-    ax_ranking.set_yscale('log')
-    ax_ranking.set_yticks([0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0])
-    ax_ranking.get_yaxis().set_major_formatter(mticker.ScalarFormatter())
-    ax_ranking.get_yaxis().set_minor_formatter(mticker.NullFormatter())
-    ax_ranking.set_xticks([128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768])
-    ax_ranking.set_xlim(128, 32768)
-    ax_ranking.get_xaxis().set_major_formatter(mticker.ScalarFormatter())
-    ax_ranking.get_xaxis().set_minor_formatter(mticker.NullFormatter())
-    ax_ranking.set_xlabel('Sequence length $N$')
-    ax_ranking.set_ylabel('Forward time (ms)')
-    ax_ranking.set_title('Attention forward time vs sequence length')
-    method_legend = ax_ranking.legend(handles=method_handles, fontsize=6,
-                                      frameon=False, loc='upper left')
-    ax_ranking.add_artist(method_legend)
+    _style_h100_log_axis(
+        ax_ranking,
+        ylabel='Forward time (ms)',
+        title='Forward time vs sequence length (B=64)',
+        yticks=[0.1, 1.0, 10.0, 100.0, 1000.0, 10000.0],
+        y_log_math=True,
+    )
     style_handles = [
-        mlines.Line2D([], [], color=OI_BLACK, lw=0.8, linestyle='--',
-                      label='B=1'),
         mlines.Line2D([], [], color=OI_BLACK, lw=0.8, linestyle='-',
-                      label='B=64'),
+                      marker='o', ms=2.2, label='measured'),
+        mlines.Line2D([], [], color=OI_BLACK, lw=0.65, linestyle=':',
+                      label='not measured'),
     ]
-    ax_ranking.legend(handles=style_handles, fontsize=6, frameon=False,
-                      loc='lower right', title='Batch', title_fontsize=6)
+    _add_h100_legends(ax_ranking, method_handles, style_handles)
     fig.tight_layout()
 
     body_meta = {
-        'sources': [str(H100_CSV), str(B64_CSV), str(B64_CACHE_OFF_CSV)],
+        'sources': [str(B64_CSV), str(B64_CACHE_OFF_CSV)],
         'values': meta_values,
     }
     save('01_speed_vs_n_h100', body_meta)
@@ -738,37 +842,38 @@ def panel_memory_vs_n():
     sequence length at B=64, from the b64 saturation grid (cache-regime-
     independent rows pooled per :func:`_b64_pooled_frame`).
 
-    OOM is a soft, plotted outcome, never a curve end: every curve is
-    drawn as far as it was MEASURED (solid); from there it continues as a
-    DOTTED projection of its fitted scaling (quadratic for the masked
-    methods, linear for the gather/flash/flex family) through the full
-    N in {128..32768} range. The measured OOM shapes are marked with a
-    cross at the projected memory of that shape, so the marker sits ON the
-    dotted curve and shows measured failure and projection agreeing (e.g.
-    CachedDistAttention OOMs at B=64/N=8192 where the projection says
-    145 GB, far above the grey 80 GB H100 VRAM line). SparseGather's OOM
-    marker sits BELOW the line (its projected attention working set at
-    N=16384 is only ~44 GB): that failure is caused by the O(B N^2) KNN
-    distance matrix built for the indices, not by the attention tensors.
+    OOM is a soft outcome, never a curve end: every curve is drawn as far
+    as it was MEASURED; FlexAttention is drawn DASHED because its memory
+    is identical to DenseFlash, so the dashed purple curve lets the solid
+    black DenseFlash curve show through. That dash is a method-level
+    distinction, not a measured/not-measured state: the other measured
+    curves are solid. From the last measured point each curve continues as
+    a markerless DOTTED projection of its fitted scaling (quadratic for
+    the masked methods, linear for the gather/flash/flex family) through
+    the full N in {128..32768} range. The dotted line therefore shows
+    values that were not measured, including the first OOM shape itself;
+    the measured out-of-memory at that shape is consistent with the
+    projection (e.g. CachedDistAttention OOMs at B=64/N=8192 where the
+    projection says 145 GB, far above the grey 94 GB H100 VRAM line).
+    SparseGather's measured attention working set scales linearly
+    (projected ~51 GB at N=32768, below the line). Its old large-N OOM
+    came from a full-batch unused ``dist_2d`` allocation plus a dense
+    O(B N^2) KNN build, both removed by the harness fix (SPEC 0051 H1);
+    the corrected large-N rows are pending the H100 rerun. The dotted
+    SparseGather line is an attention-only projection, not a total
+    working-set claim.
 
     Log-log axes; Okabe-Ito colours per method, shared with the speed
     panel. Per-series rendering is guarded: a malformed or missing series
     is skipped with a printed note instead of aborting the figure.
     """
     df64 = _b64_pooled_frame()
-    # OOM shapes per method from BOTH b64 runs (soft outcomes, not curve
-    # ends): first N whose status is oom, per (method, K).
-    oom_frames = []
-    for path in (B64_CSV, B64_CSV_OFF):
-        frame = pd.read_csv(path)
-        oom_frames.append(frame[frame['error'].astype(str).str.contains('oom', na=False)])
-    oom_rows = pd.concat(oom_frames)
 
     series_specs = [
         # (label-key, K, colour, b64 method key, projection model)
         ('dense_masked', 0,  OI_VERMILION, 'dense_masked',       'quad'),
         ('mask_knn',     16, OI_SKYBLUE,   'sparse_mask',        'quad'),
-        ('gather_sdpa',  16, OI_ORANGE,    'sparse_gather_sdpa', 'lin'),
+        ('gather_sdpa',  16, OI_ORANGE,    'sparse_gather_matmul', 'lin'),
         ('dense_flash',  0,  OI_BLACK,     'dense_flash',        'lin'),
         ('flex_attn',    0,  OI_PURPLE,    'flex_attn',          'lin'),
     ]
@@ -787,7 +892,10 @@ def panel_memory_vs_n():
                       f'(K={k}) — skipped')
                 continue
             ns, mems = rows.N.to_numpy(), rows.memory_mb.to_numpy()
-            ax.plot(ns, mems, '-', marker='o', ms=2.2, lw=0.8,
+            # FlexAttention overlaps DenseFlash exactly, so its measured
+            # curve is dashed; dotted remains reserved for projections.
+            measured_linestyle = '--' if method == 'flex_attn' else '-'
+            ax.plot(ns, mems, measured_linestyle, marker='o', ms=2.2, lw=0.8,
                     color=colour, zorder=3)
             series_name = method if k == 0 else f'{method}_K{k}'
             meta_values.append({
@@ -797,60 +905,45 @@ def panel_memory_vs_n():
             proj_ns, proj_ms, terms = _project_memory(
                 list(ns), list(mems), model)
             if proj_ns:
-                ax.plot(proj_ns, proj_ms, ':', marker='o', ms=2.0,
-                        lw=0.8, color=colour, zorder=2, alpha=0.75)
+                # Include the last measured point as the projection's origin
+                # so the dotted line visibly continues from the solid curve
+                # instead of starting one grid step later.
+                projected_ns_with_origin = [ns[-1]] + list(proj_ns)
+                projected_ms_with_origin = [mems[-1]] + list(proj_ms)
+                ax.plot(projected_ns_with_origin, projected_ms_with_origin,
+                        ':', lw=0.65, color=colour, zorder=2)
                 meta_values.append({
                     'series': series_name, 'batch': 64, 'kind': 'projected',
                     'fit': terms,
                     'points': [{'N': float(n), 'memory_mb': float(m)}
-                               for n, m in zip(proj_ns, proj_ms)]})
-            # OOM markers at the projected value of the OOM shape: the
-            # cross sits ON the dotted curve, showing that the measured
-            # failure and the theoretical scaling agree.
-            oom = oom_rows[(oom_rows['method'] == b64_key)]
-            if k:
-                oom = oom[oom['K'] == k]
-            first_oom = oom['N'].min() if not oom.empty else None
-            if first_oom is not None and proj_ns:
-                import numpy as np
-                degree = 2 if model == 'quad' else 1
-                coefficients = np.polyfit(ns, mems, degree)
-                y_at_oom = float(np.polyval(coefficients, first_oom))
-                ax.plot([first_oom], [y_at_oom], 'x', ms=5, mew=1.4,
-                        color=colour, zorder=4)
-                meta_values.append({
-                    'series': series_name, 'batch': 64, 'kind': 'oom_marker',
-                    'points': [{'N': int(first_oom), 'memory_mb': y_at_oom}]})
+                               for n, m in zip(projected_ns_with_origin,
+                                               projected_ms_with_origin)]})
         except Exception as exc:  # noqa: BLE001 — one bad series must not
             # abort the figure; OOM and malformed rows are soft outcomes.
             print(f'  [memory] series {b64_key} (K={k}) skipped: {exc}')
-    # 80 GB H100 VRAM limit
-    ax.axhline(80000.0, color='#999999', lw=1.0, linestyle='--', zorder=1)
-    ax.text(140, 95000, '80 GB H100 VRAM', fontsize=5.5, color='#666666')
-    ax.set_xscale('log', base=2)
-    ax.set_yscale('log')
-    ax.set_xticks([128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768])
-    ax.get_xaxis().set_major_formatter(mticker.ScalarFormatter())
-    ax.get_xaxis().set_minor_formatter(mticker.NullFormatter())
-    ax.set_xlabel('Sequence length $N$')
-    ax.set_ylabel('GPU Memory (MB)')
-    ax.set_title('GPU memory vs sequence length (B=64)')
+    # 94 GB H100 VRAM limit
+    ax.axhline(94000.0, color='#999999', lw=1.0, linestyle='--', zorder=1)
+    ax.text(9000, 105000, '94 GB H100 VRAM', fontsize=5.5, color='#666666',
+            ha='left', va='bottom')
+    _style_h100_log_axis(
+        ax,
+        ylabel='GPU memory (MB)',
+        title='GPU memory vs sequence length (B=64)',
+        yticks=[100, 1000, 10000, 100000, 1000000],
+        y_log_math=True,
+    )
     method_handles = [
         mlines.Line2D([], [], color=colour, lw=0.8, marker='o', ms=2.2,
+                      linestyle='--' if method == 'flex_attn' else '-',
                       label=H100_LABELS[method])
         for method, _, colour, _, _ in series_specs]
     style_handles = [
         mlines.Line2D([], [], color=OI_BLACK, lw=0.8, linestyle='-',
-                      label='measured'),
-        mlines.Line2D([], [], color=OI_BLACK, lw=0.8, linestyle=':',
-                      label='projected scaling'),
-        mlines.Line2D([], [], color=OI_BLACK, lw=0.8, marker='x',
-                      linestyle='none', ms=5, mew=1.4, label='measured OOM'),
+                      marker='o', ms=2.2, label='measured'),
+        mlines.Line2D([], [], color=OI_BLACK, lw=0.65, linestyle=':',
+                      label='not measured (projected)'),
     ]
-    ax.legend(handles=method_handles, fontsize=5.5, frameon=False,
-              loc='upper left')
-    ax.add_artist(ax.legend(handles=style_handles, fontsize=5.5,
-                            frameon=False, loc='lower right'))
+    _add_h100_legends(ax, method_handles, style_handles)
     fig.tight_layout()
 
     body_meta = {

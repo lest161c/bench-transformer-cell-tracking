@@ -79,7 +79,7 @@ pytest tests/
 |---|---|---|
 | `src.data` | `SSLDataset`, `collate_ssl`, `features_from_frame`, `load_experiment_frames`, `extract_*` | Data loading and feature extraction |
 | `src.distortions` | `DistortionPipeline`, `AffineDistortion`, `JitterDistortion`, etc. | Augmentation pipeline (6 families) |
-| `src.models` | `CellEmbedder`, `ScaledCNN`, `RotaryPositionalEncoding`, `GatherSparseAttention`, etc. | Model architectures |
+| `src.models` | `CellEmbedder`, `ScaledCNN`, `RotaryPositionalEncoding`, `SparseGatherAttention`, etc. | Model architectures |
 | `src.training` | `ssl_pretrainer`, `ssl_trainer_multi`, `ssl_trainer` | SSL training scripts |
 | `src.analysis` | `signal_analyzer`, `convergence_predictor`, `dino_test`, etc. | Analysis and diagnostic scripts |
 | `src.edge_probing` | `unified_edge_probe`, `train_cnn_probe`, `verify_normalization` | Edge probing framework |

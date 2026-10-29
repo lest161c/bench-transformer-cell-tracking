@@ -86,9 +86,9 @@ def load_pipeline_csv(path):
 # ─── Figure generation ───
 
 def make_knn_speedup_figure(knn_rows):
-    """Generate the crossover figure for dense_masked vs mask_knn.
+    """Generate the crossover figure for dense_masked vs sparse_mask.
 
-    Plots ``dense_masked`` and ``mask_knn K=4`` time vs N on a log-log
+    Plots ``dense_masked`` and ``sparse_mask K=4`` time vs N on a log-log
     scale, shades the two regions (dense wins below ~N=4000, sparse
     wins above), and annotates the vanvliet training regime (N≈140).
 
@@ -103,14 +103,14 @@ def make_knn_speedup_figure(knn_rows):
     fig, ax = plt.subplots(figsize=(10, 6))
     dense = sorted([row for row in knn_rows if row["method"] == "dense_masked"],
                    key=lambda row: row["N"])
-    knn = sorted([row for row in knn_rows if row["method"] == "mask_knn" and row["K"] == 4],
+    knn = sorted([row for row in knn_rows if row["method"] == "sparse_mask" and row["K"] == 4],
                  key=lambda row: row["N"])
     if dense and knn:
         ax.plot([row["N"] for row in dense], [row["time_ms"] for row in dense],
                 "o-", color="#1f77b4", label="dense_masked (EfficientAttention)",
                 markersize=8, linewidth=2)
         ax.plot([row["N"] for row in knn], [row["time_ms"] for row in knn],
-                "s-", color="#ff7f0e", label="mask_knn K=4 (EfficientAttention)",
+                "s-", color="#ff7f0e", label="sparse_mask K=4 (EfficientAttention)",
                 markersize=8, linewidth=2)
         # Shade regions
         ax.axvspan(64, 4000, alpha=0.08, color="#1f77b4", label="dense wins")
@@ -292,7 +292,7 @@ def build_html(args):
     html_parts.append("<ol>")
     html_parts.append("<li><b class='bad'>Sparse attention does NOT accelerate cell tracking.</b> "
                       "At the vanvliet training regime (N≈140), <code>dense_masked</code> is "
-                      "<b>1.7× faster</b> than <code>mask_knn</code> (0.199 ms vs 0.335 ms at N=128). "
+                      "<b>1.7× faster</b> than <code>sparse_mask</code> (0.199 ms vs 0.335 ms at N=128). "
                       "The crossover where sparse becomes faster is at <b>N≈4000</b> — well above "
                       "the vanvliet scale (N≈140).</li>")
     html_parts.append("<li><b class='warn'>dense_flash is an unrealistic upper bound.</b> "
@@ -311,9 +311,9 @@ def build_html(args):
                       "(1) <code>dense_masked</code> was mapped to <code>RelativePositionalAttention</code> "
                       "(per-layer cdist, O(N²)×12 layers). Fixed to <code>CachedDistAttention</code> "
                       "(pre-computed dist_2d, matching real training). "
-                      "(2) KNN index computation was excluded from <code>mask_knn</code> timing "
+                      "(2) KNN index computation was excluded from <code>sparse_mask</code> timing "
                       "(pre-computed before timing loop). Fixed with <code>--with-knn</code> flag. "
-                      "Effect at N=2048: dense_masked 0.41→0.344 ms, mask_knn 0.15→0.396 ms. "
+                      "Effect at N=2048: dense_masked 0.41→0.344 ms, sparse_mask 0.15→0.396 ms. "
                       "Ranking flipped.</p>")
     html_parts.append("</div>")
 
@@ -333,7 +333,7 @@ def build_html(args):
     html_parts.append("<div class='box verdict verdict-bad'>"
                       "<b>Sparse attention is MOOT for cell tracking.</b><br>"
                       "At the vanvliet training regime (N≈140), <code>dense_masked</code> "
-                      "(0.199 ms) is <b>1.7× faster</b> than <code>mask_knn</code> (0.335 ms). "
+                      "(0.199 ms) is <b>1.7× faster</b> than <code>sparse_mask</code> (0.335 ms). "
                       "The crossover where sparse becomes faster is at <b>N≈4000</b> — "
                       "28× above the vanvliet scale. No window size, batch configuration, "
                       "or K value changes this.</div>")
@@ -342,8 +342,8 @@ def build_html(args):
     for row in [
         ["Method", "Time N=128", "Time N=2048", "Time N=8192", "Spatial cutoff?", "Realistic?"],
         ["dense_masked", "0.199 ms", "0.344 ms", "5.113 ms", "HARD cutoff ✓", "✓ realistic dense baseline"],
-        ["mask_knn K=4", "0.335 ms", "0.396 ms", "2.914 ms", "HARD cutoff ✓", "✓ realistic sparse"],
-        ["gather_sdpa K=4", "0.400 ms", "0.480 ms", "2.268 ms", "HARD cutoff ✓", "✓ realistic sparse"],
+        ["sparse_mask K=4", "0.335 ms", "0.396 ms", "2.914 ms", "HARD cutoff ✓", "✓ realistic sparse"],
+        ["sparse_gather_sdpa K=4", "0.400 ms", "0.480 ms", "2.268 ms", "HARD cutoff ✓", "✓ realistic sparse"],
         ["dense_flash", "0.090 ms", "0.111 ms", "0.351 ms", "✗ NONE", "✗ unrealistic (no mask → FlashAttention-2)"],
     ]:
         html_parts.append("<tr>" + "".join(f"<td>{c}</td>" for c in row) + "</tr>")
@@ -351,7 +351,7 @@ def build_html(args):
 
     html_parts.append("<div class='box'>")
     html_parts.append("<h3>Why dense_masked wins at low N</h3>")
-    html_parts.append("<p>Both <code>dense_masked</code> and <code>mask_knn</code> use "
+    html_parts.append("<p>Both <code>dense_masked</code> and <code>sparse_mask</code> use "
                       "EfficientAttention (not FlashAttention-2) because the spatial cutoff "
                       "mask forces the <code>check_for_attn_mask</code> gate in PyTorch's "
                       "<code>sdp_utils.cpp</code> to reject the FlashAttention kernel.</p>")
@@ -368,14 +368,14 @@ def build_html(args):
     html_parts.append("<h2 id='crossover'>Crossover Analysis: Why Sparse Doesn't Help at N≈140</h2>")
     html_parts.append("<table>")
     for row in [
-        ["N", "dense_masked (ms)", "mask_knn K=4 (ms)", "Winner", "Sparse speedup"],
+        ["N", "dense_masked (ms)", "sparse_mask K=4 (ms)", "Winner", "Sparse speedup"],
         ["128", "0.199", "0.335", "dense_masked", "0.59× (1.68× slower)"],
         ["256", "0.200", "0.338", "dense_masked", "0.59× (1.69× slower)"],
         ["512", "0.200", "0.339", "dense_masked", "0.59× (1.70× slower)"],
         ["1024", "0.201", "0.397", "dense_masked", "0.51× (1.98× slower)"],
         ["2048", "0.344", "0.396", "dense_masked", "0.87× (1.15× slower)"],
-        ["4096", "1.311", "0.895", "mask_knn", "1.47× faster"],
-        ["8192", "5.113", "2.914", "mask_knn", "1.75× faster"],
+        ["4096", "1.311", "0.895", "sparse_mask", "1.47× faster"],
+        ["8192", "5.113", "2.914", "sparse_mask", "1.75× faster"],
     ]:
         html_parts.append("<tr>" + "".join(f"<td>{c}</td>" for c in row) + "</tr>")
     html_parts.append("</table>")
@@ -390,8 +390,8 @@ def build_html(args):
     # ── 3. KNN METHODS ──
     html_parts.append("<h2 id='knn'>KNN Methods Comparison (Corrected H100)</h2>")
     if knn_rows:
-        representative_k = {"dense_masked": 0, "mask_knn": 4, "gather_sdpa": 4,
-                            "gather_fused": 4, "gather_matmul": 4, "knn_relpos": 4,
+        representative_k = {"dense_masked": 0, "sparse_mask": 4, "sparse_gather_sdpa": 4,
+                            "sparse_gather_fused": 4, "sparse_gather_matmul": 4, "sparse_gather_relpos": 4,
                             "dense_flash": 0, "nsa": 0, "minimax": 0}
         methods_knn = [m for m in sorted(set(row["method"] for row in knn_rows))
                        if m in representative_k]

@@ -37,7 +37,7 @@ def cached_dist_time(seq_len):
     return 0.80 * (seq_len / 256) ** 2
 
 
-def mask_knn_time(seq_len, knn_neighbors=16):
+def sparse_mask_time(seq_len, knn_neighbors=16):
     """mask-KNN per-layer time (ms) — current best at N<512.
 
     At N=256: 3.1× faster than CachedDistAttention.
@@ -98,7 +98,7 @@ def run_analysis():
     # Baselines (independent of block_size)
     for N in Ns:
         base_cd = cached_dist_time(N)
-        base_mask = mask_knn_time(N)
+        base_mask = sparse_mask_time(N)
         base_dense = dense_flash_time(N)
 
         for B in block_sizes:
@@ -115,7 +115,7 @@ def run_analysis():
                     "overlap": o,
                     "spatial_block_ms": round(t_block, 3),
                     "cached_dist_ms": round(base_cd, 3),
-                    "mask_knn_ms": round(base_mask, 3),
+                    "sparse_mask_ms": round(base_mask, 3),
                     "dense_flash_ms": round(base_dense, 3),
                     "speedup_vs_cached": round(base_cd / max(t_block, 0.0001), 1),
                     "speedup_vs_mask": round(base_mask / max(t_block, 0.0001), 1),
@@ -144,7 +144,7 @@ def generate_figures(rows, Ns, block_sizes, outdir="benchmark_attn"):
     # Baselines
     for label, getter, color, ls in [
         ("CachedDist (baseline)", cached_dist_time, "#7f8c8d", "-"),
-        ("mask-KNN (current best)", mask_knn_time, "#2ecc71", "-"),
+        ("mask-KNN (current best)", sparse_mask_time, "#2ecc71", "-"),
         ("dense_flash (no cutoff)", dense_flash_time, "#3498db", ":"),
     ]:
         ts = [getter(N) for N in Ns]
@@ -209,7 +209,7 @@ def generate_figures(rows, Ns, block_sizes, outdir="benchmark_attn"):
                 markersize=8, linewidth=2, markerfacecolor="white")
     ax.axhline(cached_dist_time(512), color="gray", linestyle="--",
                label="CachedDist baseline")
-    ax.axhline(mask_knn_time(512), color="#2ecc71", linestyle="--",
+    ax.axhline(sparse_mask_time(512), color="#2ecc71", linestyle="--",
                label="mask-KNN")
     ax.set_xlabel("Overlap (adjacent blocks)")
     ax.set_ylabel("Time at N=512 (ms)")

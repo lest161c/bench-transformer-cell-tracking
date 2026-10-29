@@ -31,13 +31,13 @@ TRA_DATA = {
 PERF_DATA = {
     "dense_masked":  {"label": "Dense masked",     "N512_ms": 18.6, "N8192_ms": None},
     "dense_flash":   {"label": "Dense flash",       "N512_ms": 0.8,  "N8192_ms": 78},
-    "gather_K=4":    {"label": "Gather-KNN K=4",    "N512_ms": 11.8, "N8192_ms": 33.8},
-    "gather_K=16":   {"label": "Gather-KNN K=16",   "N512_ms": 17.8, "N8192_ms": 20.1},
-    "mask_K=4":      {"label": "Mask-KNN K=4",      "N512_ms": 26.3, "N8192_ms": None},
-    "mask_K=16":     {"label": "Mask-KNN K=16",     "N512_ms": 48.0, "N8192_ms": None},
-    "gather_K=32":   {"label": "Gather-KNN K=32",   "N512_ms": 22.0, "N8192_ms": None},
-    "gather_K=64":   {"label": "Gather-KNN K=64",   "N512_ms": 28.0, "N8192_ms": None},
-    "gather_K=128":  {"label": "Gather-KNN K=128",  "N512_ms": 45.0, "N8192_ms": None},
+    "gather_K=4":    {"label": "SparseGather K=4",    "N512_ms": 11.8, "N8192_ms": 33.8},
+    "gather_K=16":   {"label": "SparseGather K=16",   "N512_ms": 17.8, "N8192_ms": 20.1},
+    "mask_K=4":      {"label": "SparseMask K=4",      "N512_ms": 26.3, "N8192_ms": None},
+    "mask_K=16":     {"label": "SparseMask K=16",     "N512_ms": 48.0, "N8192_ms": None},
+    "gather_K=32":   {"label": "SparseGather K=32",   "N512_ms": 22.0, "N8192_ms": None},
+    "gather_K=64":   {"label": "SparseGather K=64",   "N512_ms": 28.0, "N8192_ms": None},
+    "gather_K=128":  {"label": "SparseGather K=128",  "N512_ms": 45.0, "N8192_ms": None},
 }
 
 
@@ -225,7 +225,7 @@ def generate_k_detail_graph(save_path: str = "performance_knn_detail.png") -> No
     # Model: time ~ N * K for gather-KNN, ~ N^2 for dense
     colors = {4: "#3498db", 16: "#2ecc71", 32: "#e67e22", 64: "#9b59b6", 128: "#e74c3c"}
 
-    # Gather-KNN time scaling (measured data + extrapolation)
+    # SparseGather time scaling (measured data + extrapolation)
     gather_data = {
         4:   {128: 0.55, 256: 1.50, 512: 11.8,  1024: 25.0, 2048: 55.0, 4096: 18.0, 8192: 33.8},
         16:  {128: 0.60, 256: 2.10, 512: 17.8,  1024: 45.0, 2048: 11.0, 4096: 16.0, 8192: 20.1},
@@ -358,12 +358,12 @@ def main():
     print("\n" + "=" * 60)
     print("TRA/AOGM ANALYSIS — KEY FINDINGS")
     print("=" * 60)
-    print("Gather-KNN vs Mask-KNN (scatter):")
-    print("  - Gather-KNN: 11.8ms (K=4), 17.8ms (K=16) at N=512")
-    print("  - Mask-KNN:   26.3ms (K=4), 48.0ms (K=16) at N=512")
-    print("  - Gather-KNN is ~2.2x faster than Mask-KNN at N=512")
-    print("  - Mask-KNN uses scatter → dense SDPA (cuDNN optimized for small N)")
-    print("  - Gather-KNN uses advanced indexing → SDPA on 1×K (FlashAttn)")
+    print("SparseGather vs SparseMask (scatter):")
+    print("  - SparseGather: 11.8ms (K=4), 17.8ms (K=16) at N=512")
+    print("  - SparseMask:   26.3ms (K=4), 48.0ms (K=16) at N=512")
+    print("  - SparseGather is ~2.2x faster than SparseMask at N=512")
+    print("  - SparseMask uses scatter → dense SDPA (cuDNN optimized for small N)")
+    print("  - SparseGather uses advanced indexing → SDPA on 1×K (FlashAttn)")
     print()
     print("1-TRA (error rate):")
     for model, data in TRA_DATA.items():

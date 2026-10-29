@@ -8,7 +8,7 @@ This matters because:
 
 * ``CachedDistAttention`` builds an N×N additive mask (spatial cutoff +
   distance decay) and passes it to SDPA.
-* ``KNNMaskSparseAttention`` builds an N×N additive mask via scatter
+* ``SparseMaskAttention`` builds an N×N additive mask via scatter
   (KNN neighbours = 0, rest = -inf) and passes it to SDPA.
 * If FlashAttention handles additive masks, then both methods get the
   fused kernel — the same kernel ``DenseFlashAttention`` uses without a
@@ -217,7 +217,7 @@ def verify_flash_mask():
     print()
     print("If Test 2 shows SUCCESS:")
     print("  → FlashAttention DOES handle additive float masks")
-    print("  → CachedDistAttention and KNNMaskSparseAttention")
+    print("  → CachedDistAttention and SparseMaskAttention")
     print("    both get the fused FlashAttention kernel")
     print("  → The 'FlashAttention cannot use masks' assumption is wrong")
     print()

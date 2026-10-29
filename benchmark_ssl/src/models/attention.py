@@ -319,7 +319,7 @@ class KNNRelativePositionalBias(nn.Module):
         return bias
 
 
-class KNNRelativePositionalAttention(nn.Module):
+class SparseGatherRelativePositionalAttention(nn.Module):
     """KNN-relative positional attention with gather-based sparse selection.
 
     The naive KNN-sparse adaptation of :class:`RelativePositionalAttention`.
@@ -480,7 +480,7 @@ class KNNRelativePositionalAttention(nn.Module):
         return output
 
 
-class GatherSparseAttention(nn.Module):
+class SparseGatherAttention(nn.Module):
     """Gather-based sparse attention with optional positional bias (KNN-aware)
     or RoPE.
 

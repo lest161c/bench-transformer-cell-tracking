@@ -82,7 +82,7 @@ Two bottlenecks: (1) q_len=1 shape forces 2048 independent FlashAttention kernel
   <img src="figures/03_mask_vs_gather.svg" alt="3. Mask vs Gather: Alternative Sparse Designs">
   <div class="caption">
 <p>KNN mask via scatter (building an N×N mask with KNN structure and using EfficientAttention)
-is 7.9× faster than gather at N=256. Dense FlashAttention remains 1.3× faster than mask_knn.</p>
+is 7.9× faster than gather at N=256. DenseFlash remains 1.3× faster than SparseMask.</p>
             </div>
 </div>
 <h2 id="memory">4. Memory Footprint</h2>
@@ -172,7 +172,7 @@ attention variants maintain or slightly improve tracking quality across all K va
 
 <div class="meta">
 Generated from <code>curated/generate_report.py</code> —
-2026-09-28 23:42<br>
+2026-10-16 17:31<br>
 Data sources: <code>benchmark_attn/results/full_bench_a500.csv</code>,
 <code>benchmark_sparse_results.csv</code>,
 <code>benchmark_small_n_results.csv</code>,

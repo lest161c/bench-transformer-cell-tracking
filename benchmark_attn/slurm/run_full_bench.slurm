@@ -25,9 +25,9 @@ echo ""
 
 .venv/bin/python scripts/benchmarks/benchmark_sweep.py \
     --d 320 --nhead 8 \
-    --methods gather_sdpa,gather_fused,gather_matmul,mask_knn,knn_relpos,minimax,nsa,dense_flash,dense_masked \
+    --methods sparse_gather_sdpa,sparse_gather_fused,sparse_gather_matmul,sparse_mask,sparse_gather_relpos,minimax,nsa,dense_flash,dense_masked \
     --Ns 128,256,512,1024,2048,4096,8192 \
-    --Ks 4,16,32,64 \
+    --Ks 2,4,8,16,32,64,128 \
     --warmup 10 --rep 50 \
     --with-knn \
     --out full_bench_h100_with_knn.csv

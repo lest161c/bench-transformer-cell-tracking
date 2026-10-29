@@ -19,13 +19,47 @@ A benchmark suite for efficient attention and feature-injection methods in trans
 
 ---
 
+## Canonical Configuration Names
+
+Every attention configuration has exactly **one canonical name: the CamelCase
+class name** in `benchmark_attn/src/attention_modules.py`. Use it in code,
+configs, report text, figures, and commit messages. The snake_case registry
+keys (`benchmark_attn/src/bench/registry.py`) exist only as CLI/CSV
+identifiers and map 1:1 to the canonical names — do not mix the two systems
+in the same document. Do not invent prose synonyms for configurations
+(e.g. "dense masked baseline", "gather family", "KNN-restricted mask
+variant", "dense flash"); name the configuration canonically and, on first
+use, add a plain-language description next to it.
+
+| Canonical name | Registry key | Meaning |
+|---|---|---|
+| `RelativePositionalAttention` | — | Stock Trackastra baseline: dense masked SDPA, pairwise distances recomputed per layer |
+| `CachedDistAttention` | `dense_masked` | Dense masked SDPA, pairwise distances computed once and shared across layers |
+| `DenseFlashAttention` | `dense_flash` | Dense SDPA without any mask → FlashAttention-2 backend |
+| `SparseGatherRelativePositionalAttention` | `sparse_gather_relpos` | Dense masked SDPA restricted to the K nearest neighbours, with relative-position bias |
+| `SparseGatherAttention` | `sparse_gather_sdpa` | SparseGather: gathered K/V rows, SDPA on 1×K tensors |
+| `SparseGatherFusedAttention` | `sparse_gather_fused` | SparseGather, fused-kernel backend |
+| `SparseGatherMatmulAttention` | `sparse_gather_matmul` | SparseGather, explicit matmul backend |
+| `SparseMaskAttention` | `sparse_mask` | SparseMask: scatter-built KNN mask, single masked SDPA call |
+| `SparseSoftmaxAttention` | `sparse_softmax` | Softmax restricted to the K gathered neighbours (backward benchmark only) |
+| `MiniMaxSparseAttention` | `minimax` | Block-level index → top-k blocks → matmul on selected KV |
+| `NSASparseAttention` | `nsa` | Native Sparse Attention port |
+| `FlexAttentionModule` | `flex_attn` | PyTorch FlexAttention (`torch.nn.attention.flex_attention`, compiled block mask) |
+
+Vendor and product names keep their official spelling and are not aliases of
+our configurations: **FlashAttention**, **FlashAttention-2**, **FlexAttention**,
+**Native Sparse Attention (NSA)**, and **EfficientAttention** (the PyTorch
+memory-efficient SDPA backend).
+
+---
+
 ## Results
 
 Detailed results are kept in the per-experiment documentation next to the code:
 
 | Area | Where results live |
 |---|---|
-| Sparse attention micro-benchmarks (dense vs gather vs mask-KNN, CachedDistAttention, GatherV3, backward, speed/memory) | `benchmark_attn/REPRODUCTION.md` |
+| Sparse attention micro-benchmarks (DenseFlashAttention vs SparseGatherAttention vs SparseMaskAttention, CachedDistAttention, backward, speed/memory) | `benchmark_attn/REPRODUCTION.md` |
 | CNN feature injection, edge probing, DeepCell cross-dataset | `benchmark_ssl/docs/REPRODUCTION.md` |
 | Clean K-sweep training (convergence, TRA/AOGM) | `benchmark_training/docs/REPRODUCTION.md` |
 
@@ -77,17 +111,18 @@ If you use Trackastra in your research, cite the original work:
 Key references for this project:
 
 - **Trackastra** — Gallusser & Weigert, ECCV 2024 ([arXiv:2405.15700](https://arxiv.org/abs/2405.15700))
-- **DINOv2** — Oquab et al., arXiv 2023 ([2304.07193](https://arxiv.org/abs/2304.07193))
+- **DINOv2** — Oquab et al., TMLR 2024 ([arXiv:2304.07193](https://arxiv.org/abs/2304.07193))
 - **HOCT** — Bragantini et al., arXiv 2026 ([2607.11754](https://arxiv.org/abs/2607.11754), higher-order cell tracking transformer)
 - **NSA** — Native Sparse Attention (deep learning sparse attention kernel)
 - **flash-attention** — Dao et al., 2022 (fast attention with IO awareness)
 
 ```bibtex
-@article{oquab2023dinov2,
+@article{oquab2024dinov2,
   title={DINOv2: Learning Robust Visual Features without Supervision},
   author={Oquab, Maxime and others},
-  journal={arXiv:2304.07193},
-  year={2023}
+  journal={Transactions on Machine Learning Research (TMLR)},
+  year={2024},
+  note={arXiv:2304.07193}
 }
 ```
 

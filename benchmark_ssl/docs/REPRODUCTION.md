@@ -205,6 +205,39 @@ Note: fold-level statistics (per-batch-mean balanced accuracy) are reported as a
 secondary unit in `probe_paired_significance.json`; the frame pair is the
 statistical unit because every frame pair is validated exactly once.
 
+Multi-seed extension (SPEC 0021, 2026-10-01): the significance analysis is
+recomputed with per-frame-pair metrics seed-averaged across the three probe
+seeds 42/43/44 before the paired test (the frame pair stays the statistical
+unit; seeds are repeated measures, not independent units). Probe artifacts:
+`results/probes/unified_probe_results_cv10{,_s43,_s44}.json` at repository root
+(seed 42 probe identical to the table above; the 3-seed mean±std headline
+numbers in the report come from these three files). Command (from
+`benchmark_ssl/`):
+
+    .venv/bin/python -m src.analysis.probe_paired_significance \
+      --input ../results/probes/unified_probe_results_cv10.json \
+              ../results/probes/unified_probe_results_cv10_s43.json \
+              ../results/probes/unified_probe_results_cv10_s44.json \
+      --output ../results/probes/probe_paired_significance_multiseed.json --check
+
+Seed-averaged significance vs the 7D-regionprops reference (n = 29, all pairs
+matched in all seeds):
+
+| Feature | Δ bal_acc [95% CI] | p (Holm) |
+|---|---|---|
+| DINOv2 (frozen) | +0.163 [+0.123, +0.203] | 8.2e-08 |
+| HOCT 2D + Fourier PE | +0.132 [+0.088, +0.172] | 4.9e-06 |
+| Regionprops 7D + Fourier PE | +0.132 [+0.094, +0.170] | 1.3e-06 |
+| CNN NT-Xent (frozen) | +0.064 [−0.009, +0.137] | 0.20 (n.s.) |
+| HOCT 2D | +0.028 [−0.014, +0.068] | 0.20 (n.s.) |
+| CNN end-to-end | −0.233 [−0.279, −0.184] | 1.9e-09 |
+
+No significance status changes relative to the single-seed analysis; the
+seed-averaged deltas are smaller where seed-42 probe noise inflated them
+(rp_fourier 0.171→0.132) and the CIs are tighter. Scope: probe seeds sample
+only probe-head init / fold-shuffle / batch-order noise; the frozen encoders
+are identical across seeds, so encoder-level uncertainty is not addressed.
+
 ---
 
 ## 5. Early-stopping guidance

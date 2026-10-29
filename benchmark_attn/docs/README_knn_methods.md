@@ -1,14 +1,14 @@
 # KNN Methods Benchmark
 
 **File:** `benchmark_knn_methods.py`  
-**Goal:** Compare gather_sdpa, mask_knn, minimax, and dense_flash at realistic cell-tracking scale.
+**Goal:** Compare sparse_gather_sdpa, sparse_mask, minimax, and dense_flash at realistic cell-tracking scale.
 
 ## Methods
 
 | Method | Mechanism | Complexity |
 |--------|-----------|------------|
-| gather_sdpa | Advanced indexing K/V → SDPA on (B*N, nH, 1/K, Dh) | O(N·K·d) |
-| mask_knn (scatter) | KNN → scatter into N×N boolean mask → masked SDPA | O(N²·d) |
+| sparse_gather_sdpa | Advanced indexing K/V → SDPA on (B*N, nH, 1/K, Dh) | O(N·K·d) |
+| sparse_mask (scatter) | KNN → scatter into N×N boolean mask → masked SDPA | O(N²·d) |
 | minimax | Block-level index → top-k blocks → matmul on selected KV | O(N·k·Bk·d) |
 | dense_flash | Pure FlashAttention (no mask, no spatial cutoff) | O(N²·d) |
 
@@ -42,24 +42,24 @@ python benchmark_knn_methods.py --gpu --out knn_methods_results.csv
 
 Corrected measurements on NVIDIA H100 (fp16, L=1, KNN cost included in timing):
 
-| N | dense_masked (ms) | mask_knn K=4 (ms) | Winner |
+| N | dense_masked (ms) | sparse_mask K=4 (ms) | Winner |
 |---|-------------------|-------------------|--------|
 | 128 | 0.199 | 0.335 | dense_masked |
 | 2048 | 0.344 | 0.396 | dense_masked |
-| 4096 | 1.311 | 0.895 | mask_knn |
-| 8192 | 5.113 | 2.914 | mask_knn |
+| 4096 | 1.311 | 0.895 | sparse_mask |
+| 8192 | 5.113 | 2.914 | sparse_mask |
 
 - **`dense_flash` is NOT a realistic baseline** — it uses no mask and gets the
   FlashAttention-2 kernel, but real training always enforces the spatial cutoff
   mask → EfficientAttention. It is an upper bound on speed, not a reachable
   training configuration.
-- **Realistic comparison: `dense_masked` vs `mask_knn`** — both use
-  EfficientAttention. At N≤2048, `dense_masked` is **faster** than `mask_knn`
-  (0.344 vs 0.396 ms at N=2048). At N≥4096, `mask_knn` is **faster** (2.914 vs
+- **Realistic comparison: `dense_masked` vs `sparse_mask`** — both use
+  EfficientAttention. At N≤2048, `dense_masked` is **faster** than `sparse_mask`
+  (0.344 vs 0.396 ms at N=2048). At N≥4096, `sparse_mask` is **faster** (2.914 vs
   5.113 ms at N=8192). Crossover at ~N=4000.
 - **Two benchmark bugs were fixed (2026-08-17):** `dense_masked` was previously
   mapped to `RelativePositionalAttention` (per-layer cdist) instead of
   `CachedDistAttention`; KNN index computation was previously excluded from
-  `mask_knn` timing.
+  `sparse_mask` timing.
 - **Vanvliet training regime (N≈140) is well below the crossover** — sparse
   attention is NOT faster at cell-tracking scale.

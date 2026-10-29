@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """NT-Xent pretraining of ScaledCNN on distorted bacteria patches.
 
+Uses the ProjectionHead from `src/models/projection_head.py` (2-layer MLP,
+128 -> 128 -> 32) to map the 128-D encoder output into a 32-D space where
+the NT-Xent loss is computed; see `--temperature` for the softmax temperature.
+
 Usage:
     python cnn_ssl.py --scale small --steps 20 --max-frames 5                  # quick test
     python cnn_ssl.py --scale large --steps 1000 --data-dirs "../../data/vanvliet" --distortion-strength strong  # full run
@@ -23,6 +27,8 @@ import copy
 from lightly.loss import NegativeCosineSimilarity
 from lightly.models.modules import BYOLProjectionHead, BYOLPredictionHead
 from lightly.models.utils import deactivate_requires_grad, update_momentum
+
+from src.models.projection_head import ProjectionHead
 
 from src.models.scaled_cnn import ScaledCNN
 
@@ -57,28 +63,44 @@ def load_frame(mask_path, img_path):
 
 
 def scan_frames(data_root, conditions, max_frames):
-    """Scan for single frames across conditions."""
+    """Scan for single frames across conditions.
+
+    Supports two layouts under `data_root`:
+      - `<condition>/<experiment>/{img,TRA}` (vanvliet)
+      - `<sequence>/{img,TRA}` directly (DeepCell split roots)
+    The `conditions` filter applies to the first layout; if it matches no
+    directory containing both img/ and TRA/, fall back to enumerating the
+    direct sub-directories that do (DeepCell sequence dirs). Experiments whose
+    name contains 'BAD' are skipped.
+    """
     dr = Path(data_root)
     frames = []
+    candidates = []
     for cond in conditions:
         for exp in sorted(dr.glob(f"{cond}/*")):
-            if not exp.is_dir():
+            if exp.is_dir():
+                candidates.append(exp)
+    if not any((c / "img").is_dir() and (c / "TRA").is_dir() for c in candidates):
+        candidates = [p for p in sorted(dr.iterdir())
+                       if p.is_dir() and (p / "img").is_dir() and (p / "TRA").is_dir()]
+    for exp in candidates:
+        if "BAD" in exp.name:
+            continue
+        tra = exp / "TRA"
+        img_dir = exp / "img"
+        if not tra.exists() or not img_dir.exists():
+            continue
+        for mask_path in sorted(tra.glob("man_track*.tif")):
+            stem = mask_path.stem.replace("man_track", "")
+            try:
+                fi = int(stem)
+            except ValueError:
                 continue
-            tra = exp / "TRA"
-            img_dir = exp / "img"
-            if not tra.exists() or not img_dir.exists():
-                continue
-            for mask_path in sorted(tra.glob("man_track*.tif")):
-                stem = mask_path.stem.replace("man_track", "")
-                try:
-                    fi = int(stem)
-                except ValueError:
-                    continue
-                ip = img_dir / f"t{fi:06d}.tif"
-                if ip.exists():
-                    frames.append((str(m), str(ip)))
-                if len(frames) >= max_frames:
-                    return frames
+            ip = img_dir / f"t{fi:06d}.tif"
+            if ip.exists():
+                frames.append((str(mask_path), str(ip)))
+            if len(frames) >= max_frames:
+                return frames
     return frames
 
 
@@ -198,7 +220,7 @@ def distort_coords(coords, labels, dist_params):
 #  NT-Xent Loss & Metrics
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def nt_xent_loss(embeddings, temperature=0.05):
+def nt_xent_loss(embeddings, temperature=0.5):
     """NT-Xent contrastive loss for paired views.
 
     Args:
@@ -238,7 +260,7 @@ def compute_gap(embeddings):
     return intra, inter, intra - inter
 
 
-def compute_effective_rank(z):
+def compute_effective_rank(embeddings):
     """Compute entropy-based effective rank of the embedding matrix.
 
     Uses singular value entropy: eff_rank = exp(-sum(p_i * log(p_i)))
@@ -280,7 +302,12 @@ def run_ssl(frames, cnn, args):
         logger.info("BYOL setup: online_encoder + predictor optimised, "
                     f"target_encoder frozen (momentum=0.99)")
     else:
-        opt = torch.optim.Adam(cnn.parameters(), lr=args.lr)
+        # NT-Xent with projection head (SimCLR/DynaCLR style): the head maps
+        # the 128-D encoder output to the space where NT-Xent is computed.
+        projection_head = ProjectionHead(128, 128, 32).to(device)
+        opt = torch.optim.Adam(list(cnn.parameters())
+                               + list(projection_head.parameters()),
+                               lr=args.lr)
 
     # Get distortion parameters for the chosen strength
     dist_params = get_distortion_params(args.distortion_strength)
@@ -330,6 +357,33 @@ def run_ssl(frames, cnn, args):
     train_data = ssl_data[n_val:]
     logger.info(f"Train frames: {len(train_data)}, Validation frames: {len(val_data)}")
 
+    # ── D3: precompute flat cross-frame pairs for NT-Xent ──────────────────
+    # Negatives are pooled across ALL training frames (not one frame at a time).
+    PO = PD = None
+    if args.loss != "byol":
+        pair_orig, pair_dist = [], []
+        for item in train_data:
+            l_orig, l_dist = item["labels_orig"], item["labels_dist"]
+            shared = set(l_orig) & set(l_dist)
+            if len(shared) < 2:
+                continue
+            idx_orig = [i for i, l in enumerate(l_orig) if l in shared]
+            idx_dist = [i for i, l in enumerate(l_dist) if l in shared]
+            n_shared = min(len(idx_orig), len(idx_dist))
+            sort_orig = np.argsort(l_orig[idx_orig])
+            sort_dist = np.argsort(l_dist[idx_dist])
+            po = item["patches_orig"][idx_orig][sort_orig][:n_shared].unsqueeze(1)
+            pd = item["patches_dist"][idx_dist][sort_dist][:n_shared].unsqueeze(1)
+            pair_orig.append(po)
+            pair_dist.append(pd)
+        if not pair_orig:
+            logger.error("No matched cell pairs for NT-Xent; aborting.")
+            sys.exit(1)
+        PO = torch.cat(pair_orig, dim=0)   # (N, 1, 64, 64)
+        PD = torch.cat(pair_dist, dim=0)
+        logger.info(f"NT-Xent pair pool: {PO.shape[0]} cells pooled across "
+                    f"{len(train_data)} train frames; batch_size={args.batch_size}")
+
     logger.info(f"\nStarting SSL pretraining: {args.steps} steps, "
                 f"lr={args.lr}, scale={args.scale}, loss={args.loss}")
     logger.info(f"  CNN params: {sum(p.numel() for p in cnn.parameters()):,}")
@@ -343,38 +397,60 @@ def run_ssl(frames, cnn, args):
         losses = []
         intra_list, inter_list = [], []
 
-        # Shuffle data each step
-        perm = np.random.permutation(len(train_data))
-        for idx in perm:
-            item = train_data[idx]
-            p_orig = item["patches_orig"]
-            p_dist = item["patches_dist"]
-            l_orig = item["labels_orig"]
-            l_dist = item["labels_dist"]
+        if args.loss != "byol":
+            # ── NT-Xent: cross-frame minibatches ─────────────────────────
+            # Negatives are pooled across ALL training frames.
+            perm = np.random.permutation(PO.shape[0])
+            for start in range(0, PO.shape[0], args.batch_size):
+                sel = perm[start:start + args.batch_size]
+                if len(sel) < 2:
+                    continue  # NT-Xent needs at least 2 samples
+                po = PO[sel].to(device)
+                pd = PD[sel].to(device)
 
-            # Find matching cells between original and distorted views
-            # Build matching based on shared labels
-            shared = set(l_orig) & set(l_dist)
-            if len(shared) < 2:
-                continue
+                e_orig = cnn(po)          # (B, 128) pre-head
+                e_dist = cnn(pd)          # (B, 128)
+                z = projection_head(torch.cat([e_orig, e_dist], dim=0))  # (2B, 32)
+                loss = nt_xent_loss(z, temperature=args.temperature)
 
-            idx_orig = [i for i, l in enumerate(l_orig) if l in shared]
-            idx_dist = [i for i, l in enumerate(l_dist) if l in shared]
+                opt.zero_grad()
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(cnn.parameters(), 1.0)
+                opt.step()
 
-            # Keep first min(len) cells
-            n_shared = min(len(idx_orig), len(idx_dist))
+                losses.append(loss.item())
+                with torch.no_grad():
+                    ze = torch.cat([F.normalize(e_orig, dim=-1),
+                                    F.normalize(e_dist, dim=-1)], dim=0)
+                    intra, inter, gap = compute_gap(ze)
+                    intra_list.append(intra)
+                    inter_list.append(inter)
+        else:
+            # ── BYOL: per-frame loop (unchanged) ──────────────────────────
+            perm = np.random.permutation(len(train_data))
+            for idx in perm:
+                item = train_data[idx]
+                p_orig = item["patches_orig"]
+                p_dist = item["patches_dist"]
+                l_orig = item["labels_orig"]
+                l_dist = item["labels_dist"]
 
-            # Sort by label so matching cells are aligned
-            labels_orig_shared = l_orig[idx_orig]
-            labels_dist_shared = l_dist[idx_dist]
-            sort_orig = np.argsort(labels_orig_shared)
-            sort_dist = np.argsort(labels_dist_shared)
+                # Find matching cells between original and distorted views
+                shared = set(l_orig) & set(l_dist)
+                if len(shared) < 2:
+                    continue
 
-            po = p_orig[idx_orig][sort_orig][:n_shared].unsqueeze(1).to(device)   # (N, 1, 64, 64)
-            pd = p_dist[idx_dist][sort_dist][:n_shared].unsqueeze(1).to(device)
+                idx_orig = [i for i, l in enumerate(l_orig) if l in shared]
+                idx_dist = [i for i, l in enumerate(l_dist) if l in shared]
+                n_shared = min(len(idx_orig), len(idx_dist))
 
-            # ── Forward pass ──────────────────────────────────────────────
-            if args.loss == "byol":
+                sort_orig = np.argsort(l_orig[idx_orig])
+                sort_dist = np.argsort(l_dist[idx_dist])
+
+                po = p_orig[idx_orig][sort_orig][:n_shared].unsqueeze(1).to(device)
+                pd = p_dist[idx_dist][sort_dist][:n_shared].unsqueeze(1).to(device)
+
+                # ── Forward pass ──────────────────────────────────────────
                 # Online path: encoder → predictor
                 z1_online = cnn(po)   # (N, 128)
                 z2_online = cnn(pd)
@@ -395,31 +471,22 @@ def run_ssl(frames, cnn, args):
                 # For gap metrics, use online encoder embeddings
                 e_orig = z1_online
                 e_dist = z2_online
-            else:
-                # NT-Xent forward
-                e_orig = cnn(po)      # (N, out_dim)
-                e_dist = cnn(pd)      # (N, out_dim)
-                embeddings_cat = torch.cat([e_orig, e_dist], dim=0)  # (2N, out_dim)
-                loss = nt_xent_loss(embeddings_cat)
 
-            opt.zero_grad()
-            loss.backward()
-            if args.loss == "byol":
+                opt.zero_grad()
+                loss.backward()
                 torch.nn.utils.clip_grad_norm_(
                     list(cnn.parameters()) + list(predictor.parameters()), 1.0)
-            else:
-                torch.nn.utils.clip_grad_norm_(cnn.parameters(), 1.0)
-            opt.step()
+                opt.step()
 
-            losses.append(loss.item())
+                losses.append(loss.item())
 
-            # Compute gap metrics on this frame (using online encoder embeddings)
-            with torch.no_grad():
-                ze = torch.cat([F.normalize(e_orig, dim=-1),
-                                F.normalize(e_dist, dim=-1)], dim=0)
-                intra, inter, gap = compute_gap(ze)
-                intra_list.append(intra)
-                inter_list.append(inter)
+                # Compute gap metrics on this frame (using online encoder embeddings)
+                with torch.no_grad():
+                    ze = torch.cat([F.normalize(e_orig, dim=-1),
+                                    F.normalize(e_dist, dim=-1)], dim=0)
+                    intra, inter, gap = compute_gap(ze)
+                    intra_list.append(intra)
+                    inter_list.append(inter)
 
         avg_loss = float(np.mean(losses)) if losses else 0.0
         avg_intra = float(np.mean(intra_list)) if intra_list else 0.0
@@ -493,6 +560,7 @@ def run_ssl(frames, cnn, args):
     ckpt_path = ckpt_dir / f"cnn_{args.loss}_{args.scale}.pt"
     torch.save({
         "model_state_dict": cnn.state_dict(),
+        "projection_head_state_dict": projection_head.state_dict() if args.loss != "byol" else None,
         "scale": args.scale,
         "out_dim": 128,
         "args": vars(args),
@@ -541,8 +609,12 @@ def main():
     parser.add_argument("--conditions", default="rpsM,recA,pheA,metA,cib,trpL")
     parser.add_argument("--max-frames", type=int, default=40)
     parser.add_argument("--steps", type=int, default=1000)
+    parser.add_argument("--batch-size", type=int, default=256,
+                        help="NT-Xent minibatch size (cells pooled across frames)")
     parser.add_argument("--lr", type=float, default=None,
                         help="Learning rate (default: 1e-3 for NT-Xent, 3e-4 for BYOL)")
+    parser.add_argument("--temperature", type=float, default=0.5,
+                        help="NT-Xent softmax temperature")
     parser.add_argument("--scale", choices=["small", "medium", "large"], default="large")
     parser.add_argument("--distortion-strength", choices=["mild", "medium", "strong"],
                         default="strong",

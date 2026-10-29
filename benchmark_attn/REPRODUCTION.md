@@ -40,13 +40,13 @@ CSV paths resolve.
 ### 2.1 `scripts/benchmarks/benchmark_sweep.py` — method × L × N × K sweep
 
 Purpose: forward time + incremental peak GPU memory for every registered method
-(`dense_masked`, `dense_flash`, `nsa`, `gather_sdpa`, `gather_fused`, `gather_matmul`,
-`mask_knn`, `knn_relpos`, `minimax`) over L × N × K. Writes `method,L,N,K,time_ms,memory_mb,error`
+(`dense_masked`, `dense_flash`, `nsa`, `sparse_gather_sdpa`, `sparse_gather_fused`, `sparse_gather_matmul`,
+`sparse_mask`, `sparse_gather_relpos`, `minimax`) over L × N × K. Writes `method,L,N,K,time_ms,memory_mb,error`
 rows; OOM and other failures land in the `error` column.
 
 ```bash
 cd benchmark_attn && uv run python scripts/benchmarks/benchmark_sweep.py \
-    --methods gather_sdpa,gather_fused,gather_matmul,mask_knn,dense_flash,dense_masked,nsa,knn_relpos,minimax \
+    --methods sparse_gather_sdpa,sparse_gather_fused,sparse_gather_matmul,sparse_mask,dense_flash,dense_masked,nsa,sparse_gather_relpos,minimax \
     --Ns 128,256,512,1024,2048,4096,8192 --Ks 4,16,64 --layers 1,4 \
     --mode none --dist-mode v1 --d 320 --nhead 8 --coord-dim 2 --seed 42 \
     --out results/full_bench_a500.csv
@@ -65,7 +65,7 @@ Notes:
 
 ```bash
 cd benchmark_attn && uv run python scripts/benchmarks/benchmark_sweep.py \
-    --methods gather_sdpa,gather_fused,gather_matmul \
+    --methods sparse_gather_sdpa,sparse_gather_fused,sparse_gather_matmul \
     --out results/sweep_results.csv
 ```
 
@@ -89,7 +89,7 @@ computes it in fp32, which breaks the fp16 SDPA mask dtype on torch 2.12+cu130).
 
 ### 2.4 `tests/validate_equivalence.py` — numerical equivalence
 
-Purpose: verifies `GatherSparseAttention` vs `KNNMaskSparseAttention` produce numerically
+Purpose: verifies `SparseGatherAttention` vs `SparseMaskAttention` produce numerically
 identical outputs (forward cosine similarity, forward max abs diff, gradient relative error)
 across 18 configs (N∈{128,256,512}, K∈{4,16}, 3 seeds each) in fp16. Console output only.
 
@@ -169,7 +169,7 @@ Equivalent manual command (also the one the slurm script should run):
 
 ```bash
 cd "$BENCH/benchmark_attn" && .venv/bin/python scripts/benchmarks/benchmark_sweep.py \
-    --methods gather_sdpa,gather_fused,gather_matmul,mask_knn,dense_flash,dense_masked,nsa,knn_relpos,minimax \
+    --methods sparse_gather_sdpa,sparse_gather_fused,sparse_gather_matmul,sparse_mask,dense_flash,dense_masked,nsa,sparse_gather_relpos,minimax \
     --d 320 --nhead 8 --warmup 10 --rep 50 --with-knn \
     --out results/full_bench_h100.csv
 ```
@@ -197,14 +197,63 @@ Two bugs were found in the benchmark harness and fixed:
    timing, matching training behavior.
 
 **Effect at N=2048:** `dense_masked` dropped from 0.41 ms → 0.344 ms (correct
-class). `mask_knn` rose from 0.15 ms → 0.396 ms (KNN cost included). The
-ranking flipped: `dense_masked` is now faster than `mask_knn` at N≤2048.
+class). `sparse_mask` rose from 0.15 ms → 0.396 ms (KNN cost included). The
+ranking flipped: `dense_masked` is now faster than `sparse_mask` at N≤2048.
 
 Completed run: job `3920627` (logs `logs/full_bench_3920627.{out,err}`)
 finished successfully. Output: `results/full_bench_h100.csv` — 169 rows, all
 successful (zero OOMs). Largest single-layer memory: minimax@N=8192 = 44 GB,
 i.e. 55 % of the 80 GB GPU. NSA timing is near-constant at ~2.5 ms from
 N=128 up to N=4096, then doubles to 5.87 ms at N=8192.
+
+### `slurm/run_cudnn_vs_fa2_mask.slurm` — cuDNN flash vs FA2 mask-overhead decomposition (SPEC 0045)
+
+Answers the owner question "is the `dense_flash` vs `dense_masked` gap
+kernel-intrinsic or mask overhead?" by separating three effects that the
+sweep rows bundle together:
+
+1. **Stage A — backend census.** Forced-backend probes under
+   `torch.profiler`; records the dispatched CUDA kernel names for
+   FLASH_ATTENTION (vendored FA2), CUDNN_ATTENTION, and EFFICIENT_ATTENTION,
+   unmasked and with the additive mask. Flash/FA2 refusing masks is recorded
+   as a row, not silently swallowed.
+2. **Stage B — kernel-intrinsic pair.** Identical seeded Q/K/V, no mask,
+   forced FLASH vs forced CUDNN per (N, d_head). At `d_head=40` flash/FA2
+   dispatch depends on the torch build — the census decides, not an assumption.
+3. **Stage C — isolated mask build.** Times ONLY
+   `CachedDistAttention._build_mask` (imported unchanged from
+   `src/attention_modules.py`) per `dist_mode` (v0/v1) × `dist_cache`
+   (on/off).
+4. **Stage D — mask carriage + anchor.** cuDNN/mem-efficient/auto dispatch
+   with a pre-built mask, plus unmodified `dense_flash` / `dense_masked`
+   module forwards. Closure check:
+   t(dense_masked) − t(dense_flash) ≈ mask build (C) + carriage (D) +
+   kernel swap (D vs B).
+
+Submit (same env contract as `run_full_bench.slurm`: `~/.bench.env`,
+`load_cluster_env.sh`, `OMP/MKL/CUBLAS/PYTHONNOUSERSITE` exports):
+
+```bash
+sbatch slurm/run_cudnn_vs_fa2_mask.slurm
+```
+
+Local smoke test (CPU plumbing check; forced fused backends report `err`
+statuses on CPU by design; on the A500 add `--device cuda` for a real
+small-GPU run):
+
+```bash
+.venv/bin/python scripts/benchmarks/benchmark_cudnn_vs_fa2_mask.py \
+    --device cpu --seq-lens 128,256 --d-heads 40,64 \
+    --out results/cudnn_vs_fa2_mask_smoke.csv
+```
+
+Output: `results/cudnn_vs_fa2_mask_decomposition.csv` (schema
+`stage, method, N, d_head, time_ms, time_std_ms, mem_mb, dist_mode,
+dist_cache, backend, kernel_name, error`) plus
+`results/cudnn_vs_fa2_mask_decomposition_env.json` (torch/cuDNN versions,
+GPU identity, backend flags, CLI config). Every timed row carries the
+profiler-captured kernel names of its exact configuration, so no number is
+attributed to a kernel that did not run.
 
 ---
 
@@ -224,6 +273,7 @@ and output.
 | KNN equivalence validation | `tests/validate_equivalence.py` | console only |
 | Sparse sweep visualization | `analysis/plot_sparse.py` | `results/benchmark_sparse.html` |
 | H100 full benchmark | `slurm/run_full_bench.slurm` | `results/full_bench_h100.csv` (cluster) |
+| cuDNN flash vs FA2 mask decomposition (SPEC 0045) | `slurm/run_cudnn_vs_fa2_mask.slurm` | `results/cudnn_vs_fa2_mask_decomposition.csv` (+ `_env.json`) |
 | Backward pass at N=8192 | `../deprecated/benchmark_backward/benchmark_sparse_backward.py` | `../deprecated/benchmark_backward/sparse_backward_results_8192.csv` |
 | Full-model speed/mem (K × N) | `../benchmark_training/scripts/benchmarks/benchmark_speed_mem.py` | `results/speed_mem.csv` |
 | DINOv3 representation comparison | `exploratory/benchmark_dinov3_comparison_v2.py` | `results/dinov3_comparison.csv`, `results/dinov3_comparison_v2.csv` |
@@ -238,7 +288,7 @@ CSVs render as interactive tables on GitHub.
 
 Data: [full_bench_a500.csv](results/full_bench_a500.csv).
 
-Legacy schema (`method,N,time_ms,memory_mb,error`; names like `mask-KNN_K=16`). mask_knn fits
+Legacy schema (`method,N,time_ms,memory_mb,error`; names like `mask-KNN_K=16`). sparse_mask fits
 the A500 at N=8192 (26.1 ms / 532 MB at K=16).
 
 ### 6.2 `results/benchmark_sparse_results.csv` — dense vs sparse sweep, incl. NSA
@@ -260,8 +310,8 @@ Speedup is ~1.7–1.9× at N ≤ 256, ~1.05× at N=512–2048, 1.22× at N=4096.
 
 Data: [gather_v3_results.csv](results/gather_v3_results.csv).
 
-Legacy V1/V2/V3 naming (V1=SDPA, V2=Fused, V3=Matmul). gather_matmul is up to 5× faster than
-gather_sdpa at N ≥ 1024.
+Legacy V1/V2/V3 naming (V1=SDPA, V2=Fused, V3=Matmul). sparse_gather_matmul is up to 5× faster than
+sparse_gather_sdpa at N ≥ 1024.
 
 ### 6.5 Backward pass at N=8192
 
@@ -296,19 +346,19 @@ OOMs.**
 |--------|-------------|---------------|-------|
 | dense_flash | 0.351 ms | 25 MB | **Not realistic** — no mask, FlashAttention-2 |
 | dense_masked | 5.113 ms | 2255 MB | Realistic dense baseline (spatial cutoff mask) |
-| mask_knn K=4 | 2.914 ms | 1050 MB | **1.8× faster** than dense_masked at N=8192 |
-| gather_sdpa K=4 | 2.268 ms | 269 MB | **2.3× faster** than dense_masked at N=8192 |
+| sparse_mask K=4 | 2.914 ms | 1050 MB | **1.8× faster** than dense_masked at N=8192 |
+| sparse_gather_sdpa K=4 | 2.268 ms | 269 MB | **2.3× faster** than dense_masked at N=8192 |
 | nsa | 5.861 ms | 1714 MB | Near-constant ~2.5 ms up to N=4096 |
 | minimax | 294.9 ms | 44053 MB | Largest single-layer footprint; 55 % of the 80 GB GPU |
 
-**Crossover analysis (dense_masked vs mask_knn):**
+**Crossover analysis (dense_masked vs sparse_mask):**
 
-| N | dense_masked (ms) | mask_knn K=4 (ms) | Winner |
+| N | dense_masked (ms) | sparse_mask K=4 (ms) | Winner |
 |------|-------------------|-------------------|--------|
 | 128 | 0.199 | 0.335 | dense_masked |
 | 2048 | 0.344 | 0.396 | dense_masked |
-| 4096 | 1.311 | 0.895 | mask_knn |
-| 8192 | 5.113 | 2.914 | mask_knn |
+| 4096 | 1.311 | 0.895 | sparse_mask |
+| 8192 | 5.113 | 2.914 | sparse_mask |
 
 Crossover at ~N=4000. Vanvliet training regime (N≈140) is well below this
 threshold — sparse attention is NOT faster at cell-tracking scale.
@@ -330,3 +380,81 @@ patience 83 already stops near-optimal; `--epochs 500` is only an upper bound.
    (`--Ns 128,256,512,1024,2048,4096,8192 --Ks 4,16,64 --layers 1,4`; NSA `sel_blocks` is not a
    CLI knob — the class default `num_selected_blocks=4` applies); a smaller sweep overwrites the
    superset data.
+
+2. **FlexAttention verification on Capella H100 (SPEC 0024 T1).** The flex environment
+   verification script (`exploratory/verify_flex_env.py`) was run on the cluster (job 4344663,
+   partition `capella`, 1× H100, fp16, seed 42) and produced `docs/FLEX_ENV_REPORT.md`.
+   The exact cluster commands used (from the login node):
+
+   ```bash
+   # Copy script to cluster
+   scp benchmark_attn/exploratory/verify_flex_env.py capella:/data/cat/ws/lest161c-ssl_cell_tracking/bench-transformer-cell-tracking/benchmark_attn/exploratory/verify_flex_env.py
+
+   # Run on cluster (login node → srun to GPU node)
+   ssh capella
+   cd /data/cat/ws/lest161c-ssl_cell_tracking/bench-transformer-cell-tracking/benchmark_attn
+   srun -N 1 --partition=capella --gres=gpu:1 --cpus-per-task=8 --mem=32G --time=00:15:00 \
+       bash -c "cd /data/cat/ws/lest161c-ssl_cell_tracking/bench-transformer-cell-tracking/benchmark_attn && .venv/bin/python exploratory/verify_flex_env.py"
+   ```
+
+   Output (abridged, from srun job 4344663 on c-nice-h100):
+
+   ```
+   SECTION 1: ENVIRONMENT
+   torch   : 2.14.0+cu130
+   cuda    : 13.0
+   python  : 3.14.5
+   GPU     : NVIDIA H100
+   SECTION 2: FLEX_ATTENTION IMPORT
+   flex_attention import: OK
+   SECTION 3: SDPA BACKEND ENUMERATION
+   backends found: ['FLASH_ATTENTION', 'EFFICIENT_ATTENTION', 'MATH', 'CUDNN_ATTENTION']
+   SECTION 4: THE DISPATCH QUESTION — SDPA WITH EXPLICIT MASK
+   masked SDPA kernel names: ['Memset (Device)', 'cudnn_generated_forte_native_sdpa_sm90_flash_fprop_wgmma_f16_knob_1_64x128x64_4x1x1_cga1x1x1_kernel0_0']
+   unmasked SDPA kernel names: ['Memset (Device)', 'cudnn_generated_forte_native_sdpa_sm90_flash_fprop_wgmma_f16_knob_1_64x128x64_4x1x1_cga1x1x1_kernel0_0']
+   SECTION 5: FLEX PATH
+   create_block_mask: OK
+   SECTION 6: NUMERICAL EQUIVALENCE
+     forward max|Δ| = 0.000488  (tol = 2e-3)
+     backward q max|Δ| = 0.000977  (tol = 1e-2)
+     backward k max|Δ| = 0.000977  (tol = 1e-2)
+     backward v max|Δ| = 0.000977  (tol = 1e-2)
+     equivalence: PASS
+   SECTION 7: TIMING SANITY
+     dense flash: 0.036 ms
+     dense masked: 0.066 ms
+     flex (compiled): 0.083 ms
+     flex/flash: 2.35x, flex/masked: 1.27x
+   ```
+
+   Full report: `docs/FLEX_ENV_REPORT.md` (H100 session body + A500 appendix).
+
+
+## 9. Full attention benchmark grid v2 (SPEC 0022)
+
+Runner: `slurm/run_full_bench_v2.slurm` (new file, this spec). Submits the full
+grid — all 10 registered methods (incl. `flex_attn`), N ∈ {128…8192},
+K ∈ {2…128}, L=1, `--repeats 3`, fp16 (default on CUDA), seed 42 — in both
+distance-cache regimes, writing two separate CSVs:
+`results/full_bench_v2_h100_cache_on.csv` (dist-cache on) and
+`results/full_bench_v2_h100_cache_off.csv` (dist-cache off).
+
+Submission command (from `benchmark_attn/` root):
+
+```bash
+sbatch slurm/run_full_bench_v2.slurm
+```
+
+Env provenance: torch/CUDA/Python/GPU versions are echoed into the slurm log
+header by the runner itself (tiny `python -c` probe before the sweeps); the
+authoritative environment report is `docs/FLEX_ENV_REPORT.md` (SPEC 0024
+verification, H100 session body + A500 appendix).
+
+Resumability: each distance-cache section is guarded by a skip-if-output-exists
+check on its target CSV — a partially completed grid can be re-submitted and
+only the missing sections will run.
+
+Forward-only deviation: this runner times the FORWARD pass only (SPEC 0022
+grid). Backward-pass timing is NOT covered here — it belongs to SPEC 0023
+(owner decision D3 split) and is measured by
+`exploratory/benchmark_backward.py`.
