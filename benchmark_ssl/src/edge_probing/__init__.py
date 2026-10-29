@@ -6,8 +6,8 @@ Subpackages:
 
 Modules:
     unified_edge_probe: Unified edge-probing benchmark orchestrator.
-    verify_normalization: Per-feature z-score standardization verification.
-    feature_distribution_histograms: Per-feature distribution histograms.
+    (verify_normalization and feature_distribution_histograms were removed
+    on 2026-10-29 with the deprecated diagnostic era.)
 """
 
 from src.edge_probing.harness import (

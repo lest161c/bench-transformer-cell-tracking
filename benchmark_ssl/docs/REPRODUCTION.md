@@ -107,7 +107,12 @@ read `REPO_ROOT` from `~/.bench.env`.
 > fix, temperature 0.3), whose frozen features are association-competitive
 > with SAM2.1 under the reference injection protocol
 > (`report-shorten/evaluation.tex` §SSL, §Learned Features). Read the numbers
-> below as era-specific, not as the final SSL verdict.
+> below as era-specific, not as the final SSL verdict. The diagnostic scripts
+> behind §4.1–4.9 (signal_analyzer, convergence_predictor,
+> downstream_convergence, coord_shortcut_diagnostic, dino_test,
+> compare_backbones, and the §4.10-era probe tables) were removed from the
+> repository on 2026-10-29; the measurements survive in this section, the
+> labbook, and the bannered `docs/results_analysis.md`.
 
 ### 4.1 NT-Xent contrastive SSL collapse (H100)
 NT-Xent train loss 3.46 → 2.97; global inter-cell cosine similarity (collapse): **0.89**.
