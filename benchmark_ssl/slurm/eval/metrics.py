@@ -31,6 +31,12 @@ logger.setLevel(logging.INFO)
 
 
 class FoundTracks(Exception):
+    """Control-flow signal raised when a track annotation file is located.
+
+    Used by `load_ctc_graph` to break out of the nested glob search as soon
+    as one candidate (`man_track.txt`, `res_track.txt`, or any `.txt`) is
+    found; the handler continues with that file.
+    """
     pass
 
 
@@ -236,6 +242,7 @@ def disable_tqdm():
     """Context manager to disable tqdm."""
 
     def _patch(old_init):
+        """Wrap tqdm's original __init__ so every instance renders disabled."""
         return partialmethod(old_init, disable=True)
 
     with monkeypatched(tqdm.std.tqdm, "__init__", _patch):
@@ -245,6 +252,24 @@ def disable_tqdm():
 def compute_metrics_divisions(
     gt_graph, pred_graph, return_events=False, frame_buffer: int = 1, verbose=True
 ):
+    """Compute division metrics (Division F1, FP/FN divisions) via traccuracy.
+
+    Matches ground truth and prediction with an IOUMatcher restricted to
+    one-to-one links and scores `DivisionMetrics` with the given
+    `frame_buffer`. Suppresses tqdm progress bars unless `verbose`.
+
+    Args:
+        gt_graph, pred_graph: traccuracy TrackingData for ground truth and
+            prediction.
+        return_events: If True, additionally collect the per-node division
+            event records (TP/FP from the prediction graph, FN from the
+            ground-truth graph).
+        frame_buffer: Maximum frame offset accepted for a division match.
+        verbose: Keep progress bars / logging verbose.
+
+    Returns:
+        (results dict, division event list or None)
+    """
 
     context = disable_tqdm() if not verbose else nullcontext()
     # NOTE : FN Divisions are not consistent with previous versions
@@ -298,6 +323,23 @@ def compute_metrics_divisions(
 
 
 def compute_metrics_ctc(gt_graph, pred_graph, return_events=False, verbose=True):
+    """Compute CTC metrics plus the AOGM and its AOGM-A decomposition.
+
+    Matches ground truth and prediction with the CTCMatcher and scores
+    CTCMetrics together with AOGMMetrics in one pass. The report-facing
+    AOGM-A (association-only) term is derived here from the raw error
+    counts as `fp_edges + 1.5 * fn_edges + ws_edges`.
+
+    Args:
+        gt_graph, pred_graph: traccuracy TrackingData for ground truth and
+            prediction.
+        return_events: If True, additionally collect per-edge error records
+            (FP/FN/weight-split edges with frame and node coordinates).
+        verbose: Keep progress bars / logging verbose.
+
+    Returns:
+        (results dict incl. CTCMetrics/AOGM/AOGM-A, edge-error list or None)
+    """
     start = default_timer()
     logger.info("Computing CTCMetrics")
     context = disable_tqdm() if not verbose else nullcontext()
@@ -356,6 +398,17 @@ def compute_metrics_ctc(gt_graph, pred_graph, return_events=False, verbose=True)
 
 
 def _graph_to_mo16(graph: TrackingData):
+    """Convert a tracking graph's nodes to MOT16-format detection rows.
+
+    One row per node in the MOT16 convention
+    (`<frame>, <id>, <bb_left>, <bb_top>, <bb_width>, <bb_height>,
+    <confidence>, <x>, <y>, <z>`), with degenerate 1e-2-wide boxes centred
+    on the node position (only the linking structure matters for the MOT
+    metrics, not box geometry). Frame numbers are 1-based.
+
+    Returns:
+        (num_rows, 10) float array of MOT16 records.
+    """
     g = graph
     rows = []
     nodes = g.nodes()
@@ -473,6 +526,7 @@ def compute_association_metrics(gt: TrackingData, pred: TrackingData):
     pred_edges = pred.graph.edges()
 
     def get_coords_from_nodes(graph, nodes: list[str]):
+        """Collect (t, y, x) coordinates for the given node keys of a graph."""
         all_nodes = graph.nodes()
         keys = ("t", "y", "x")
         coords = np.array(tuple(tuple(all_nodes[n][k] for k in keys) for n in nodes))
@@ -524,6 +578,19 @@ def get_metrics(
     division_frame_buffer=1,
     which_metrics=["ctc", "divisions", "mot", "aa"],
 ):
+    """Run the selected metric families over a cropped frame range.
+
+    Crops both graphs to `[start, stop)`, then computes the requested
+    families: "ctc" (CTC metrics + AOGM/AOGM-A with edge errors),
+    "divisions" (division metrics with the given frame buffer), "mot"
+    (MOT metrics via the MOT16 conversion), and "aa" (association accuracy
+    after per-frame coordinate matching). Every score dict is annotated
+    with the frame range and node/edge counts.
+
+    Returns:
+        (stop frame, output dict with "scores" and the collected
+        edge_errors / division_events)
+    """
     if stop is None:
         stop = gt.segmentation.shape[0]
 

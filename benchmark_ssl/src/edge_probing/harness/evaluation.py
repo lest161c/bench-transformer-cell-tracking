@@ -572,6 +572,13 @@ def _train_probe_gpu(probe, train_pool, val_pool, epochs=200, lr=1e-3,
     history = []
 
     def _eval_pass():
+        """Evaluate the probe on the full validation set without gradients.
+
+        Iterates the validation tensors in batches of `batch`, computes
+        balanced accuracy / F1 / precision / recall per batch, and returns the
+        list of per-batch metric dicts for the caller to average into the
+        epoch history and early-stopping decision.
+        """
         metrics_list = []
         with torch.no_grad():
             for i in range(0, len(v_y), batch):

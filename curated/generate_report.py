@@ -156,6 +156,12 @@ def write_meta_sidecar(name, meta):
 #    mask-KNN, NSA, KNN-RelPos) at every enumerated N incl. 1024/4096.
 # ═══════════════════════════════════════════════════════════════
 def panel_speed_vs_n():
+    """Figure 01: attention forward time vs sequence length (L=1, A500).
+
+    Plots the nine attention variants from `full_bench_a500.csv` on log-log
+    axes and shades the vanvliet/DeepCell cell-count range, so the reader can
+    see where the sparse variants cross over relative to real dataset sizes.
+    """
     df = pd.read_csv(ROOT / 'benchmark_attn' / 'results' / 'full_bench_a500.csv')
     df = df[df['error'].isna()].copy()
     df['N'] = df['N'].astype(int)
@@ -752,6 +758,11 @@ def panel_speed_vs_n_h100():
 # 2. Small-N Focus Bar Chart (N=256)
 # ═══════════════════════════════════════════════════════════════
 def panel_small_n():
+    """Figure 02: attention time bar chart at N=256 (real dataset scale).
+
+    Reads `benchmark_small_n_results.csv` and compares the four original
+    variants at the N closest to the analysis datasets' cell counts.
+    """
     df = pd.read_csv(ROOT / 'benchmark_small_n_results.csv')
     df = df[df.N == 256].copy()
     methods = ['dense_flash', 'dense', 'sparse_v1', 'sparse_v2']
@@ -779,6 +790,11 @@ def panel_small_n():
 # 3. Mask vs Gather Comparison Bar Chart (N=256)
 # ═══════════════════════════════════════════════════════════════
 def panel_mask_vs_gather():
+    """Figure 03: mask- vs gather-family comparison at N=256.
+
+    Reads `benchmark_mask_vs_gather.csv` and annotates the dense-flash
+    versus sparse-gather speedup inside the plot.
+    """
     df = pd.read_csv(ROOT / 'benchmark_mask_vs_gather.csv')
     df = df[df.N == 256].copy()
     df['time_ms'] = df.time_s * 1000
@@ -1012,6 +1028,12 @@ def panel_dist_cache_effect():
 # 5. Convergence Curves
 # ═══════════════════════════════════════════════════════════════
 def panel_convergence():
+    """Figure 05: validation-loss convergence curves for the K-sweep (seed 42).
+
+    Reads `results/knn_sweep/convergence.csv`, maps the run names to the
+    baseline/K labels, and overlays raw (low opacity) with rolling-mean
+    smoothed curves on a log y-axis.
+    """
     df = pd.read_csv(ROOT / 'results' / 'knn_sweep' / 'convergence.csv')
     labels_map = {
         '2026-06-01_23-04-13_baseline_clean': 'baseline',
@@ -1025,6 +1047,7 @@ def panel_convergence():
     df['epoch'] = df.epoch // 666  # normalize to epoch number
 
     def smooth(series, window=5):
+        """Centred rolling mean of `series` over `window` (min_periods=1)."""
         return series.rolling(window=window, center=True, min_periods=1).mean()
 
     fig, ax = plt.subplots(figsize=(9, 5))
@@ -1049,6 +1072,11 @@ def panel_convergence():
 # 6. TRA Comparison Bar Chart
 # ═══════════════════════════════════════════════════════════════
 def panel_tra():
+    """Figure 06: mean TRA per K with min-TRA markers.
+
+    Values are the hardcoded K-sweep aggregates over the 32 experiments
+    (mean bars plus a short line for the per-experiment minimum).
+    """
     models = ['baseline', 'k4', 'k16', 'k32', 'k64']
     tra_means = {'baseline': 0.9963, 'k4': 0.9957, 'k16': 0.9972, 'k32': 0.9963, 'k64': 0.9969}
     tra_mins  = {'baseline': 0.9561, 'k4': 0.9515, 'k16': 0.9589, 'k32': 0.9519, 'k64': 0.9574}
@@ -1073,6 +1101,7 @@ def panel_tra():
 # 7. AOGM Comparison Bar Chart
 # ═══════════════════════════════════════════════════════════════
 def panel_aogm():
+    """Figure 07: mean AOGM per K (hardcoded K-sweep aggregates; lower is better)."""
     models = ['baseline', 'k4', 'k16', 'k32', 'k64']
     aogm_means = {'baseline': 51.0, 'k4': 62.0, 'k16': 37.7, 'k32': 52.6, 'k64': 39.8}
     fig, ax = plt.subplots(figsize=(7, 4.5))
@@ -1092,6 +1121,7 @@ def panel_aogm():
 # 8. Edge F1 / Division F1 Grouped Bar
 # ═══════════════════════════════════════════════════════════════
 def panel_edge_div_f1():
+    """Figure 08: grouped edge-F1 / division-F1 bars per K (hardcoded K-sweep values)."""
     models = ['baseline', 'k4', 'k16', 'k32', 'k64']
     edge_f1 = {'baseline': 0.9913, 'k4': 0.9914, 'k16': 0.9929, 'k32': 0.9914, 'k64': 0.9926}
     div_f1  = {'baseline': 0.9696, 'k4': 0.9705, 'k16': 0.9757, 'k32': 0.9713, 'k64': 0.9767}
@@ -1400,6 +1430,11 @@ def panel_mask_decomposition():
 # 9. Per-Epoch Training Time
 # ═══════════════════════════════════════════════════════════════
 def panel_per_epoch_time():
+    """Figure 09: minutes per epoch across the K-sweep configurations.
+
+    Hardcoded per-run medians; the dense baseline is placed last as the
+    right-hand limit of the K axis, matching the other K-sweep figures.
+    """
     # Ascending K with the dense baseline (dense = all neighbours) last: it is
     # the right-hand limit of the K axis, matching the other K-sweep figures.
     models = ['k4', 'k16', 'k32', 'k64', 'baseline']
@@ -1421,6 +1456,12 @@ def panel_per_epoch_time():
 # 10. Speedup Heatmap — Sparse vs Dense at each N
 # ═══════════════════════════════════════════════════════════════
 def panel_speedup_heatmap():
+    """Figure 10: sparse-vs-dense and sparse-vs-flash speedup heatmaps (L=1).
+
+    Reads `benchmark_sparse_results.csv`, merges the sparse rows with the
+    dense and dense-flash timings per N, and renders two (N × K) heatmaps
+    with a diverging palette centred on 1x.
+    """
     df = pd.read_csv(ROOT / 'benchmark_sparse_results.csv')
     df = df[df.L == 1].copy()
     dense = df[df.method == 'dense'][['N', 'time_s']].rename(columns={'time_s': 'dense_time'})
@@ -1592,6 +1633,12 @@ def panel_ssl_convergence():
 # 12. Layer scaling: L=1 vs L=4
 # ═══════════════════════════════════════════════════════════════
 def panel_layer_scaling():
+    """Figure 12: attention time vs N for L=1 and L=4.
+
+    Compares dense, dense-flash, and sparse-K=16 from
+    `benchmark_sparse_results.csv`; colour encodes the method and line style
+    the depth, keeping one hue per method.
+    """
     df = pd.read_csv(ROOT / 'benchmark_sparse_results.csv')
     df = df[df.method.isin(['dense', 'dense_flash']) | ((df.method == 'sparse') & (df.K == 16))]
     df['model_kind'] = df.method.map({'dense': 'dense',
@@ -1631,6 +1678,13 @@ def panel_layer_scaling():
 # HTML Report Generator
 # ═══════════════════════════════════════════════════════════════
 def generate_html(figures):
+    """Render the curated HTML report from the generated figures.
+
+    Builds one section per figure (hand-written prose plus the figure's SVG
+    and metadata) and writes `curated/report.html`; `figures` is the mapping
+    of figure keys to the saved artifact paths produced by the panel
+    functions.
+    """
     sections = [
         {
             'id': 'motivation',

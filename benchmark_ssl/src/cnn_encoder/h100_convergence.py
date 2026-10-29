@@ -58,6 +58,12 @@ if torch.cuda.is_available():
 class ScaledCNN(nn.Module):
     """ConvNet for 64×64 grayscale patches. Output: 128-dim embedding."""
     def __init__(self, scale="medium", out_dim=CNN_FEAT_DIM, batch_norm=False):
+        """Build the conv stack for `scale` (small/medium/large widths).
+
+        With `batch_norm`, a BatchNorm2d follows every convolution — required
+        for the NT-Xent pretraining to avoid embedding collapse. The FC head
+        maps the flattened feature map to `out_dim`.
+        """
         super().__init__()
         PATCH_SIZE = 64
         if scale == "small":
@@ -84,6 +90,7 @@ class ScaledCNN(nn.Module):
         )
 
     def forward(self, patches):
+        """patches: (B, 1, 64, 64) grayscale → (B, out_dim) embeddings."""
         return self.fc(self.conv(patches))
 
 
@@ -98,6 +105,12 @@ class CNNPatchExtractor:
         checkpoint_path: path to NT-Xent pretrained ScaledCNN checkpoint.
     """
     def __init__(self, checkpoint_path, scale="medium"):
+        """Load a frozen NT-Xent ScaledCNN from `checkpoint_path` onto the CPU.
+
+        Whether the checkpoint was trained with BatchNorm is read from its
+        metadata (falling back to inspecting the state dict), so the rebuilt
+        architecture matches the saved weights; all parameters are frozen.
+        """
         self.cpu = torch.device("cpu")
         ckpt = torch.load(checkpoint_path, map_location=self.cpu)
         batch_norm = ckpt.get("batch_norm", checkpoint_uses_batch_norm(ckpt["model_state_dict"]))
@@ -124,6 +137,7 @@ class CNNPatchExtractor:
 class FourierPE(nn.Module):
     """Fourier feature encoding for 2D coordinates."""
     def __init__(self, pos_per_dim=PE_DIM_PER_COORD, coord_dim=COORD_DIM):
+        """Register the fixed log-spaced frequency buffer (2^0 .. 2^10)."""
         super().__init__()
         self.d = coord_dim * pos_per_dim * 2
         self.coord_dim = coord_dim
@@ -158,6 +172,12 @@ class MiniEncoder(nn.Module):
     """
     def __init__(self, d_model=320, nhead=8, num_layers=6, pe_dim=PE_DIM,
                  feat_dim=7, cnn_feat_dim=None):
+        """Build the input projections, concat-fusion layer, and encoder stack.
+
+        `cnn_feat_dim=None` gives mode R (PE + regionprops only); providing it
+        gives mode C, where a third projection carries the frozen CNN
+        embedding into the concatenation.
+        """
         super().__init__()
         self.d_model = d_model
         self.cnn_feat_dim = cnn_feat_dim
@@ -183,11 +203,18 @@ class MiniEncoder(nn.Module):
         self._init_weights()
 
     def _init_weights(self):
+        """Xavier-initialise every parameter with more than one dimension."""
         for p in self.parameters():
             if p.dim() > 1:
                 nn.init.xavier_uniform_(p)
 
     def forward(self, feats, pe, cnn_feats=None):
+        """Encode one frame's tokens to (N, d_model).
+
+        Projects the Fourier PE, regionprops features, and (mode C only) the
+        frozen CNN embedding, concatenates them, fuses the concatenation back
+        to d_model with LayerNorm, and runs the transformer encoder.
+        """
         pe_p = self.pe_proj(pe)          # (N, d_model)
         f_p = self.feat_proj(feats)      # (N, d_model)
         if self.cnn_feat_dim is not None and cnn_feats is not None:
@@ -202,6 +229,7 @@ class MiniEncoder(nn.Module):
 class MiniDecoder(nn.Module):
     """Decoder: TransformerDecoder for cross-attention on pair."""
     def __init__(self, d_model=320, nhead=8, num_layers=6):
+        """Build the transformer decoder that cross-attends within a pair."""
         super().__init__()
         decoder_layer = nn.TransformerDecoderLayer(
             d_model=d_model, nhead=nhead,
@@ -212,17 +240,26 @@ class MiniDecoder(nn.Module):
         self._init_weights()
 
     def _init_weights(self):
+        """Xavier-initialise every parameter with more than one dimension."""
         for p in self.parameters():
             if p.dim() > 1:
                 nn.init.xavier_uniform_(p)
 
     def forward(self, tgt, memory):
+        """Decode `tgt` against `memory` (both (N, d_model)) → (N, d_model)."""
         return self.decoder(tgt, memory)
 
 
 class MiniTrackingTransformer(nn.Module):
     """Full miniature Trackastra: encoder + decoder + association heads."""
     def __init__(self, encoder: MiniEncoder, decoder: MiniDecoder, d_head=32):
+        """Wire the encoder/decoder and the two association projection heads.
+
+        `head_x` projects frame-t tokens and `head_y` the decoder output of
+        frame-n tokens; their normalised dot product forms the association
+        logits, so the heads are initialised with Xavier for stable early
+        training.
+        """
         super().__init__()
         self.encoder = encoder
         self.decoder = decoder
@@ -237,6 +274,13 @@ class MiniTrackingTransformer(nn.Module):
                 nn.init.xavier_uniform_(p)
 
     def forward(self, feat_t, pe_t, feat_n, pe_n, cnn_t=None, cnn_n=None):
+        """Score a frame pair → (N1, N2) association logits (not sigmoided).
+
+        Encodes both frames, concatenates their tokens for joint decoder
+        cross-attention, and takes the scaled dot product of the unit-
+        normalised association-head outputs for the frame-t and decoded
+        frame-n tokens.
+        """
         enc_t = self.encoder(feat_t, pe_t, cnn_t)   # (N1, d_model)
         enc_n = self.encoder(feat_n, pe_n, cnn_n)   # (N2, d_model)
         N1 = enc_t.shape[0]
@@ -571,6 +615,14 @@ def precompute_data(pairs, cnn_extractor, min_cells=4):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def save_checkpoint(state, mode, is_best=False):
+    """Save a training state to checkpoints/h100_conv_race/model_<mode>_<kind>.pt.
+
+    `<kind>` is "best" when `is_best` (written when the validation score
+    improves) and "latest" otherwise; the directory is created on demand.
+
+    Returns:
+        pathlib.Path of the written checkpoint.
+    """
     ckpt_dir = Path("checkpoints") / "h100_conv_race"
     ckpt_dir.mkdir(parents=True, exist_ok=True)
     suffix = "best" if is_best else "latest"
@@ -580,6 +632,12 @@ def save_checkpoint(state, mode, is_best=False):
 
 
 def append_csv(mode, epoch, metrics):
+    """Append one epoch's metrics row to logs/h100_conv_race_<mode>.csv.
+
+    The header is derived from the metrics dict keys and written only when
+    the log file is first created, so repeated calls accumulate a per-epoch
+    history for that race mode.
+    """
     log_dir = Path("logs")
     log_dir.mkdir(parents=True, exist_ok=True)
     path = log_dir / f"h100_conv_race_{mode}.csv"
@@ -597,6 +655,17 @@ def append_csv(mode, epoch, metrics):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def main():
+    """Run the H100 convergence race (mode R vs C) at full mini-scale.
+
+    Trains the mini Trackastra on vanvliet with an 80/10/10 split in mode R
+    (7D regionprops only) and/or mode C (7D + frozen CNN NT-Xent embedding,
+    `--checkpoint`/`--scale`), logging per-epoch metrics to
+    logs/h100_conv_race_<mode>.csv and (unless --no-wandb) to Weights &
+    Biases. CLI options control the data root and conditions, epochs, LR,
+    early-stopping patience, class pos_weight, and the seed.
+
+    Run from `benchmark_ssl/` with the project venv.
+    """
     parser = argparse.ArgumentParser(
         description="H100 convergence race: R (7D) vs C (7D + CNN NT-Xent)"
     )

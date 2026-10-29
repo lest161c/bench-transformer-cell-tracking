@@ -279,8 +279,13 @@ def build_closure(method_key, layer_count, seq_len, knn_neighbors,
 
     if knn_inside:
         def closure():
-            # Training-realistic: recompute KNN indices every forward pass
-            # on the shared single-batch graph, then expand to the batch.
+            """Run one timed forward pass, recomputing KNN indices each call.
+
+            Training-realistic variant: KNN indices are recomputed on the
+            shared single-batch graph every forward pass and expanded to the
+            full batch, so the measured time includes the per-step KNN cost a
+            training step would pay.
+            """
             knn_idx_local = compute_knn_indices(
                 coords[:1], knn_neighbors
             ).expand(batch_size, -1, -1)
@@ -290,6 +295,12 @@ def build_closure(method_key, layer_count, seq_len, knn_neighbors,
             return output
     else:
         def closure():
+            """Run one timed forward pass with precomputed KNN indices.
+
+            Inference-realistic variant: the KNN graph is built once in setup
+            and reused across all timed iterations, isolating the attention
+            cost from the graph-construction cost.
+            """
             output = query
             for layer in layers:
                 output = _forward_layer(layer, output, coords, knn_idx, forward_style, dist_2d)

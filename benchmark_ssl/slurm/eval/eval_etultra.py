@@ -50,6 +50,14 @@ def _install_feature_ablation() -> None:
     original = ForkScaledCNNDynaCLRFeatures.compute_region_features
 
     def ablated(self, coords=None, masks=None, timepoints=None, labels=None):
+        """Feature-usage control replacing `compute_region_features` (S3).
+
+        Calls the original feature computation, then applies the ablation
+        selected by DYNACLR_ABLATE: "zero" returns an all-zero tensor of the
+        same shape (features carry no information), "shuffle" randomly
+        permutes the per-cell feature rows (marginals preserved, pairing
+        destroyed). Any other mode passes the features through unchanged.
+        """
         feats = original(self, coords=coords, masks=masks, timepoints=timepoints, labels=labels)
         if mode == "zero":
             return torch.zeros_like(feats)

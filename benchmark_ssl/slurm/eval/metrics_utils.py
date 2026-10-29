@@ -1,3 +1,11 @@
+"""Aggregation and plotting helpers for the tracking-evaluation metrics.
+
+Consumes the per-run metric dataframes produced by the evaluation pipeline
+(`metrics.py` / `eval_etultra.py`), aggregates them per model and evaluation
+folder according to `METRICS_INFO` (which metrics are summed vs averaged),
+formats metric display names, and renders the per-model box/bar comparison
+figures used in the report's evaluation tables.
+"""
 import warnings
 from contextlib import nullcontext
 from pathlib import Path
@@ -142,6 +150,14 @@ def aggregate_metrics(metrics_df, raise_if_unknown=False):
 
 
 def _format_metric_name(names):
+    """Map raw metric column names to their display names via `_REPLACE_NAMES`.
+
+    Args:
+        names: pandas Series of metric names.
+
+    Returns:
+        The same Series with every known name replaced by its display name.
+    """
     for name in names:
         if name in _REPLACE_NAMES:
             names[names == name] = _REPLACE_NAMES[name]
@@ -192,6 +208,13 @@ def plot_metrics_per_model(df, metrics_to_plot: Literal["all", "preset"] | list[
         metrics_mean = [m for m in metrics_to_plot if m in METRICS_INFO["metrics_to_mean"]]
         
         def plot(ax, plot_fn, plot_kwargs, metrics, agg_df, axis_title, disable_legend=False):
+            """Draw one metric-group facet (bar or box + strip) on `ax`.
+
+            Melts `agg_df` to long form over the selected `metrics`, groups
+            by `run_name`, and applies the shared colorblind palette; the
+            strip overlay is added only for box plots to show the underlying
+            per-model points.
+            """
             plot_fn(
                 data=agg_df.melt(id_vars=["run_name"], value_vars=metrics),
                 x="variable",
