@@ -4,8 +4,8 @@ Maps every figure, table, and headline number of the two report trees to the
 data artifact it consumes and the exact command that produces it. The report
 appendices point here.
 
-- **`report-shorten/`** is the live deliverable (§1–§2). **`report/`** is the
-  frozen full version; only its deltas are listed (§3).
+- **`report-shorten/`** is the live deliverable (§1–§2). **`report/`**, the
+  frozen full version, is archived at `deprecated/report/` (§3).
 - All commands run from the repository root. Interpreters: see Environments.
 - Artifact status: ◇ = local-only (git-ignored, exists on this workstation) ·
   ☁ = produced on the cluster (re-run the job to recreate) · — = no data
@@ -63,7 +63,7 @@ with its exact sources.
 | `tab:attn_names`, `tab:complexity`, `tab:app_impl_config`, `tab:app_flex_setup` | — | hand-written (naming/theory/config tables) | — |
 | Published reference rows (Achard) | `papers/cyril_thesis.txt` Tables 3.4/3.5 | transcribed in `docs/agent-state/research/15-achard-thesis-deep-read.md` | ◇ |
 
-## 3. Frozen full report (`report/`) — deltas only
+## 3. Archived full report (`deprecated/report/`) — deltas only
 
 - Extra figures: `19_b64_saturation` (`python curated/generate_report.py`,
   B=64 saturation CSVs) and `knn_sweep_metrics`
@@ -92,7 +92,7 @@ with its exact sources.
 | `benchmark_training/scripts/slurm/run_eval_multiseed.slurm` | K-sweep evaluation |
 | `benchmark_training/scripts/slurm/run_cv.slurm` | cutoff ablation (DenseFlash arm needs `install_dense_flash.py`) |
 | `benchmark_ssl/slurm/run_knn_probe.slurm` | K=8 edge probing (§3.7) |
-| `benchmark_ssl/slurm/unified_edge_probe.slurm` | legacy edge probing (frozen `report/` only) |
+| `benchmark_ssl/slurm/unified_edge_probe.slurm` | legacy edge probing (archived full report only) |
 | `benchmark_ssl/slurm/train_etultra_dynaclr.slurm` + `slurm/eval/eval_etultra.slurm` | Et-Ultra comparison (§3.8) |
 | `benchmark_ssl/slurm/cross_dataset_eval.slurm` | DeepCell cross-dataset (§3.9) |
 
