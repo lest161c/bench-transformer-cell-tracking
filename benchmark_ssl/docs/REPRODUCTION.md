@@ -97,6 +97,18 @@ read `REPO_ROOT` from `~/.bench.env`.
 
 ## 4. Measured results
 
+> **[HISTORICAL 2026-10-29]** Sections 4.1–4.9 record the June–August
+> diagnostic era (NT-Xent collapse on 7D regionprops, identity-BCE pretext,
+> DINO backbone micro-tests). Two later findings recontextualize them without
+> invalidating the measurements: the early contrastive experiments carried an
+> input-corruption bug and a 7D-bottleneck story
+> (`labbook/2026-10-23_pretext_failure_diagnosis.md`), and the delivered
+> encoder is the DynaCLR-style NT-Xent **ScaledCNN on patches** (BatchNorm2d
+> fix, temperature 0.3), whose frozen features are association-competitive
+> with SAM2.1 under the reference injection protocol
+> (`report-shorten/evaluation.tex` §SSL, §Learned Features). Read the numbers
+> below as era-specific, not as the final SSL verdict.
+
 ### 4.1 NT-Xent contrastive SSL collapse (H100)
 NT-Xent train loss 3.46 → 2.97; global inter-cell cosine similarity (collapse): **0.89**.
 SSL provides zero improvement over random embeddings (knn_SSL 65.1% vs random 64.8%).
@@ -158,6 +170,17 @@ SSL does not help downstream convergence at this scale.
 Verdict: "Feature quality bottleneck is domain mismatch, not model capacity."
 
 ### 4.10 Unified edge probe (10-fold CV + per-pair significance) — `results/probes/unified_probe_results_cv10.json`
+
+> **[SUPERSEDED 2026-10-29]** The probe protocol below (full pair set,
+> balanced accuracy, 10-fold CV) was retired on 2026-10-22 (owner directive):
+> the current protocol is K=8 nearest-neighbour candidate classification with
+> an MLP/linear probe reporting Frame-CV top-1 / LOCO top-1 / LOCO F1 / LOCO
+> NLL (balanced accuracy removed). Final numbers: `report-shorten/evaluation.tex`
+> §Edge Probing (e.g. Regionprops 13D 0.8694 frame-CV / 0.8183 LOCO top-1,
+> frozen DynaCLR 0.8527/0.8259, K=1 nearest-centroid 0.812/0.811). The
+> `results/probes/unified_probe_results_cv10*.json` artifacts now hold the
+> reworked protocol's outputs; the balanced-accuracy tables below describe the
+> retired protocol and the command block its retired CLI.
 
 Supersedes the 2026-08 5-fold run (`results/probes/unified_probe_results_cv.json`,
 kept for provenance): the probe script evolved since (hoct19 renamed hoct2d,

@@ -1,5 +1,14 @@
 # Full Ablation Study: Attention × K × L × Init
 
+> **[SUPERSEDED 2026-10-29]** This file reports the May 2026 local A500
+> mini-scale ablation (15 epochs, L ≤ 4, N ≤ 1024, single seed). Its
+> convergence/SSL-effect tables are era-specific: the K story was later
+> settled by the multi-seed cluster K-sweep (seeds 42/43/44; per-epoch flat
+> 200–202 s/epoch) and the cutoff question by the 500-epoch 2-seed
+> leave-one-condition-out CV ablation (DenseFlash worse in 12/12 fold–seed
+> comparisons; pooled ΔAOGM +47.5). Current numbers: `REPRODUCIBILITY.md` and
+> `report-shorten/evaluation.tex`. Kept as a historical record.
+
 ## Design
 
 **Variables:**

@@ -1,5 +1,11 @@
 # Combined Benchmark at N=1024 (Local 4GB GPU)
 
+> **[SUPERSEDED 2026-10-29]** Local single-seed mini-scale run (May 2026),
+> kept as a historical record. The attention comparison was rerun on H100
+> across N = 128–32768 at B ∈ {1, 64} (`benchmark_attn/`), and the K-sweep
+> per-epoch numbers are now the multi-seed cluster medians (200–202 s/epoch).
+> See `REPRODUCIBILITY.md` and `report-shorten/evaluation.tex`.
+
 Proves convergence benefit. Attention speedup requires N≥2048 (cluster).
 
 ## Results

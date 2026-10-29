@@ -1,5 +1,18 @@
 # SSL Pretraining Benchmark: Results Analysis
 
+> **[SUPERSEDED 2026-10-29]** This file analyzes the May 2026 local A500 run
+> (`runs/ssl_v1/`, ASCENT-inspired `AssociationEncoder`, 5 epochs,
+> pos_weight=10 BCE) — an era whose conclusions were later withdrawn: the
+> 5-epoch "SSL helps" signal did not survive de-confounding, the BCE pretext
+> collapses to a degenerate all-negative solution (see
+> `labbook/2026-10-23_pretext_failure_diagnosis.md`), and the delivered SSL
+> component is the frozen DynaCLR-style NT-Xent ScaledCNN evaluated under the
+> reference injection protocol. Current numbers: `report-shorten/evaluation.tex`
+> (§SSL, §Edge Probing, §Learned Features) and `REPRODUCIBILITY.md`. The tables
+> below are kept as a historical record of that run only; the config claim
+> `d_model=64, nhead=2` is also wrong for `runs/ssl_v1/` (see the variant note
+> in `docs/REPRODUCTION.md` §4.2).
+
 ## Setup
 
 - GPU: NVIDIA RTX A500 Laptop (4GB VRAM)

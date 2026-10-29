@@ -1,5 +1,15 @@
 # Combined Benchmark: Sparse Attention + SSL + K Ablation
 
+> **[SUPERSEDED 2026-10-29]** This file reports the May 2026 single-seed local
+> A500 mini-scale runs (15 epochs, small N). They are kept as a historical
+> record only. The K-sweep was later rerun as a multi-seed cluster campaign
+> (seeds 42/43/44, three models per K; per-epoch wall time flat across K at
+> 200–202 s/epoch, dense ~214 s/epoch — not the 0.54–1.01 s/epoch of these
+> local mini runs), and the attention comparison was rerun on H100 across
+> N = 128–32768 (see `REPRODUCIBILITY.md` and `report-shorten/evaluation.tex`).
+> The SSL-init arms below predate the corrected pretext diagnosis
+> (`labbook/2026-10-23_pretext_failure_diagnosis.md`).
+
 ## Design
 
 6 variants:
