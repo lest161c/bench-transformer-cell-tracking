@@ -293,11 +293,20 @@ sbatch benchmark_attn/slurm/run_full_model_inference_grid.slurm
 ```
 
 The runner sources `$HOME/.bench.env` and
-`$REPO_ROOT/slurm/load_cluster_env.sh`, runs the existing
-`benchmark_attn/.venv`, uses 1 GPU / 8 CPUs / 90 GB, and skips the primary
-grid when `results/full_model_inference_grid.csv` already exists. The optional
-`B=8/16` up-to-`N=8192` invocation is commented out in the runner and writes
-separate `*_batch.*` files if it is ever enabled.
+`$REPO_ROOT/slurm/load_cluster_env.sh`, uses 1 GPU / 8 CPUs / 90 GB, and skips
+the primary grid when `results/full_model_inference_grid.csv` already exists.
+
+**Cluster interpreter (environment note).** Every python invocation in the
+runner uses `"$TRK/.venv/bin/python"` (the Trackastra checkout's
+virtualenv), not `benchmark_attn/.venv`: the benchmark venv lacks
+`dask`/`trackastra`, while `$TRK/.venv` has both, with trackastra installed
+as an editable install. `$TRK` is defined in `$HOME/.bench.env` and validated
+by `load_cluster_env.sh`. The checkpoint stays at `../checkpoints/k16`
+relative to `benchmark_attn/` (the absolute cluster path is recorded in the
+environment JSON). The local command blocks above keep `.venv/bin/python` as
+written; on the cluster, the runner substitutes `$TRK/.venv/bin/python`. The
+optional `B=8/16` up-to-`N=8192` invocation is commented out in the runner and
+writes separate `*_batch.*` files if it is ever enabled.
 
 Summary (F6, from `benchmark_attn/`):
 
@@ -326,3 +335,53 @@ cd benchmark_attn
 - **F4/F6 ownership.** F4 owns the linker timing implementation; F6 owns the
   H100 execution, the summary script/CSV/PNG, and the `N=32768` table. F7
   report integration remains blocked on owner review of F6.
+
+## H100 job record (F6)
+
+**Job:** Slurm job `4522664` (partition `capella`, NVIDIA H100), completed
+2026-11-03, submitted through the owner/runner workflow. Logs:
+`benchmark_attn/logs/full_model_inference_grid_4522664.out` and
+`.err`; the `.out` records the grid echo and
+`wrote 84 raw rows to results/full_model_inference_grid.csv`.
+
+**Environment (from `results/full_model_inference_grid_env.json`):**
+Python 3.10.12, torch 2.14.0+cu130, CUDA 13.0, cuDNN 92400, GPU
+`NVIDIA H100`, device `cuda`, dtype `fp16`, seed 42, repeats 3, warmup 5,
+coord layout `uniform`, `knn_neighbors=16`, linker `greedy`,
+`motile_available=false`, git commit
+`2a826dcfa286e0f9ef97c810b61376f7dd7a1e1c` (`git_dirty: true`), checkpoint
+`../checkpoints/k16` (absolute cluster path
+`/data/cat/ws/lest161c-ssl_cell_tracking/bench-transformer-cell-tracking/checkpoints/k16`),
+checkpoint SHA-256
+`cc36f8a3776f475af057def227276b34dbdc60bfb099b390e92ec78eacdad2b0` —
+identical to the F3 CPU smoke value, and the model config matches the
+expected k16 values (`d_model=320`, `nhead=4`, 6+6 layers, `window=10`,
+`rope`, `spatial_pos_cutoff=256`, `knn_neighbors=16`,
+`causal_norm=quiet_softmax`).
+
+**Row/status counts:** the raw CSV contains 84 data rows
+(4 variants × 7 `N` × `B=1` × 3 repeats), every row `status=ok` and
+`linker_status=ok` — no `oom`, no `err` rows. The summary CSV has 28 rows.
+
+**`N=32768` result table** (`B=1`, greedy linker; means over the 3 ok
+repeats, from `results/full_model_inference_grid_summary.csv`):
+
+| Variant | total_ms | forward_ms | attn share of total | attn share of forward | total speedup | forward speedup |
+|---|---:|---:|---:|---:|---:|---:|
+| `relative_pos` | 9027.19 | 617.93 | 0.0663 | 0.9684 | 1.00x | 1.00x |
+| `cached_dist` | 8996.22 | 568.05 | 0.0610 | 0.9656 | 1.0034x | 1.0878x |
+| `sparse_mask_k16` | 8558.63 | 169.73 | 0.0176 | 0.8887 | 1.0547x | 3.6406x |
+| `sparse_gather_k16` | 8486.26 | 80.57 | 0.0072 | 0.7589 | 1.0637x | 7.6693x |
+
+For `sparse_gather_k16` the CPU linker alone is 8043.49 ms
+(`build_graph` 7575.69 + `track_greedy` 467.81) and `normalize_output` adds
+362.20 ms — both dwarf the 80.57 ms forward. `total_ms` is
+`full_forward_ms + normalize_ms + linker_ms` and therefore **includes the
+CPU linker**, which is timed on the CPU while the forward/normalisation are
+GPU-timed (a synthetic sum, not a wall-clock overlap measurement).
+
+**Key finding:** at `N=32768` the run is linker-bound, not attention-bound.
+`Gather` makes the forward 7.67x faster, but total throughput is only 1.06x
+faster because ~8.0 s of the ~8.5 s total is the CPU linker plus the shared
+`N×N` costs (`dist_2d`, logits `einsum`, `normalize_output`). Timing-only
+result on synthetic data; no accuracy or tracking-quality claim.

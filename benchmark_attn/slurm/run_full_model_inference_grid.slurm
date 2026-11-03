@@ -38,11 +38,11 @@ if [ -n "${DRY_RUN:-}" ]; then
     echo "[DRY_RUN=1] echoing the exact commands this runner would execute on the cluster:"
     echo ""
     echo "# 0. Environment provenance probe (torch/cuda/python/GPU)."
-    echo "cd \"\$BENCH/benchmark_attn\" && .venv/bin/python -c \"import torch, sys; print('torch :', torch.__version__); print('cuda  :', torch.version.cuda); print('python:', sys.version.split()[0]); print('GPU   :', torch.cuda.get_device_name(0))\""
+    echo "cd \"\$BENCH/benchmark_attn\" && \"\$TRK/.venv/bin/python\" -c \"import torch, sys; print('torch :', torch.__version__); print('cuda  :', torch.version.cuda); print('python:', sys.version.split()[0]); print('GPU   :', torch.cuda.get_device_name(0))\""
     echo ""
     echo "# 1. Primary B=1 grid -> results/full_model_inference_grid.csv"
     echo "#    (skipped when the primary CSV already exists)"
-    echo "cd \"\$BENCH/benchmark_attn\" && .venv/bin/python scripts/benchmarks/benchmark_full_model_inference_grid.py \\"
+    echo "cd \"\$BENCH/benchmark_attn\" && \"\$TRK/.venv/bin/python\" scripts/benchmarks/benchmark_full_model_inference_grid.py \\"
     echo "    --checkpoint ../checkpoints/k16 \\"
     echo "    --variants relative_pos,cached_dist,sparse_mask_k16,sparse_gather_k16 \\"
     echo "    --Ns 512,1024,2048,4096,8192,16384,32768 \\"
@@ -59,7 +59,7 @@ if [ -n "${DRY_RUN:-}" ]; then
     echo "    --summary results/full_model_inference_grid_summary.csv"
     echo ""
     echo "# 2. Optional B=8/16 grid up to N=8192 (commented out; not run here):"
-    echo "#    .venv/bin/python scripts/benchmarks/benchmark_full_model_inference_grid.py \\"
+    echo "#    \"\$TRK/.venv/bin/python\" scripts/benchmarks/benchmark_full_model_inference_grid.py \\"
     echo "#        --checkpoint ../checkpoints/k16 \\"
     echo "#        --variants relative_pos,cached_dist,sparse_mask_k16,sparse_gather_k16 \\"
     echo "#        --Ns 512,1024,2048,4096,8192 \\"
@@ -90,7 +90,10 @@ echo "scope     : timing only; no accuracy/OOD claim; trained at N~50-200"
 echo ""
 
 # ─── Environment provenance: torch / CUDA / Python / GPU ────────────
-.venv/bin/python -c "import torch, sys; print('torch :', torch.__version__); print('cuda  :', torch.version.cuda); print('python:', sys.version.split()[0]); print('GPU   :', torch.cuda.get_device_name(0))"
+# Interpreter: all python invocations use the Trackastra checkout's venv
+# because benchmark_attn/.venv lacks dask/trackastra; $TRK/.venv has them
+# (trackastra installed editable). $TRK is validated by load_cluster_env.sh.
+"$TRK/.venv/bin/python" -c "import torch, sys; print('torch :', torch.__version__); print('cuda  :', torch.version.cuda); print('python:', sys.version.split()[0]); print('GPU   :', torch.cuda.get_device_name(0))"
 
 echo ""
 
@@ -110,7 +113,7 @@ else
         echo "[notice] stale env/summary output found without a raw CSV;"
         echo "         the benchmark script will regenerate them."
     fi
-    .venv/bin/python scripts/benchmarks/benchmark_full_model_inference_grid.py \
+    "$TRK/.venv/bin/python" scripts/benchmarks/benchmark_full_model_inference_grid.py \
         --checkpoint ../checkpoints/k16 \
         --variants relative_pos,cached_dist,sparse_mask_k16,sparse_gather_k16 \
         --Ns 512,1024,2048,4096,8192,16384,32768 \
@@ -133,7 +136,7 @@ fi
 # files so the primary CSV is never touched.
 #
 # if [ ! -f "results/full_model_inference_grid_batch.csv" ]; then
-#     .venv/bin/python scripts/benchmarks/benchmark_full_model_inference_grid.py \
+#     "$TRK/.venv/bin/python" scripts/benchmarks/benchmark_full_model_inference_grid.py \
 #         --checkpoint ../checkpoints/k16 \
 #         --variants relative_pos,cached_dist,sparse_mask_k16,sparse_gather_k16 \
 #         --Ns 512,1024,2048,4096,8192 \
