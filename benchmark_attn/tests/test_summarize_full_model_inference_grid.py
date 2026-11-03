@@ -3,8 +3,8 @@
 The synthetic raw CSVs contain a small, hand-checkable grid: two variants, two
 repeats, and an explicit ``oom`` row. The assertions cover counts, sample
 standard deviation (including the single-repeat ``std=0`` case), the derived
-speedups and attention shares, and the ``n/a`` handling when the baseline or a
-variant did not complete.
+speedups and attention shares, the ``n/a`` handling when the baseline or a
+variant did not complete, and the optional ``--plot-all`` PNG output.
 """
 
 from __future__ import annotations
@@ -283,3 +283,41 @@ def test_empty_raw_csv_writes_header_only_summary(tmp_path):
     summary = pd.read_csv(summary_path)
     assert list(summary.columns) == summary_module.build_summary_columns()
     assert summary.empty
+
+
+def test_plot_all_writes_multi_panel_png(tmp_path):
+    """``--plot-all`` writes a non-trivial PNG when matplotlib is available.
+
+    The synthetic grid covers both speedup panels (a ``relative_pos``
+    baseline at two ``N`` values), the timing panels, and one variant whose
+    only row is ``oom`` so the NaN/missing-value path is exercised too.
+    """
+    pytest.importorskip("matplotlib")
+    raw_path = tmp_path / "raw.csv"
+    plot_path = tmp_path / "all_metrics.png"
+
+    rows = [
+        _ok_row("relative_pos", 128, 0, 80.0, 100.0, 20.0, 10.0, 100.0),
+        _ok_row("relative_pos", 256, 0, 160.0, 200.0, 40.0, 20.0, 200.0),
+        _ok_row("sparse_gather_k16", 128, 0, 50.0, 60.0, 8.0, 4.0, 300.0),
+        _ok_row("sparse_gather_k16", 256, 0, 90.0, 110.0, 12.0, 6.0, 400.0),
+        _oom_row("cached_dist", 128, 0),
+    ]
+    _write_raw_csv(raw_path, rows)
+
+    exit_code = summary_module.main(
+        [
+            "--raw",
+            str(raw_path),
+            "--env-json",
+            str(tmp_path / "missing_env.json"),
+            "--out",
+            str(tmp_path / "summary.csv"),
+            "--plot-all",
+            str(plot_path),
+        ]
+    )
+
+    assert exit_code == 0
+    assert plot_path.exists()
+    assert plot_path.stat().st_size > 0

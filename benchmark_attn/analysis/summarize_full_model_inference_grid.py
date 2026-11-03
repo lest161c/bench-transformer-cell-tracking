@@ -23,6 +23,12 @@ Usage (from ``benchmark_attn``)::
 
 The optional ``--plot`` writes a PNG when matplotlib is importable; pass a
 path or use the flag alone for the default summary PNG.
+
+The optional ``--plot-all`` writes an eight-panel PNG of every measured
+summary metric — total and forward speedup, total/full-forward time,
+attention module time, normalisation time, CPU linker time, and attention
+share — against ``N`` on a log2 axis, one line per variant, with the same
+matplotlib fallback behaviour as ``--plot``.
 """
 
 from __future__ import annotations
@@ -31,6 +37,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import NamedTuple
 
 import numpy as np
 import pandas as pd
@@ -67,6 +74,80 @@ DEFAULT_RAW_CSV = Path("results/full_model_inference_grid.csv")
 DEFAULT_ENV_JSON = Path("results/full_model_inference_grid_env.json")
 DEFAULT_SUMMARY_CSV = Path("results/full_model_inference_grid_summary.csv")
 DEFAULT_SUMMARY_PNG = Path("results/full_model_inference_grid_summary.png")
+DEFAULT_ALL_METRICS_PNG = Path(
+    "results/full_model_inference_grid_all_metrics.png"
+)
+
+
+class AllMetricsPanel(NamedTuple):
+    """Definition of one panel of the ``--plot-all`` figure.
+
+    Attributes:
+        title: Panel heading.
+        ylabel: Axis label describing the plotted metric.
+        value_column: Summary column to plot (``*_mean`` columns for timings,
+            derived columns for speedups and shares).
+        log_y: Whether the y-axis is log-scaled; log panels draw strictly
+            positive values only.
+    """
+
+    title: str
+    ylabel: str
+    value_column: str
+    log_y: bool
+
+
+#: Panel order and scaling of the ``--plot-all`` figure (SPEC 0062 §11).
+ALL_METRICS_PANELS: tuple[AllMetricsPanel, ...] = (
+    AllMetricsPanel(
+        title="End-to-end total speedup",
+        ylabel="total speedup vs relative_pos",
+        value_column="speedup_vs_relative_pos",
+        log_y=False,
+    ),
+    AllMetricsPanel(
+        title="Forward-chain speedup",
+        ylabel="forward speedup vs relative_pos",
+        value_column="forward_speedup_vs_relative_pos",
+        log_y=False,
+    ),
+    AllMetricsPanel(
+        title="End-to-end total time",
+        ylabel="total_ms (ms)",
+        value_column="total_ms_mean",
+        log_y=True,
+    ),
+    AllMetricsPanel(
+        title="Full forward time",
+        ylabel="full_forward_ms (ms)",
+        value_column="full_forward_ms_mean",
+        log_y=True,
+    ),
+    AllMetricsPanel(
+        title="Attention module time",
+        ylabel="encoder_attn + decoder_attn (ms)",
+        value_column="attention_module_ms",
+        log_y=True,
+    ),
+    AllMetricsPanel(
+        title="Output normalisation time",
+        ylabel="normalize_ms (ms)",
+        value_column="normalize_ms_mean",
+        log_y=True,
+    ),
+    AllMetricsPanel(
+        title="CPU linker time (B=1 greedy)",
+        ylabel="linker_ms (ms)",
+        value_column="linker_ms_mean",
+        log_y=True,
+    ),
+    AllMetricsPanel(
+        title="Attention share of total",
+        ylabel="attention_share of total_ms",
+        value_column="attention_share",
+        log_y=False,
+    ),
+)
 
 
 # ─── CLI ────────────────────────────────────────────────────────────────────
@@ -79,8 +160,8 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
         argv: Optional argument list for tests; defaults to ``sys.argv``.
 
     Returns:
-        The parsed namespace with ``raw``, ``env_json``, ``out``, and optional
-        ``plot`` paths.
+        The parsed namespace with ``raw``, ``env_json``, ``out``, and the
+        optional ``plot`` and ``plot_all`` paths.
     """
     parser = argparse.ArgumentParser(
         description=(
@@ -119,6 +200,19 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
         help=(
             "Optional summary PNG path. Pass the flag alone to use "
             f"{DEFAULT_SUMMARY_PNG}; omit it to skip plotting."
+        ),
+    )
+    parser.add_argument(
+        "--plot-all",
+        nargs="?",
+        const=DEFAULT_ALL_METRICS_PNG,
+        default=None,
+        type=Path,
+        help=(
+            "Optional eight-panel PNG of every measured metric (total and "
+            "forward speedup, total/full-forward/attention/normalize/linker "
+            "times, attention share) against N on a log2 axis. Pass the flag "
+            f"alone to use {DEFAULT_ALL_METRICS_PNG}; omit it to skip."
         ),
     )
     return parser.parse_args(argv)
@@ -577,6 +671,193 @@ def write_summary_plot(summary: pd.DataFrame, plot_path: Path) -> bool:
     return True
 
 
+def _prepare_all_metrics_frame(summary: pd.DataFrame) -> pd.DataFrame:
+    """Return a copy of the summary with the derived attention-module column.
+
+    The attention module time is ``encoder_attn_ms_mean +
+    decoder_attn_ms_mean``; it is ``NaN`` when either operand is missing,
+    matching the ``attention_share`` semantics. The copy leaves the caller's
+    frame untouched.
+
+    Args:
+        summary: The summary frame from :func:`summarize_grid`.
+
+    Returns:
+        A copy with an ``attention_module_ms`` column (all ``NaN`` when the
+        encoder/decoder attention mean columns are absent).
+    """
+    plot_frame = summary.copy()
+    attention_columns = ("encoder_attn_ms_mean", "decoder_attn_ms_mean")
+    if set(attention_columns).issubset(plot_frame.columns):
+        plot_frame["attention_module_ms"] = [
+            _finite_sum(row.encoder_attn_ms_mean, row.decoder_attn_ms_mean)
+            for row in plot_frame.itertuples(index=False)
+        ]
+    else:
+        plot_frame["attention_module_ms"] = np.nan
+    return plot_frame
+
+
+def _annotate_empty_panel(axis: "plt.Axes") -> None:
+    """Mark a panel that has no plottable value for any variant.
+
+    Args:
+        axis: The matplotlib axes to annotate.
+    """
+    axis.text(
+        0.5,
+        0.5,
+        "no data",
+        ha="center",
+        va="center",
+        transform=axis.transAxes,
+        color="gray",
+    )
+
+
+def _draw_all_metrics_panel(
+    axis: "plt.Axes",
+    panel: AllMetricsPanel,
+    plot_frame: pd.DataFrame,
+    variant_colors: dict[str, str],
+) -> bool:
+    """Draw one metric panel of the all-metrics figure.
+
+    Values are plotted per variant in the frame's variant order so the shared
+    figure legend matches every panel. NaN/missing values are skipped; log
+    panels additionally skip non-positive values because they cannot be shown
+    on a log axis.
+
+    Args:
+        axis: The matplotlib axes to draw on.
+        panel: Panel definition (title, label, column, y scaling).
+        plot_frame: Summary frame including the derived attention-module
+            column from :func:`_prepare_all_metrics_frame`.
+        variant_colors: Variant name to matplotlib color mapping shared by
+            all panels.
+
+    Returns:
+        ``True`` when at least one line was drawn, ``False`` otherwise.
+    """
+    axis.set_xscale("log", base=2)
+    if panel.log_y:
+        axis.set_yscale("log")
+    axis.grid(True, alpha=0.3)
+    axis.set_xlabel("N")
+    axis.set_ylabel(panel.ylabel)
+    axis.set_title(panel.title, fontsize="medium")
+
+    if panel.value_column not in plot_frame.columns:
+        _annotate_empty_panel(axis)
+        return False
+
+    drew_line = False
+    for variant_name, variant_rows in plot_frame.groupby(
+        "variant", sort=False
+    ):
+        variant_rows = variant_rows.sort_values("N")
+        panel_values = pd.to_numeric(
+            variant_rows[panel.value_column], errors="coerce"
+        )
+        plottable = panel_values.notna()
+        if panel.log_y:
+            plottable &= panel_values > 0
+        if not plottable.any():
+            continue
+        kept_rows = variant_rows[plottable]
+        axis.plot(
+            kept_rows["N"],
+            kept_rows[panel.value_column],
+            marker="o",
+            color=variant_colors[str(variant_name)],
+            label=str(variant_name),
+        )
+        drew_line = True
+    if not drew_line:
+        _annotate_empty_panel(axis)
+    return drew_line
+
+
+def write_all_metrics_plot(summary: pd.DataFrame, plot_path: Path) -> bool:
+    """Write the eight-panel all-metrics PNG when matplotlib exists.
+
+    The figure shows every measured summary metric against ``N`` on a log2
+    x-axis with one line per variant and one shared legend (SPEC 0062 §11).
+    A variant color is fixed across panels so a variant missing from one
+    panel (for example the ``B=1``-only linker time) keeps its color
+    everywhere.
+
+    Args:
+        summary: The summary frame from :func:`summarize_grid`.
+        plot_path: Destination PNG path.
+
+    Returns:
+        ``True`` when a figure was written, ``False`` when matplotlib is
+        unavailable, no rows are plottable, or the file cannot be written.
+    """
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except ImportError:
+        print("[warn] matplotlib is not available; skipping --plot-all")
+        return False
+
+    if summary.empty:
+        print("[warn] no numeric summary rows to plot; skipping --plot-all")
+        return False
+
+    plot_frame = _prepare_all_metrics_frame(summary)
+    variant_order = list(dict.fromkeys(plot_frame["variant"].tolist()))
+    color_cycle = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+    variant_colors = {
+        variant_name: color_cycle[index % len(color_cycle)]
+        for index, variant_name in enumerate(variant_order)
+    }
+
+    figure, axes = plt.subplots(
+        len(ALL_METRICS_PANELS) // 2,
+        2,
+        figsize=(12.5, 14.0),
+        layout="constrained",
+    )
+    plotted_any = False
+    for panel, axis in zip(ALL_METRICS_PANELS, axes.ravel()):
+        if _draw_all_metrics_panel(axis, panel, plot_frame, variant_colors):
+            plotted_any = True
+    if not plotted_any:
+        print("[warn] no numeric summary rows to plot; skipping --plot-all")
+        plt.close(figure)
+        return False
+
+    legend_handles: list = []
+    legend_labels: list[str] = []
+    for axis in axes.ravel():
+        handles, labels = axis.get_legend_handles_labels()
+        if len(labels) > len(legend_labels):
+            legend_handles, legend_labels = handles, labels
+    if legend_labels:
+        figure.legend(
+            legend_handles,
+            legend_labels,
+            loc="outside upper center",
+            ncol=min(len(legend_labels), 4),
+            fontsize="small",
+        )
+
+    plot_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        figure.savefig(plot_path, dpi=150, bbox_inches="tight")
+    except OSError as error:
+        print(f"[warn] could not write plot {plot_path}: {error}")
+        plt.close(figure)
+        return False
+    plt.close(figure)
+    print(f"wrote all-metrics plot: {plot_path}")
+    return True
+
+
 def print_environment_provenance(environment: dict[str, object]) -> None:
     """Print the provenance fields that matter when reading the numbers.
 
@@ -607,7 +888,7 @@ def print_environment_provenance(environment: dict[str, object]) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Load the raw CSV, write the summary CSV/PNG, and print the N table.
+    """Load the raw CSV, write the summary CSV/PNG(s), and print the N table.
 
     Args:
         argv: Optional argument list for tests; defaults to ``sys.argv``.
@@ -627,6 +908,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if arguments.plot is not None:
         write_summary_plot(summary, arguments.plot)
+    if arguments.plot_all is not None:
+        write_all_metrics_plot(summary, arguments.plot_all)
     return 0
 
 

@@ -315,6 +315,27 @@ cd benchmark_attn
 .venv/bin/python analysis/summarize_full_model_inference_grid.py
 ```
 
+All-metrics plot (additive; from `benchmark_attn/`):
+
+```bash
+cd benchmark_attn
+.venv/bin/python analysis/summarize_full_model_inference_grid.py \
+  --plot-all results/full_model_inference_grid_all_metrics.png
+```
+
+`--plot-all` (optional argument, default
+`results/full_model_inference_grid_all_metrics.png`) writes an eight-panel
+PNG of every measured summary metric against `N` on a log2 axis, one
+line+marker per variant with a shared legend: total and forward speedup vs
+`relative_pos`, `total_ms`, `full_forward_ms`, the attention module time
+(`encoder_attn_ms + decoder_attn_ms`), `normalize_ms`, `linker_ms`
+(`B=1` greedy only — the linker is not timed for `B>1`), and
+`attention_share` of `total_ms`. Timings use log y-axes; NaN/missing values
+are skipped per variant and panel, and an empty panel is annotated
+"no data". The two-panel `--plot` summary PNG is unchanged. This figure is
+an analysis artifact for reading the F6 numbers; it makes no accuracy or
+tracking-quality claim and is not a report figure.
+
 ## Caveats
 
 - **Training range.** The k16 checkpoint was trained at roughly `N≈50–200`
