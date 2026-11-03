@@ -28,6 +28,70 @@ class MethodEntry:
     needs_coords: bool
 
 
+@dataclass(frozen=True)
+class FullModelVariantEntry:
+    """Metadata for one attention variant used by the full-model benchmark.
+
+    Unlike :class:`MethodEntry`, these variants are swapped into the real
+    Trackastra encoder/decoder layers, so the entry also records whether the
+    model-level cached distance matrix is consumed.
+
+    Attributes:
+        registry_key: CSV-facing variant name.
+        class_path: Dotted import path of the Trackastra attention class.
+        needs_knn: True if the class consumes precomputed KNN indices.
+        needs_coords: True if the class consumes coordinates (for RoPE or
+            distance shaping).
+        needs_dist_2d: True if the class consumes the model-level cached
+            ``dist_2d`` tensor.
+        knn_neighbors: Number of neighbours passed to sparse variants, or
+            ``None`` for variants that do not accept/require it.
+    """
+
+    registry_key: str
+    class_path: str
+    needs_knn: bool
+    needs_coords: bool
+    needs_dist_2d: bool
+    knn_neighbors: int | None
+
+
+FULL_MODEL_VARIANT_REGISTRY: dict[str, FullModelVariantEntry] = {
+    "relative_pos": FullModelVariantEntry(
+        "relative_pos",
+        "trackastra.model.model_parts.RelativePositionalAttention",
+        needs_knn=False,
+        needs_coords=True,
+        needs_dist_2d=False,
+        knn_neighbors=None,
+    ),
+    "cached_dist": FullModelVariantEntry(
+        "cached_dist",
+        "trackastra.model.model_parts.CachedDistAttention",
+        needs_knn=False,
+        needs_coords=True,
+        needs_dist_2d=True,
+        knn_neighbors=None,
+    ),
+    "sparse_mask_k16": FullModelVariantEntry(
+        "sparse_mask_k16",
+        "trackastra.model.model_parts.KNNMaskSparseAttention",
+        needs_knn=True,
+        needs_coords=True,
+        needs_dist_2d=False,
+        knn_neighbors=16,
+    ),
+    "sparse_gather_k16": FullModelVariantEntry(
+        "sparse_gather_k16",
+        "trackastra.model.model_parts.GatherSparseAttention",
+        needs_knn=True,
+        needs_coords=True,
+        needs_dist_2d=False,
+        knn_neighbors=16,
+    ),
+}
+
+
 METHOD_REGISTRY: dict[str, MethodEntry] = {
     "dense_masked": MethodEntry("dense_masked", "src.attention_modules.CachedDistAttention", needs_knn=False, needs_coords=True),
     "dense_flash": MethodEntry("dense_flash", "src.attention_modules.DenseFlashAttention", needs_knn=False, needs_coords=False),

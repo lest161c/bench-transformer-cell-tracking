@@ -8,6 +8,7 @@ crashing on CUDA API calls.
 
 import gc
 import statistics
+import time
 
 import torch
 import torch.utils.benchmark as benchmark
@@ -131,3 +132,117 @@ def try_bench(bench_fn, *args, warmup=5, min_run_time=0.3, repeats=1, **kwargs) 
     except Exception as e:
         _recover_after_failure()
         return -1, -1, -1, f"err: {e}"
+
+
+class ComponentTimer:
+    """Record named boundary events for component-level timings.
+
+    On CUDA the boundaries are ``torch.cuda.Event(enable_timing=True)``
+    objects on the current stream; on CPU they are ``time.perf_counter``
+    readings. The class is additive: :func:`measure` and :func:`try_bench`
+    keep their existing behaviour and do not use it.
+
+    Callers assign a distinct name to every boundary, for example
+    ``timer.start("forward_start")``, ``timer.start("encoder_0_start")``,
+    ``timer.stop("encoder_0_end")``, and then
+    ``timer.elapsed_ms("forward_start", "encoder_0_start")``. Because start
+    and stop boundaries have different names, an interval can be measured
+    from a start event to another start event (for ``embed_ms``), from a stop
+    event to another stop event (for ``head_logits_ms``), or from a start to
+    a stop event (for ``full_forward_ms``).
+
+    The timer is reusable across repeats: :meth:`clear` discards the previous
+    boundary events, and recording a name again replaces its old event.
+    """
+
+    def __init__(self, use_cuda: bool | None = None) -> None:
+        """Create a timer that uses CUDA events or CPU wall-clock counters.
+
+        Args:
+            use_cuda: Force CUDA-event timing when ``True`` or CPU
+                ``time.perf_counter`` timing when ``False``. ``None`` selects
+                CUDA when :func:`torch.cuda.is_available` reports True.
+
+        Raises:
+            RuntimeError: If CUDA timing is requested but CUDA is unavailable.
+        """
+        if use_cuda is None:
+            use_cuda = torch.cuda.is_available()
+        if use_cuda and not torch.cuda.is_available():
+            raise RuntimeError(
+                "CUDA event timing was requested but CUDA is not available."
+            )
+        self._use_cuda = bool(use_cuda)
+        self._events: dict[str, torch.cuda.Event | float] = {}
+
+    @property
+    def use_cuda(self) -> bool:
+        """Whether this timer records CUDA events instead of CPU counters."""
+        return self._use_cuda
+
+    def start(self, event_name: str) -> None:
+        """Record the start boundary called ``event_name``.
+
+        Args:
+            event_name: Unique name for this boundary; recording the same name
+                again replaces the previous event.
+        """
+        self._record(event_name)
+
+    def stop(self, event_name: str) -> None:
+        """Record the stop boundary called ``event_name``.
+
+        Args:
+            event_name: Unique name for this boundary; recording the same name
+                again replaces the previous event.
+        """
+        self._record(event_name)
+
+    def _record(self, event_name: str) -> None:
+        """Record one boundary event using the timer's backend.
+
+        Args:
+            event_name: Name under which the event is stored.
+        """
+        if self._use_cuda:
+            event = torch.cuda.Event(enable_timing=True)
+            event.record()
+            self._events[event_name] = event
+        else:
+            self._events[event_name] = time.perf_counter()
+
+    def elapsed_ms(self, start_event_name: str, end_event_name: str) -> float:
+        """Return the elapsed milliseconds between two recorded boundaries.
+
+        On CUDA the current stream is synchronised before the event pair is
+        read, so the result includes all work queued between the two
+        boundaries. On CPU the stored ``time.perf_counter`` readings are
+        subtracted and scaled to milliseconds.
+
+        Args:
+            start_event_name: Name passed to :meth:`start` for the interval
+                start.
+            end_event_name: Name passed to :meth:`stop` (or :meth:`start`)
+                for the interval end.
+
+        Returns:
+            Elapsed time in milliseconds as a float.
+
+        Raises:
+            KeyError: If either boundary name has not been recorded.
+        """
+        start_event = self._events[start_event_name]
+        end_event = self._events[end_event_name]
+        if self._use_cuda:
+            torch.cuda.synchronize()
+            return float(start_event.elapsed_time(end_event))
+        return float((end_event - start_event) * 1000.0)
+
+    def clear(self) -> None:
+        """Discard all recorded boundary events so the timer can be reused."""
+        self._events.clear()
+
+    def synchronize(self) -> None:
+        """Wait for queued CUDA work; a no-op on CPU."""
+        if self._use_cuda:
+            torch.cuda.synchronize()
