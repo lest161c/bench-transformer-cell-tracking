@@ -29,6 +29,18 @@ summary metric — total and forward speedup, total/full-forward time,
 attention module time, normalisation time, CPU linker time, and attention
 share — against ``N`` on a log2 axis, one line per variant, with the same
 matplotlib fallback behaviour as ``--plot``.
+
+The optional ``--plot-parts`` writes two decomposition PNGs from one path
+prefix: ``<prefix>_time_fractions.png`` shows, per variant (2×2 panels,
+``B=1`` only), a 100% stacked area over ``N`` of the attention
+(``encoder_attn_ms_mean + decoder_attn_ms_mean``), normalisation
+(``normalize_ms_mean``), linker (``linker_ms_mean``), and remaining "other"
+fractions of ``total_ms_mean``; ``<prefix>_forward_time_memory.png`` plots
+``full_forward_ms_mean`` (left axis, solid lines) against
+``peak_mem_mb_max`` (right axis, dashed lines) per variant on log axes.
+Both figures space ``N`` logarithmically (base 2) but label the x ticks
+with the plain integer sequence lengths (512, 1024, 2048, …), never power
+notation, and skip with a warning when matplotlib is unavailable.
 """
 
 from __future__ import annotations
@@ -76,6 +88,25 @@ DEFAULT_SUMMARY_CSV = Path("results/full_model_inference_grid_summary.csv")
 DEFAULT_SUMMARY_PNG = Path("results/full_model_inference_grid_summary.png")
 DEFAULT_ALL_METRICS_PNG = Path(
     "results/full_model_inference_grid_all_metrics.png"
+)
+DEFAULT_PARTS_PNG_PREFIX = Path("results/full_model_inference_grid_parts")
+
+#: Canonical variant panel order of the ``--plot-parts`` time-fraction
+#: figure (SPEC 0062 variant table).
+PARTS_VARIANT_ORDER: tuple[str, ...] = (
+    "relative_pos",
+    "cached_dist",
+    "sparse_mask_k16",
+    "sparse_gather_k16",
+)
+
+#: Label and fill colour of the four stacked time-fraction components, in
+#: stacking order (bottom to top).
+TIME_FRACTION_STYLES: tuple[tuple[str, str], ...] = (
+    ("attention (encoder+decoder attn)", "#1f77b4"),
+    ("normalize", "#2ca02c"),
+    ("linker", "#d62728"),
+    ("other (residual of total_ms)", "#7f7f7f"),
 )
 
 
@@ -161,7 +192,7 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
 
     Returns:
         The parsed namespace with ``raw``, ``env_json``, ``out``, and the
-        optional ``plot`` and ``plot_all`` paths.
+        optional ``plot``, ``plot_all``, and ``plot_parts`` paths.
     """
     parser = argparse.ArgumentParser(
         description=(
@@ -213,6 +244,21 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
             "forward speedup, total/full-forward/attention/normalize/linker "
             "times, attention share) against N on a log2 axis. Pass the flag "
             f"alone to use {DEFAULT_ALL_METRICS_PNG}; omit it to skip."
+        ),
+    )
+    parser.add_argument(
+        "--plot-parts",
+        nargs="?",
+        const=DEFAULT_PARTS_PNG_PREFIX,
+        default=None,
+        type=Path,
+        help=(
+            "Optional two-figure decomposition PNG prefix. Writes "
+            "<prefix>_time_fractions.png (2x2 100%%-stacked time-fraction "
+            "areas per variant, B=1) and <prefix>_forward_time_memory.png "
+            "(forward time vs peak memory twin-axis lines, B=1); plain "
+            "integer N ticks on both. Pass the flag alone to use "
+            f"{DEFAULT_PARTS_PNG_PREFIX}; omit it to skip."
         ),
     )
     return parser.parse_args(argv)
@@ -858,6 +904,451 @@ def write_all_metrics_plot(summary: pd.DataFrame, plot_path: Path) -> bool:
     return True
 
 
+def _select_b1_rows(summary: pd.DataFrame) -> pd.DataFrame:
+    """Return the summary rows with ``B == 1``, the ``--plot-parts`` scope.
+
+    Both parts figures describe the primary production-large-``N`` case
+    (``B=1``, SPEC 0062 §"Synthetic data recipe"). A missing batch size
+    counts as "not ``B=1``" so an unexpected ``NaN`` group is never plotted.
+
+    Args:
+        summary: The summary frame from :func:`summarize_grid`.
+
+    Returns:
+        The rows whose batch size is exactly 1; an empty frame when ``B`` is
+        absent or no row qualifies.
+    """
+    if summary.empty or "B" not in summary.columns:
+        return summary.iloc[0:0]
+    return summary[summary["B"].fillna(0) == 1]
+
+
+def _apply_plain_integer_n_ticks(
+    axis: "plt.Axes", sequence_lengths: pd.Series
+) -> None:
+    """Force the ``N`` axis to log2 spacing with plain integer tick labels.
+
+    A log2 x-axis would otherwise be labelled with powers like ``2^9``; the
+    parts figures must show the actual sequence lengths (512, 1024, …) as
+    plain integers. Major ticks are pinned to the sorted unique ``N`` values
+    of the data (explicit ticks) and formatted with a
+    :class:`~matplotlib.ticker.FuncFormatter`; minor tick labels are removed.
+
+    Args:
+        axis: The matplotlib axes whose x-axis is configured.
+        sequence_lengths: The ``N`` values plotted on this axis.
+    """
+    from matplotlib.ticker import FixedLocator, FuncFormatter, NullFormatter
+
+    unique_lengths = sorted(
+        {int(length) for length in pd.to_numeric(sequence_lengths).dropna()}
+    )
+    axis.set_xscale("log", base=2)
+    axis.xaxis.set_major_locator(FixedLocator(unique_lengths))
+    axis.xaxis.set_major_formatter(
+        FuncFormatter(
+            lambda tick_value, _tick_position: f"{int(tick_value):d}"
+        )
+    )
+    axis.xaxis.set_minor_formatter(NullFormatter())
+
+
+def _stacked_fraction_frame(
+    variant_rows: pd.DataFrame,
+) -> pd.DataFrame | None:
+    """Return per-``N`` fractions of ``total_ms_mean`` for one variant.
+
+    The four stacked components follow the F6 contract: attention
+    (``encoder_attn_ms_mean + decoder_attn_ms_mean``), normalisation
+    (``normalize_ms_mean``), linker (``linker_ms_mean``), and the "other"
+    residual ``total_ms_mean - attention - normalize - linker`` (embedding,
+    model-level ``dist_2d``, MLP/norm blocks, head/logits, einsum, …). Every
+    component is divided by ``total_ms_mean`` so the fractions sum to 1. Rows
+    with a missing/NaN total or component are dropped; a stacked area needs a
+    range, so fewer than two usable ``N`` points yields ``None``.
+
+    Args:
+        variant_rows: ``B=1`` summary rows of one variant (any order).
+
+    Returns:
+        A frame with columns ``N`` and the fraction columns ``attention``,
+        ``normalize``, ``linker``, ``other``, sorted by ``N``; or ``None``
+        when the variant has fewer than two usable rows or is missing a
+        required column.
+    """
+    required_columns = (
+        "N",
+        "total_ms_mean",
+        "encoder_attn_ms_mean",
+        "decoder_attn_ms_mean",
+        "normalize_ms_mean",
+        "linker_ms_mean",
+    )
+    if not set(required_columns).issubset(variant_rows.columns):
+        return None
+
+    ordered_rows = variant_rows.sort_values("N")
+    sequence_lengths = pd.to_numeric(
+        ordered_rows["N"], errors="coerce"
+    ).to_numpy(dtype=float)
+    totals = pd.to_numeric(
+        ordered_rows["total_ms_mean"], errors="coerce"
+    ).to_numpy(dtype=float)
+    attention = (
+        pd.to_numeric(
+            ordered_rows["encoder_attn_ms_mean"], errors="coerce"
+        ).to_numpy(dtype=float)
+        + pd.to_numeric(
+            ordered_rows["decoder_attn_ms_mean"], errors="coerce"
+        ).to_numpy(dtype=float)
+    )
+    normalize = pd.to_numeric(
+        ordered_rows["normalize_ms_mean"], errors="coerce"
+    ).to_numpy(dtype=float)
+    linker = pd.to_numeric(
+        ordered_rows["linker_ms_mean"], errors="coerce"
+    ).to_numpy(dtype=float)
+
+    usable = (
+        np.isfinite(sequence_lengths)
+        & np.isfinite(totals)
+        & (totals > 0.0)
+        & np.isfinite(attention)
+        & np.isfinite(normalize)
+        & np.isfinite(linker)
+    )
+    if int(usable.sum()) < 2:
+        return None
+
+    usable_totals = totals[usable]
+    return pd.DataFrame(
+        {
+            "N": sequence_lengths[usable],
+            "attention": attention[usable] / usable_totals,
+            "normalize": normalize[usable] / usable_totals,
+            "linker": linker[usable] / usable_totals,
+            "other": (
+                usable_totals - attention[usable] - normalize[usable]
+                - linker[usable]
+            )
+            / usable_totals,
+        }
+    )
+
+
+def _build_time_fractions_figure(
+    summary: pd.DataFrame,
+) -> "plt.Figure | None":
+    """Build the 2×2 100%-stacked time-fraction figure (caller saves/closes).
+
+    One panel per canonical SPEC 0062 variant in
+    :data:`PARTS_VARIANT_ORDER`, each a :func:`matplotlib.axes.Axes.stackplot`
+    over ``N`` of the attention, normalisation, linker, and other fractions of
+    ``total_ms_mean`` (``B=1`` rows only, see :func:`_stacked_fraction_frame`).
+    Panels without usable data are annotated "no data"; variants outside the
+    canonical four are skipped with a warning rather than silently dropped.
+
+    Args:
+        summary: The summary frame from :func:`summarize_grid`.
+
+    Returns:
+        The matplotlib figure, or ``None`` when no variant has plottable rows.
+    """
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    b1_rows = _select_b1_rows(summary)
+    extra_variants = sorted(set(b1_rows["variant"]) - set(PARTS_VARIANT_ORDER))
+    if extra_variants:
+        print(
+            "[warn] --plot-parts time-fraction figure covers only "
+            f"{list(PARTS_VARIANT_ORDER)}; skipping variants {extra_variants}"
+        )
+
+    figure, axes = plt.subplots(
+        2, 2, figsize=(12.0, 8.0), layout="constrained"
+    )
+    legend_handles: list = []
+    legend_labels: list[str] = []
+    plotted_any = False
+    for panel_index, variant_name in enumerate(PARTS_VARIANT_ORDER):
+        axis = axes.ravel()[panel_index]
+        variant_rows = b1_rows[b1_rows["variant"] == variant_name]
+        fraction_frame = _stacked_fraction_frame(variant_rows)
+        axis.set_title(str(variant_name), fontsize="medium")
+        axis.set_ylabel("fraction of total_ms")
+        axis.set_ylim(0.0, 1.0)
+        axis.grid(True, alpha=0.3)
+        if panel_index >= 2:
+            axis.set_xlabel("N")
+        if fraction_frame is None:
+            _annotate_empty_panel(axis)
+            continue
+        _apply_plain_integer_n_ticks(axis, fraction_frame["N"])
+        stacked_areas = axis.stackplot(
+            fraction_frame["N"],
+            fraction_frame["attention"],
+            fraction_frame["normalize"],
+            fraction_frame["linker"],
+            fraction_frame["other"],
+            labels=[label for label, _color in TIME_FRACTION_STYLES],
+            colors=[color for _label, color in TIME_FRACTION_STYLES],
+            alpha=0.85,
+        )
+        plotted_any = True
+        if not legend_handles:
+            legend_handles = list(stacked_areas)
+            legend_labels = [label for label, _color in TIME_FRACTION_STYLES]
+    if not plotted_any:
+        plt.close(figure)
+        return None
+    if legend_handles:
+        figure.legend(
+            handles=legend_handles,
+            labels=legend_labels,
+            loc="outside upper center",
+            ncol=len(legend_labels),
+            fontsize="small",
+        )
+    return figure
+
+
+def _build_forward_time_memory_figure(
+    summary: pd.DataFrame,
+) -> "plt.Figure | None":
+    """Build the twin-axis forward-time/peak-memory figure (caller saves).
+
+    Left axis: ``full_forward_ms_mean`` (log scale, solid lines with ``o``
+    markers). Right axis: ``peak_mem_mb_max`` (log scale, dashed lines with
+    ``s`` markers). A variant keeps the same colour on both axes so the two
+    metrics stay attributable; the colour order follows first appearance in
+    the frame, matching the ``--plot-all`` figure. ``B=1`` rows only; log
+    axes skip missing and non-positive values.
+
+    Args:
+        summary: The summary frame from :func:`summarize_grid`.
+
+    Returns:
+        The matplotlib figure, or ``None`` when no variant has a plottable
+        forward-time or peak-memory value.
+    """
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.lines import Line2D
+
+    b1_rows = _select_b1_rows(summary)
+    has_forward = "full_forward_ms_mean" in b1_rows.columns
+    has_memory = "peak_mem_mb_max" in b1_rows.columns
+    if b1_rows.empty or not (has_forward or has_memory):
+        return None
+
+    variant_order = list(dict.fromkeys(b1_rows["variant"].tolist()))
+    color_cycle = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+    variant_colors = {
+        variant_name: color_cycle[index % len(color_cycle)]
+        for index, variant_name in enumerate(variant_order)
+    }
+
+    figure, axis = plt.subplots(
+        figsize=(10.5, 5.5), layout="constrained"
+    )
+    memory_axis = axis.twinx()
+    plotted_any = False
+    for variant_name in variant_order:
+        variant_rows = b1_rows[b1_rows["variant"] == variant_name].sort_values(
+            "N"
+        )
+        variant_color = variant_colors[str(variant_name)]
+        if has_forward:
+            forward_values = pd.to_numeric(
+                variant_rows["full_forward_ms_mean"], errors="coerce"
+            )
+            plottable = forward_values.notna() & (forward_values > 0)
+            if plottable.any():
+                kept_rows = variant_rows.loc[plottable]
+                axis.plot(
+                    kept_rows["N"],
+                    forward_values.loc[plottable],
+                    color=variant_color,
+                    marker="o",
+                    linestyle="-",
+                )
+                plotted_any = True
+        if has_memory:
+            memory_values = pd.to_numeric(
+                variant_rows["peak_mem_mb_max"], errors="coerce"
+            )
+            plottable = memory_values.notna() & (memory_values > 0)
+            if plottable.any():
+                kept_rows = variant_rows.loc[plottable]
+                memory_axis.plot(
+                    kept_rows["N"],
+                    memory_values.loc[plottable],
+                    color=variant_color,
+                    marker="s",
+                    linestyle="--",
+                )
+                plotted_any = True
+    if not plotted_any:
+        plt.close(figure)
+        return None
+
+    _apply_plain_integer_n_ticks(axis, b1_rows["N"])
+    axis.set_yscale("log")
+    memory_axis.set_yscale("log")
+    axis.set_xlabel("N")
+    axis.set_ylabel("full_forward_ms (ms, log scale)")
+    memory_axis.set_ylabel("peak_mem_mb (MB, log scale)")
+    axis.grid(True, alpha=0.3)
+
+    legend_handles = [
+        Line2D(
+            [],
+            [],
+            color=variant_colors[str(variant_name)],
+            marker="o",
+            linestyle="-",
+            label=str(variant_name),
+        )
+        for variant_name in variant_order
+    ]
+    legend_handles.extend(
+        (
+            Line2D(
+                [],
+                [],
+                color="black",
+                marker="o",
+                linestyle="-",
+                label="solid: forward time (left axis)",
+            ),
+            Line2D(
+                [],
+                [],
+                color="black",
+                marker="s",
+                linestyle="--",
+                label="dashed: peak memory (right axis)",
+            ),
+        )
+    )
+    figure.legend(
+        handles=legend_handles,
+        loc="outside upper center",
+        ncol=3,
+        fontsize="small",
+    )
+    axis.set_title("Forward time and peak memory vs N (B=1)")
+    return figure
+
+
+def _save_parts_figure(
+    figure: "plt.Figure", plot_path: Path, description: str
+) -> bool:
+    """Save and close one ``--plot-parts`` figure.
+
+    Args:
+        figure: The built figure; ownership passes to this function.
+        plot_path: Destination PNG path.
+        description: Human-readable figure name for the log line.
+
+    Returns:
+        ``True`` when the file was written, ``False`` on an ``OSError``.
+    """
+    import matplotlib.pyplot as plt
+
+    plot_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        figure.savefig(plot_path, dpi=150, bbox_inches="tight")
+    except OSError as error:
+        print(f"[warn] could not write plot {plot_path}: {error}")
+        plt.close(figure)
+        return False
+    plt.close(figure)
+    print(f"wrote {description}: {plot_path}")
+    return True
+
+
+def write_time_fractions_plot(summary: pd.DataFrame, plot_path: Path) -> bool:
+    """Write the 2×2 time-fraction PNG when matplotlib exists.
+
+    Args:
+        summary: The summary frame from :func:`summarize_grid`.
+        plot_path: Destination PNG path.
+
+    Returns:
+        ``True`` when a figure was written, ``False`` when matplotlib is
+        unavailable or no ``B=1`` variant has plottable rows.
+    """
+    try:
+        figure = _build_time_fractions_figure(summary)
+    except ImportError:
+        print("[warn] matplotlib is not available; skipping --plot-parts")
+        return False
+    if figure is None:
+        print(
+            "[warn] no B=1 time-fraction rows to plot; "
+            "skipping --plot-parts time-fractions figure"
+        )
+        return False
+    return _save_parts_figure(figure, plot_path, "time-fractions plot")
+
+
+def write_forward_time_memory_plot(
+    summary: pd.DataFrame, plot_path: Path
+) -> bool:
+    """Write the twin-axis forward-time/peak-memory PNG when matplotlib exists.
+
+    Args:
+        summary: The summary frame from :func:`summarize_grid`.
+        plot_path: Destination PNG path.
+
+    Returns:
+        ``True`` when a figure was written, ``False`` when matplotlib is
+        unavailable or no ``B=1`` variant has plottable rows.
+    """
+    try:
+        figure = _build_forward_time_memory_figure(summary)
+    except ImportError:
+        print("[warn] matplotlib is not available; skipping --plot-parts")
+        return False
+    if figure is None:
+        print(
+            "[warn] no B=1 forward/memory rows to plot; "
+            "skipping --plot-parts forward-time/memory figure"
+        )
+        return False
+    return _save_parts_figure(figure, plot_path, "forward-time/memory plot")
+
+
+def write_parts_plots(summary: pd.DataFrame, prefix: Path) -> bool:
+    """Write both ``--plot-parts`` figures derived from ``prefix``.
+
+    Writes ``<prefix>_time_fractions.png`` and
+    ``<prefix>_forward_time_memory.png``. Each figure is skipped with a
+    warning when matplotlib is unavailable or has no ``B=1`` rows to draw;
+    the two existing ``--plot``/``--plot-all`` figures are untouched.
+
+    Args:
+        summary: The summary frame from :func:`summarize_grid`.
+        prefix: Path prefix for the two PNG file names.
+
+    Returns:
+        ``True`` only when both PNG files were written.
+    """
+    time_fractions_written = write_time_fractions_plot(
+        summary, Path(f"{prefix}_time_fractions.png")
+    )
+    forward_memory_written = write_forward_time_memory_plot(
+        summary, Path(f"{prefix}_forward_time_memory.png")
+    )
+    return time_fractions_written and forward_memory_written
+
+
 def print_environment_provenance(environment: dict[str, object]) -> None:
     """Print the provenance fields that matter when reading the numbers.
 
@@ -910,6 +1401,8 @@ def main(argv: list[str] | None = None) -> int:
         write_summary_plot(summary, arguments.plot)
     if arguments.plot_all is not None:
         write_all_metrics_plot(summary, arguments.plot_all)
+    if arguments.plot_parts is not None:
+        write_parts_plots(summary, arguments.plot_parts)
     return 0
 
 

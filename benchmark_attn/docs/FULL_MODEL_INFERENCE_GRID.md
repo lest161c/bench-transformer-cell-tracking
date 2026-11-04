@@ -336,6 +336,30 @@ are skipped per variant and panel, and an empty panel is annotated
 an analysis artifact for reading the F6 numbers; it makes no accuracy or
 tracking-quality claim and is not a report figure.
 
+Parts plots (additive; from `benchmark_attn/`):
+
+```bash
+cd benchmark_attn
+.venv/bin/python analysis/summarize_full_model_inference_grid.py \
+  --plot-parts results/full_model_inference_grid_parts
+```
+
+`--plot-parts` (optional argument, default prefix
+`results/full_model_inference_grid_parts`) writes two decomposition PNGs
+from one prefix: `<prefix>_time_fractions.png` — 2×2 panels, one per
+variant (`relative_pos`, `cached_dist`, `sparse_mask_k16`,
+`sparse_gather_k16`), each a 100% stacked area over `N` of the attention
+(`encoder_attn_ms + decoder_attn_ms`), `normalize_ms`, `linker_ms`, and
+remaining "other" fraction of `total_ms`, `B=1` only, with a shared legend
+and missing/NaN cells dropped per variant; and
+`<prefix>_forward_time_memory.png` — `full_forward_ms` on the left log axis
+(solid lines + markers) and `peak_mem_mb` on the right log axis (dashed
+lines + markers), one colour per variant, `B=1` only. Both figures space
+`N` logarithmically (base 2) but label the x ticks with the plain integer
+sequence lengths (512, 1024, 2048, …, 32768), never power notation. The
+matplotlib fallback behaviour matches `--plot`/`--plot-all`. Both are
+analysis artifacts for reading the F6 numbers, not report figures.
+
 ## Caveats
 
 - **Training range.** The k16 checkpoint was trained at roughly `N≈50–200`

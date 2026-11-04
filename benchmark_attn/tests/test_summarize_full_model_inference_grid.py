@@ -4,7 +4,8 @@ The synthetic raw CSVs contain a small, hand-checkable grid: two variants, two
 repeats, and an explicit ``oom`` row. The assertions cover counts, sample
 standard deviation (including the single-repeat ``std=0`` case), the derived
 speedups and attention shares, the ``n/a`` handling when the baseline or a
-variant did not complete, and the optional ``--plot-all`` PNG output.
+variant did not complete, the optional ``--plot-all`` PNG output, and the
+optional ``--plot-parts`` two-figure decomposition output.
 """
 
 from __future__ import annotations
@@ -321,3 +322,82 @@ def test_plot_all_writes_multi_panel_png(tmp_path):
     assert exit_code == 0
     assert plot_path.exists()
     assert plot_path.stat().st_size > 0
+
+
+def test_plot_parts_writes_both_pngs(tmp_path):
+    """``--plot-parts`` writes the time-fraction and forward/memory PNGs.
+
+    The synthetic grid gives every canonical variant two ``N`` values so the
+    stacked areas have a range; one ``N=2048`` row with an empty
+    ``normalize_ms`` cell exercises the NaN-drop path, and the flag writes
+    both files through the full ``main()`` CLI path.
+    """
+    pytest.importorskip("matplotlib")
+    raw_path = tmp_path / "raw.csv"
+    parts_prefix = tmp_path / "parts"
+
+    rows = []
+    for sequence_length, scale in ((512, 1.0), (1024, 2.0)):
+        rows.append(
+            _ok_row(
+                "relative_pos", sequence_length, 0,
+                80.0 * scale, 100.0 * scale, 20.0 * scale, 10.0 * scale,
+                100.0 * scale,
+            )
+        )
+        rows.append(
+            _ok_row(
+                "cached_dist", sequence_length, 0,
+                70.0 * scale, 90.0 * scale, 15.0 * scale, 9.0 * scale,
+                150.0 * scale,
+            )
+        )
+        rows.append(
+            _ok_row(
+                "sparse_mask_k16", sequence_length, 0,
+                60.0 * scale, 80.0 * scale, 12.0 * scale, 8.0 * scale,
+                200.0 * scale,
+            )
+        )
+        rows.append(
+            _ok_row(
+                "sparse_gather_k16", sequence_length, 0,
+                50.0 * scale, 70.0 * scale, 10.0 * scale, 6.0 * scale,
+                250.0 * scale,
+            )
+        )
+    incomplete_row = _ok_row(
+        "sparse_mask_k16", 2048, 0, 120.0, 160.0, 24.0, 16.0, 300.0
+    )
+    incomplete_row["normalize_ms"] = ""
+    rows.append(incomplete_row)
+    _write_raw_csv(raw_path, rows)
+
+    exit_code = summary_module.main(
+        [
+            "--raw",
+            str(raw_path),
+            "--env-json",
+            str(tmp_path / "missing_env.json"),
+            "--out",
+            str(tmp_path / "summary.csv"),
+            "--plot-parts",
+            str(parts_prefix),
+        ]
+    )
+
+    time_fractions_png = tmp_path / "parts_time_fractions.png"
+    forward_memory_png = tmp_path / "parts_forward_time_memory.png"
+
+    assert exit_code == 0
+    assert time_fractions_png.exists()
+    assert time_fractions_png.stat().st_size > 0
+    assert forward_memory_png.exists()
+    assert forward_memory_png.stat().st_size > 0
+
+
+def test_plot_parts_cli_default_prefix():
+    """The bare flag selects the default prefix; omitting it selects None."""
+    arguments = summary_module.parse_arguments(["--plot-parts"])
+    assert arguments.plot_parts == summary_module.DEFAULT_PARTS_PNG_PREFIX
+    assert summary_module.parse_arguments([]).plot_parts is None
