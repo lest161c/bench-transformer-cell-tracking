@@ -30,17 +30,25 @@ attention module time, normalisation time, CPU linker time, and attention
 share — against ``N`` on a log2 axis, one line per variant, with the same
 matplotlib fallback behaviour as ``--plot``.
 
-The optional ``--plot-parts`` writes two decomposition PNGs from one path
+The optional ``--plot-parts`` writes three decomposition PNGs from one path
 prefix: ``<prefix>_time_fractions.png`` shows, per variant (2×2 panels,
 ``B=1`` only), a 100% stacked area over ``N`` of the attention
 (``encoder_attn_ms_mean + decoder_attn_ms_mean``), normalisation
 (``normalize_ms_mean``), linker (``linker_ms_mean``), and remaining "other"
-fractions of ``total_ms_mean``; ``<prefix>_forward_time_memory.png`` plots
-``full_forward_ms_mean`` (left axis, solid lines) against
-``peak_mem_mb_max`` (right axis, dashed lines) per variant on log axes.
-Both figures space ``N`` logarithmically (base 2) but label the x ticks
-with the plain integer sequence lengths (512, 1024, 2048, …), never power
-notation, and skip with a warning when matplotlib is unavailable.
+fractions of ``total_ms_mean``. ``<prefix>_forward_time.png`` and
+``<prefix>_memory.png`` are separate single-panel log-log figures styled
+after the attention-only H100 report panels
+(``curated/generate_report.py::panel_speed_vs_n_h100`` and
+``panel_memory_vs_n``): one solid measured line per canonical variant in
+Okabe-Ito colours (``o`` markers, size 2.2, linewidth 0.8), a frameless
+method legend in the upper left, y major ticks labelled as base-10 powers
+via ``LogFormatterMathtext``, and no projections because every plotted
+``N`` is measured. The forward-time figure plots ``full_forward_ms_mean``;
+the memory figure plots ``peak_mem_mb_max`` plus a grey dashed 94000 MB
+H100 VRAM reference line with a small label. All three figures space ``N``
+logarithmically (base 2) but label the x ticks with the plain integer
+sequence lengths (512, 1024, 2048, …), never power notation, and skip with
+a warning when matplotlib is unavailable.
 """
 
 from __future__ import annotations
@@ -108,6 +116,27 @@ TIME_FRACTION_STYLES: tuple[tuple[str, str], ...] = (
     ("linker", "#d62728"),
     ("other (residual of total_ms)", "#7f7f7f"),
 )
+
+#: Okabe-Ito colour per canonical ``--plot-parts`` variant, matching the
+#: attention-only H100 panels in ``curated/generate_report.py``
+#: (``panel_speed_vs_n_h100`` / ``panel_memory_vs_n``): the ``relative_pos``
+#: baseline is black, the ``cached_dist`` ablation vermilion,
+#: ``sparse_mask_k16`` sky blue, and ``sparse_gather_k16`` orange.
+PARTS_VARIANT_COLORS: dict[str, str] = {
+    "relative_pos": "#000000",
+    "cached_dist": "#D55E00",
+    "sparse_mask_k16": "#56B4E9",
+    "sparse_gather_k16": "#E69F00",
+}
+
+#: Figure size of the ``--plot-parts`` forward-time and memory figures,
+#: matching ``H100_FIGSIZE`` of the attention-only H100 panels.
+PARTS_LINE_FIGSIZE: tuple[float, float] = (5.6, 2.6)
+
+#: Grey dashed H100 VRAM reference line of the ``--plot-parts`` memory
+#: figure, in MB (the usable VRAM of an 80 GB H100, matching the attention-
+#: only memory panel).
+PARTS_MEMORY_VRAM_MB: float = 94000.0
 
 
 class AllMetricsPanel(NamedTuple):
@@ -253,12 +282,13 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         type=Path,
         help=(
-            "Optional two-figure decomposition PNG prefix. Writes "
+            "Optional three-figure decomposition PNG prefix. Writes "
             "<prefix>_time_fractions.png (2x2 100%%-stacked time-fraction "
-            "areas per variant, B=1) and <prefix>_forward_time_memory.png "
-            "(forward time vs peak memory twin-axis lines, B=1); plain "
-            "integer N ticks on both. Pass the flag alone to use "
-            f"{DEFAULT_PARTS_PNG_PREFIX}; omit it to skip."
+            "areas per variant, B=1), <prefix>_forward_time.png (log-log "
+            "forward time vs sequence length, B=1), and <prefix>_memory.png "
+            "(log-log GPU memory vs sequence length with the 94 GB H100 "
+            "VRAM line, B=1); plain integer N ticks on all three. Pass the "
+            f"flag alone to use {DEFAULT_PARTS_PNG_PREFIX}; omit it to skip."
         ),
     )
     return parser.parse_args(argv)
@@ -907,7 +937,7 @@ def write_all_metrics_plot(summary: pd.DataFrame, plot_path: Path) -> bool:
 def _select_b1_rows(summary: pd.DataFrame) -> pd.DataFrame:
     """Return the summary rows with ``B == 1``, the ``--plot-parts`` scope.
 
-    Both parts figures describe the primary production-large-``N`` case
+    The parts figures describe the primary production-large-``N`` case
     (``B=1``, SPEC 0062 §"Synthetic data recipe"). A missing batch size
     counts as "not ``B=1``" so an unexpected ``NaN`` group is never plotted.
 
@@ -1115,135 +1145,230 @@ def _build_time_fractions_figure(
     return figure
 
 
-def _build_forward_time_memory_figure(
+def _draw_variant_lines(
+    axis: "plt.Axes", b1_rows: pd.DataFrame, value_column: str
+) -> bool:
+    """Draw one solid measured Okabe-Ito line per canonical variant.
+
+    The line style mirrors ``panel_speed_vs_n_h100``/``panel_memory_vs_n``
+    in ``curated/generate_report.py``: solid lines with ``o`` markers
+    (markersize 2.2, linewidth 0.8) in the :data:`PARTS_VARIANT_COLORS`
+    colour of each :data:`PARTS_VARIANT_ORDER` variant. Log axes cannot
+    show missing or non-positive values, so such rows are skipped per
+    variant; there are no projections because every plotted point is a
+    measured summary value. Legend labels follow the draw order, which is
+    the canonical variant order shared with the time-fraction figure.
+
+    Args:
+        axis: The matplotlib axes to draw on.
+        b1_rows: The ``B=1`` summary rows from :func:`_select_b1_rows`.
+        value_column: Summary column to plot (``full_forward_ms_mean`` or
+            ``peak_mem_mb_max``).
+
+    Returns:
+        ``True`` when at least one variant line was drawn.
+    """
+    drew_line = False
+    for variant_name in PARTS_VARIANT_ORDER:
+        variant_rows = b1_rows[b1_rows["variant"] == variant_name].sort_values(
+            "N"
+        )
+        variant_values = pd.to_numeric(
+            variant_rows[value_column], errors="coerce"
+        )
+        plottable = variant_values.notna() & (variant_values > 0)
+        if not plottable.any():
+            continue
+        kept_rows = variant_rows.loc[plottable]
+        axis.plot(
+            kept_rows["N"],
+            variant_values.loc[plottable],
+            color=PARTS_VARIANT_COLORS[str(variant_name)],
+            marker="o",
+            markersize=2.2,
+            linewidth=0.8,
+            linestyle="-",
+            zorder=3,
+            label=str(variant_name),
+        )
+        drew_line = True
+    return drew_line
+
+
+def _style_parts_log_axis(
+    axis: "plt.Axes",
+    *,
+    ylabel: str,
+    title: str,
+    yticks: tuple[float, ...],
+) -> None:
+    """Apply the attention-only H100 panel y-axis style to a parts figure.
+
+    Mirrors ``curated/generate_report.py::_style_h100_log_axis`` with
+    ``y_log_math=True`` (the setting of both H100 body panels): a
+    logarithmic y-axis whose explicit major ticks are labelled as base-10
+    powers by :class:`~matplotlib.ticker.LogFormatterMathtext`, with minor
+    tick labels removed. The x-axis is configured separately by
+    :func:`_apply_plain_integer_n_ticks`.
+
+    Args:
+        axis: The matplotlib axes to style.
+        ylabel: Y-axis label (``Forward time (ms)`` or ``GPU memory (MB)``).
+        title: Panel title.
+        yticks: Explicit major tick locations on the logarithmic y-axis.
+    """
+    from matplotlib.ticker import LogFormatterMathtext, NullFormatter
+
+    axis.set_yscale("log")
+    axis.set_yticks(list(yticks))
+    axis.get_yaxis().set_major_formatter(LogFormatterMathtext(base=10))
+    axis.get_yaxis().set_minor_formatter(NullFormatter())
+    axis.grid(True, alpha=0.3)
+    axis.set_xlabel("Sequence length $N$")
+    axis.set_ylabel(ylabel)
+    axis.set_title(title)
+
+
+def _build_parts_variant_figure(
+    summary: pd.DataFrame,
+    *,
+    value_column: str,
+    ylabel: str,
+    title: str,
+    yticks: tuple[float, ...],
+    vram_line_mb: float | None = None,
+) -> "plt.Figure | None":
+    """Build one H100-styled single-panel parts figure (caller saves/closes).
+
+    Shared implementation of :func:`_build_forward_time_figure` and
+    :func:`_build_memory_figure`. The figure is a single log-log panel of
+    :data:`PARTS_LINE_FIGSIZE` with one solid measured line per canonical
+    variant (see :func:`_draw_variant_lines`), plain integer ``N`` tick
+    labels, the shared H100 y-axis style (see
+    :func:`_style_parts_log_axis`), and a frameless method legend in the
+    upper left. Variants outside the canonical four are skipped with a
+    warning, matching the time-fraction figure.
+
+    Args:
+        summary: The summary frame from :func:`summarize_grid`.
+        value_column: Summary column plotted per variant.
+        ylabel: Y-axis label.
+        title: Panel title.
+        yticks: Explicit major tick locations on the logarithmic y-axis.
+        vram_line_mb: When given, draw the grey dashed H100 VRAM reference
+            line at this memory value with a small text label (the label
+            position matches ``panel_memory_vs_n`` on the standard
+            512–32768 ``N`` grid) and widen the top of the view so the line
+            and label stay visible when the measured memory stays below it
+            (``axhline`` never participates in autoscaling).
+
+    Returns:
+        The matplotlib figure, or ``None`` when the ``B=1`` rows are empty,
+        the value column is absent, or no variant has a plottable value.
+    """
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    b1_rows = _select_b1_rows(summary)
+    if b1_rows.empty or value_column not in b1_rows.columns:
+        return None
+    extra_variants = sorted(set(b1_rows["variant"]) - set(PARTS_VARIANT_ORDER))
+    if extra_variants:
+        print(
+            "[warn] --plot-parts forward-time/memory figures cover only "
+            f"{list(PARTS_VARIANT_ORDER)}; skipping variants {extra_variants}"
+        )
+
+    figure, axis = plt.subplots(figsize=PARTS_LINE_FIGSIZE)
+    if not _draw_variant_lines(axis, b1_rows, value_column):
+        plt.close(figure)
+        return None
+
+    _apply_plain_integer_n_ticks(axis, b1_rows["N"])
+    _style_parts_log_axis(axis, ylabel=ylabel, title=title, yticks=yticks)
+    axis.autoscale_view()
+    if vram_line_mb is not None:
+        axis.axhline(
+            vram_line_mb,
+            color="#999999",
+            linewidth=1.0,
+            linestyle="--",
+            zorder=1,
+        )
+        axis.text(
+            9000,
+            105000,
+            "94 GB H100 VRAM",
+            fontsize=5.5,
+            color="#666666",
+            ha="left",
+            va="bottom",
+        )
+        # Measured memory on this grid stays below the VRAM line, so the
+        # autoscaled view would hide the reference line; widen the top of
+        # the view to include it, with headroom above the line for the
+        # small text label.
+        _view_bottom, view_top = axis.get_ylim()
+        axis.set_ylim(top=max(view_top, vram_line_mb * 2.0))
+    axis.legend(loc="upper left", frameon=False, fontsize="small")
+    figure.tight_layout()
+    return figure
+
+
+def _build_forward_time_figure(
     summary: pd.DataFrame,
 ) -> "plt.Figure | None":
-    """Build the twin-axis forward-time/peak-memory figure (caller saves).
+    """Build the H100-styled forward-time figure (caller saves/closes).
 
-    Left axis: ``full_forward_ms_mean`` (log scale, solid lines with ``o``
-    markers). Right axis: ``peak_mem_mb_max`` (log scale, dashed lines with
-    ``s`` markers). A variant keeps the same colour on both axes so the two
-    metrics stay attributable; the colour order follows first appearance in
-    the frame, matching the ``--plot-all`` figure. ``B=1`` rows only; log
-    axes skip missing and non-positive values.
+    Single log-log panel of ``full_forward_ms_mean`` per canonical variant
+    (``B=1`` rows only), styled after
+    ``curated/generate_report.py::panel_speed_vs_n_h100``; see
+    :func:`_build_parts_variant_figure` for the shared styling.
 
     Args:
         summary: The summary frame from :func:`summarize_grid`.
 
     Returns:
         The matplotlib figure, or ``None`` when no variant has a plottable
-        forward-time or peak-memory value.
+        forward-time value.
     """
-    import matplotlib
-
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-    from matplotlib.lines import Line2D
-
-    b1_rows = _select_b1_rows(summary)
-    has_forward = "full_forward_ms_mean" in b1_rows.columns
-    has_memory = "peak_mem_mb_max" in b1_rows.columns
-    if b1_rows.empty or not (has_forward or has_memory):
-        return None
-
-    variant_order = list(dict.fromkeys(b1_rows["variant"].tolist()))
-    color_cycle = plt.rcParams["axes.prop_cycle"].by_key()["color"]
-    variant_colors = {
-        variant_name: color_cycle[index % len(color_cycle)]
-        for index, variant_name in enumerate(variant_order)
-    }
-
-    figure, axis = plt.subplots(
-        figsize=(10.5, 5.5), layout="constrained"
+    return _build_parts_variant_figure(
+        summary,
+        value_column="full_forward_ms_mean",
+        ylabel="Forward time (ms)",
+        title="Forward time vs sequence length (B=1)",
+        yticks=(0.1, 1.0, 10.0, 100.0, 1000.0, 10000.0),
     )
-    memory_axis = axis.twinx()
-    plotted_any = False
-    for variant_name in variant_order:
-        variant_rows = b1_rows[b1_rows["variant"] == variant_name].sort_values(
-            "N"
-        )
-        variant_color = variant_colors[str(variant_name)]
-        if has_forward:
-            forward_values = pd.to_numeric(
-                variant_rows["full_forward_ms_mean"], errors="coerce"
-            )
-            plottable = forward_values.notna() & (forward_values > 0)
-            if plottable.any():
-                kept_rows = variant_rows.loc[plottable]
-                axis.plot(
-                    kept_rows["N"],
-                    forward_values.loc[plottable],
-                    color=variant_color,
-                    marker="o",
-                    linestyle="-",
-                )
-                plotted_any = True
-        if has_memory:
-            memory_values = pd.to_numeric(
-                variant_rows["peak_mem_mb_max"], errors="coerce"
-            )
-            plottable = memory_values.notna() & (memory_values > 0)
-            if plottable.any():
-                kept_rows = variant_rows.loc[plottable]
-                memory_axis.plot(
-                    kept_rows["N"],
-                    memory_values.loc[plottable],
-                    color=variant_color,
-                    marker="s",
-                    linestyle="--",
-                )
-                plotted_any = True
-    if not plotted_any:
-        plt.close(figure)
-        return None
 
-    _apply_plain_integer_n_ticks(axis, b1_rows["N"])
-    axis.set_yscale("log")
-    memory_axis.set_yscale("log")
-    axis.set_xlabel("N")
-    axis.set_ylabel("full_forward_ms (ms, log scale)")
-    memory_axis.set_ylabel("peak_mem_mb (MB, log scale)")
-    axis.grid(True, alpha=0.3)
 
-    legend_handles = [
-        Line2D(
-            [],
-            [],
-            color=variant_colors[str(variant_name)],
-            marker="o",
-            linestyle="-",
-            label=str(variant_name),
-        )
-        for variant_name in variant_order
-    ]
-    legend_handles.extend(
-        (
-            Line2D(
-                [],
-                [],
-                color="black",
-                marker="o",
-                linestyle="-",
-                label="solid: forward time (left axis)",
-            ),
-            Line2D(
-                [],
-                [],
-                color="black",
-                marker="s",
-                linestyle="--",
-                label="dashed: peak memory (right axis)",
-            ),
-        )
+def _build_memory_figure(
+    summary: pd.DataFrame,
+) -> "plt.Figure | None":
+    """Build the H100-styled GPU-memory figure (caller saves/closes).
+
+    Single log-log panel of ``peak_mem_mb_max`` per canonical variant
+    (``B=1`` rows only) with the grey dashed 94000 MB H100 VRAM reference
+    line of the attention-only memory panel, styled after
+    ``curated/generate_report.py::panel_memory_vs_n``; see
+    :func:`_build_parts_variant_figure` for the shared styling.
+
+    Args:
+        summary: The summary frame from :func:`summarize_grid`.
+
+    Returns:
+        The matplotlib figure, or ``None`` when no variant has a plottable
+        peak-memory value.
+    """
+    return _build_parts_variant_figure(
+        summary,
+        value_column="peak_mem_mb_max",
+        ylabel="GPU memory (MB)",
+        title="GPU memory vs sequence length (B=1)",
+        yticks=(100.0, 1000.0, 10000.0, 100000.0, 1000000.0),
+        vram_line_mb=PARTS_MEMORY_VRAM_MB,
     )
-    figure.legend(
-        handles=legend_handles,
-        loc="outside upper center",
-        ncol=3,
-        fontsize="small",
-    )
-    axis.set_title("Forward time and peak memory vs N (B=1)")
-    return figure
 
 
 def _save_parts_figure(
@@ -1298,10 +1423,8 @@ def write_time_fractions_plot(summary: pd.DataFrame, plot_path: Path) -> bool:
     return _save_parts_figure(figure, plot_path, "time-fractions plot")
 
 
-def write_forward_time_memory_plot(
-    summary: pd.DataFrame, plot_path: Path
-) -> bool:
-    """Write the twin-axis forward-time/peak-memory PNG when matplotlib exists.
+def write_forward_time_plot(summary: pd.DataFrame, plot_path: Path) -> bool:
+    """Write the H100-styled forward-time PNG when matplotlib exists.
 
     Args:
         summary: The summary frame from :func:`summarize_grid`.
@@ -1309,44 +1432,70 @@ def write_forward_time_memory_plot(
 
     Returns:
         ``True`` when a figure was written, ``False`` when matplotlib is
-        unavailable or no ``B=1`` variant has plottable rows.
+        unavailable or no ``B=1`` variant has a plottable forward-time value.
     """
     try:
-        figure = _build_forward_time_memory_figure(summary)
+        figure = _build_forward_time_figure(summary)
     except ImportError:
         print("[warn] matplotlib is not available; skipping --plot-parts")
         return False
     if figure is None:
         print(
-            "[warn] no B=1 forward/memory rows to plot; "
-            "skipping --plot-parts forward-time/memory figure"
+            "[warn] no B=1 forward-time rows to plot; "
+            "skipping --plot-parts forward-time figure"
         )
         return False
-    return _save_parts_figure(figure, plot_path, "forward-time/memory plot")
+    return _save_parts_figure(figure, plot_path, "forward-time plot")
 
 
-def write_parts_plots(summary: pd.DataFrame, prefix: Path) -> bool:
-    """Write both ``--plot-parts`` figures derived from ``prefix``.
-
-    Writes ``<prefix>_time_fractions.png`` and
-    ``<prefix>_forward_time_memory.png``. Each figure is skipped with a
-    warning when matplotlib is unavailable or has no ``B=1`` rows to draw;
-    the two existing ``--plot``/``--plot-all`` figures are untouched.
+def write_memory_plot(summary: pd.DataFrame, plot_path: Path) -> bool:
+    """Write the H100-styled GPU-memory PNG when matplotlib exists.
 
     Args:
         summary: The summary frame from :func:`summarize_grid`.
-        prefix: Path prefix for the two PNG file names.
+        plot_path: Destination PNG path.
 
     Returns:
-        ``True`` only when both PNG files were written.
+        ``True`` when a figure was written, ``False`` when matplotlib is
+        unavailable or no ``B=1`` variant has a plottable peak-memory value.
+    """
+    try:
+        figure = _build_memory_figure(summary)
+    except ImportError:
+        print("[warn] matplotlib is not available; skipping --plot-parts")
+        return False
+    if figure is None:
+        print(
+            "[warn] no B=1 memory rows to plot; "
+            "skipping --plot-parts memory figure"
+        )
+        return False
+    return _save_parts_figure(figure, plot_path, "memory plot")
+
+
+def write_parts_plots(summary: pd.DataFrame, prefix: Path) -> bool:
+    """Write the three ``--plot-parts`` figures derived from ``prefix``.
+
+    Writes ``<prefix>_time_fractions.png``, ``<prefix>_forward_time.png``,
+    and ``<prefix>_memory.png``. Each figure is skipped with a warning when
+    matplotlib is unavailable or has no ``B=1`` rows to draw; the two
+    existing ``--plot``/``--plot-all`` figures are untouched.
+
+    Args:
+        summary: The summary frame from :func:`summarize_grid`.
+        prefix: Path prefix for the three PNG file names.
+
+    Returns:
+        ``True`` only when all three PNG files were written.
     """
     time_fractions_written = write_time_fractions_plot(
         summary, Path(f"{prefix}_time_fractions.png")
     )
-    forward_memory_written = write_forward_time_memory_plot(
-        summary, Path(f"{prefix}_forward_time_memory.png")
+    forward_time_written = write_forward_time_plot(
+        summary, Path(f"{prefix}_forward_time.png")
     )
-    return time_fractions_written and forward_memory_written
+    memory_written = write_memory_plot(summary, Path(f"{prefix}_memory.png"))
+    return time_fractions_written and forward_time_written and memory_written
 
 
 def print_environment_provenance(environment: dict[str, object]) -> None:

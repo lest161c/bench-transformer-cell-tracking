@@ -5,7 +5,7 @@ repeats, and an explicit ``oom`` row. The assertions cover counts, sample
 standard deviation (including the single-repeat ``std=0`` case), the derived
 speedups and attention shares, the ``n/a`` handling when the baseline or a
 variant did not complete, the optional ``--plot-all`` PNG output, and the
-optional ``--plot-parts`` two-figure decomposition output.
+optional ``--plot-parts`` three-figure decomposition output.
 """
 
 from __future__ import annotations
@@ -324,13 +324,15 @@ def test_plot_all_writes_multi_panel_png(tmp_path):
     assert plot_path.stat().st_size > 0
 
 
-def test_plot_parts_writes_both_pngs(tmp_path):
-    """``--plot-parts`` writes the time-fraction and forward/memory PNGs.
+def test_plot_parts_writes_three_pngs(tmp_path):
+    """``--plot-parts`` writes the time-fraction, forward-time, and memory PNGs.
 
     The synthetic grid gives every canonical variant two ``N`` values so the
-    stacked areas have a range; one ``N=2048`` row with an empty
-    ``normalize_ms`` cell exercises the NaN-drop path, and the flag writes
-    both files through the full ``main()`` CLI path.
+    stacked areas have a range and both log-log panels have lines; one
+    ``N=2048`` row with an empty ``normalize_ms`` cell exercises the NaN-drop
+    path, and the flag writes all three files through the full ``main()``
+    CLI path. The removed twin-axis ``<prefix>_forward_time_memory.png``
+    must no longer be written.
     """
     pytest.importorskip("matplotlib")
     raw_path = tmp_path / "raw.csv"
@@ -387,13 +389,17 @@ def test_plot_parts_writes_both_pngs(tmp_path):
     )
 
     time_fractions_png = tmp_path / "parts_time_fractions.png"
-    forward_memory_png = tmp_path / "parts_forward_time_memory.png"
+    forward_time_png = tmp_path / "parts_forward_time.png"
+    memory_png = tmp_path / "parts_memory.png"
 
     assert exit_code == 0
     assert time_fractions_png.exists()
     assert time_fractions_png.stat().st_size > 0
-    assert forward_memory_png.exists()
-    assert forward_memory_png.stat().st_size > 0
+    assert forward_time_png.exists()
+    assert forward_time_png.stat().st_size > 0
+    assert memory_png.exists()
+    assert memory_png.stat().st_size > 0
+    assert not (tmp_path / "parts_forward_time_memory.png").exists()
 
 
 def test_plot_parts_cli_default_prefix():

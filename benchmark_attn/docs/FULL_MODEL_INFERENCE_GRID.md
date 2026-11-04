@@ -345,20 +345,27 @@ cd benchmark_attn
 ```
 
 `--plot-parts` (optional argument, default prefix
-`results/full_model_inference_grid_parts`) writes two decomposition PNGs
+`results/full_model_inference_grid_parts`) writes three decomposition PNGs
 from one prefix: `<prefix>_time_fractions.png` — 2×2 panels, one per
 variant (`relative_pos`, `cached_dist`, `sparse_mask_k16`,
 `sparse_gather_k16`), each a 100% stacked area over `N` of the attention
 (`encoder_attn_ms + decoder_attn_ms`), `normalize_ms`, `linker_ms`, and
 remaining "other" fraction of `total_ms`, `B=1` only, with a shared legend
-and missing/NaN cells dropped per variant; and
-`<prefix>_forward_time_memory.png` — `full_forward_ms` on the left log axis
-(solid lines + markers) and `peak_mem_mb` on the right log axis (dashed
-lines + markers), one colour per variant, `B=1` only. Both figures space
-`N` logarithmically (base 2) but label the x ticks with the plain integer
-sequence lengths (512, 1024, 2048, …, 32768), never power notation. The
-matplotlib fallback behaviour matches `--plot`/`--plot-all`. Both are
-analysis artifacts for reading the F6 numbers, not report figures.
+and missing/NaN cells dropped per variant; `<prefix>_forward_time.png` —
+log-log forward time (`full_forward_ms`) vs sequence length, `B=1` only;
+and `<prefix>_memory.png` — log-log GPU memory (`peak_mem_mb`) vs sequence
+length with a grey dashed 94 GB H100 VRAM reference line, `B=1` only. The
+forward-time and memory figures are separate single panels styled after the
+attention-only H100 report panels (`curated/generate_report.py::
+panel_speed_vs_n_h100` and `panel_memory_vs_n`): one solid measured line
+per variant in Okabe-Ito colours (black, vermilion, sky blue, orange;
+`o` markers, size 2.2, linewidth 0.8), a frameless method legend in the
+upper left, y major ticks labelled as base-10 powers, and no projections
+(all plotted `N` are measured). All three figures space `N` logarithmically
+(base 2) but label the x ticks with the plain integer sequence lengths
+(512, 1024, 2048, …, 32768), never power notation. The matplotlib fallback
+behaviour matches `--plot`/`--plot-all`. All three are analysis artifacts
+for reading the F6 numbers, not report figures.
 
 ## Caveats
 
