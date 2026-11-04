@@ -60,6 +60,7 @@ Detailed results are kept in the per-experiment documentation next to the code:
 | Area | Where results live |
 |---|---|
 | Sparse attention micro-benchmarks (DenseFlashAttention vs SparseGatherAttention vs SparseMaskAttention, CachedDistAttention, backward, speed/memory) | `benchmark_attn/REPRODUCTION.md` |
+| Full-model inference grid (full Trackastra chain, B=1/B=64, timing-only) | `benchmark_attn/REPRODUCTION.md` §2.8 |
 | CNN feature injection, edge probing, DeepCell cross-dataset | `benchmark_ssl/docs/REPRODUCTION.md` |
 | Clean K-sweep training (convergence, TRA/AOGM) | `benchmark_training/docs/REPRODUCTION.md` |
 

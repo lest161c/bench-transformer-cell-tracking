@@ -110,6 +110,128 @@ cd benchmark_attn && uv run python analysis/plot_sparse.py
 # writes results/benchmark_sparse.html
 ```
 
+### 2.8 Full-model inference grid (SPEC 0062)
+
+Purpose: benchmark the **full Trackastra inference chain** — `Trackastra.from_folder`
+model from the `checkpoints/k16` checkpoint, embedding, encoder, decoder,
+association head, logits `einsum`, `normalize_output`, and (B=1 only) the CPU
+linker — with the four attention variants swapped into every encoder/decoder
+layer (`relative_pos`, `cached_dist`, `sparse_mask_k16`, `sparse_gather_k16`).
+**Timing-only** on synthetic inputs (seed 42, uniform layout, KNN indices
+precomputed outside the timed region); **no accuracy, tracking-quality, or
+out-of-distribution claim**. Two grids: B=1 (`N=512,1024,2048,4096,8192,16384,32768`,
+the primary production-large-`N` case) and B=64 (`N=512,1024,2048,4096,8192`,
+batch-replicated sample). Full protocol:
+`benchmark_attn/docs/FULL_MODEL_INFERENCE_GRID.md`.
+
+Exact cluster commands (H100, job `4525463`, 2026-11-04, partition `capella`;
+interpreter `$TRK/.venv/bin/python` — the Trackastra checkout's venv, which has
+dask/trackastra installed editable, unlike `benchmark_attn/.venv`):
+
+```bash
+# B=1 primary grid (84 raw rows, all ok)
+cd "$BENCH/benchmark_attn" && "$TRK/.venv/bin/python" scripts/benchmarks/benchmark_full_model_inference_grid.py \
+    --checkpoint ../checkpoints/k16 \
+    --variants relative_pos,cached_dist,sparse_mask_k16,sparse_gather_k16 \
+    --Ns 512,1024,2048,4096,8192,16384,32768 \
+    --batch-sizes 1 \
+    --repeats 3 \
+    --warmup 5 \
+    --seed 42 \
+    --device cuda \
+    --dtype fp16 \
+    --coord-layout uniform \
+    --linker-mode greedy \
+    --out results/full_model_inference_grid.csv \
+    --env-json results/full_model_inference_grid_env.json \
+    --summary results/full_model_inference_grid_summary.csv
+
+# B=64 batch grid (60 raw rows: 54 ok, 6 oom)
+cd "$BENCH/benchmark_attn" && "$TRK/.venv/bin/python" scripts/benchmarks/benchmark_full_model_inference_grid.py \
+    --checkpoint ../checkpoints/k16 \
+    --variants relative_pos,cached_dist,sparse_mask_k16,sparse_gather_k16 \
+    --Ns 512,1024,2048,4096,8192 \
+    --batch-sizes 64 \
+    --repeats 3 \
+    --warmup 5 \
+    --seed 42 \
+    --device cuda \
+    --dtype fp16 \
+    --coord-layout uniform \
+    --linker-mode greedy \
+    --out results/full_model_inference_grid_b64.csv \
+    --env-json results/full_model_inference_grid_b64_env.json \
+    --summary results/full_model_inference_grid_b64_summary.csv
+```
+
+Job `4525463` ran both grids in one job; logs
+`benchmark_attn/logs/full_model_memclean_4525463.{out,err}`. It is the final
+**memory-cleanup rerun**: the repeat loop runs `gc.collect()` +
+`torch.cuda.empty_cache()` before every repeat's baseline capture and releases
+each repeat's `association`/`normalized_association` tensors in its `finally`
+block. The same-day job `4525220` is superseded — its memory values were
+contaminated by retained tensors and must not be quoted.
+
+Rendering (candidate figures; not `\includegraphics`'d in the report — F7
+pending). From the repository root:
+
+```bash
+python curated/generate_report.py   # panel_full_model_inference_grid
+```
+
+or the standalone analyzer (writes PNG analysis artifacts):
+
+```bash
+cd benchmark_attn && .venv/bin/python analysis/summarize_full_model_inference_grid.py \
+    --plot-parts results/full_model_inference_grid_parts \
+    --plot-ratios results/full_model_inference_grid_ratios
+
+cd benchmark_attn && .venv/bin/python analysis/summarize_full_model_inference_grid.py \
+    --raw results/full_model_inference_grid_b64.csv \
+    --env-json results/full_model_inference_grid_b64_env.json \
+    --out results/full_model_inference_grid_b64_summary.csv \
+    --plot-batch 64 \
+    --plot-parts results/full_model_inference_grid_b64_parts \
+    --plot-ratios results/full_model_inference_grid_b64_ratios
+```
+
+Artifacts:
+
+- Raw / summary / environment CSVs and JSONs:
+  `results/full_model_inference_grid{,_summary}.csv` +
+  `results/full_model_inference_grid_env.json` (B=1);
+  `results/full_model_inference_grid_b64{,_summary}.csv` +
+  `results/full_model_inference_grid_b64_env.json` (B=64).
+- Curated figure set under `curated/figures/` (PDF + SVG + `.meta.json`
+  sidecar each): `full_model_inference_grid_parts_{time_fractions,forward_time,memory}`,
+  `full_model_inference_grid_component_ratios` (B=1) and
+  `full_model_inference_grid_b64_parts_{time_fractions,forward_time,memory}`,
+  `full_model_inference_grid_b64_component_ratios` (B=64).
+- Standalone analyzer PNGs under `benchmark_attn/results/`:
+  `full_model_inference_grid_parts_{time_fractions,forward_time,memory}.png`,
+  `full_model_inference_grid_component_ratios.png`, plus the `_b64_`/`_b64`
+  prefixed counterparts, `full_model_inference_grid_summary.png`, and
+  `full_model_inference_grid_all_metrics.png`.
+
+Caveats:
+
+- **B=64 dense OOM at `N=8192`:** `relative_pos` and `cached_dist` OOM in all
+  3 repeats (the `N×N` allocations of the dense path exceed the H100's 80 GB
+  at this batch); the rows are recorded, not dropped, and speedups there are
+  `n/a` because the baseline OOMed.
+- **Linker skipped for `B>1`:** all B=64 rows carry
+  `linker_status=skipped_b_gt_1`, so `total_ms = full_forward_ms +
+  normalize_ms` there. Never compare a B=64 `total_ms` against the B=1 one as
+  if both included linker time.
+- **Total peak VRAM, not delta:** the memory figure plots
+  `peak_mem_reserved_mb_max` — the total peak VRAM reserved by the caching
+  allocator during a repeat (segments including cached free blocks;
+  reserved ≥ allocated, includes the model-weight baseline). The incremental
+  `peak_mem_mb` delta is a separate column and is never plotted as "memory".
+- **Synthetic data, no accuracy claim:** inputs are seeded synthetic
+  coordinates/features; the k16 checkpoint was trained at `N≈50–200` cells per
+  frame, so the large-`N` grid is a synthetic timing stress test only.
+
 ---
 
 ## 3. Cluster requirements

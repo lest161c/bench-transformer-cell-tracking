@@ -16,6 +16,7 @@ in its docstring; see ``REPRODUCIBILITY.md`` for the full map.
 """
 
 import os, sys, math, json
+import importlib.util
 import inspect
 import pandas as pd
 import numpy as np
@@ -1427,6 +1428,115 @@ def panel_mask_decomposition():
 
 
 # ═══════════════════════════════════════════════════════════════
+# 8b. Full-model inference grid (SPEC 0062; timing-only, candidate
+#     figures — F7 report integration pending)
+# ═══════════════════════════════════════════════════════════════
+# Data artifacts: the summary CSVs of the H100 full-model inference grid
+# (job 4525463, 2026-11-04): benchmark_attn/results/
+# full_model_inference_grid_summary.csv (B=1) and
+# full_model_inference_grid_b64_summary.csv (B=64).
+FULL_MODEL_GRID_SUMMARIZER_PATH = (ROOT / 'benchmark_attn' / 'analysis' /
+                                   'summarize_full_model_inference_grid.py')
+B1_GRID_SUMMARY_CSV = (ROOT / 'benchmark_attn' / 'results' /
+                       'full_model_inference_grid_summary.csv')
+B64_GRID_SUMMARY_CSV = (ROOT / 'benchmark_attn' / 'results' /
+                        'full_model_inference_grid_b64_summary.csv')
+
+# Figure-name suffix → builder function name in the analysis module and
+# short description of the plotted summary means (the meta sidecar's
+# "values" field). The suffix is appended to "full_model_inference_grid"
+# (B=1) / "full_model_inference_grid_b64" (B=64).
+GRID_FIGURE_SPECS = (
+    ('_parts_time_fractions', '_build_time_fractions_figure',
+     'per-variant 100% stacked time fractions of total_ms_mean '
+     '(attention = encoder_attn + decoder_attn, normalize, linker, '
+     'other residual)'),
+    ('_parts_forward_time', '_build_forward_time_figure',
+     'full_forward_ms_mean per variant (log-log; mean over the ok '
+     'repeats)'),
+    ('_parts_memory', '_build_memory_figure',
+     'peak_mem_reserved_mb_max per variant = total peak reserved VRAM '
+     'during a repeat (not the incremental delta)'),
+    ('_component_ratios', '_build_component_ratios_figure',
+     'component mean ratios variant / relative_pos (total_ms, '
+     'full_forward_ms, attention modules, normalize, linker when timed; '
+     'below 1.0 = variant component faster)'),
+)
+
+
+def panel_full_model_inference_grid():
+    """SPEC 0062 candidate figures: full-model inference grid, B=1 and B=64.
+
+    Renders the four ``--plot-parts``/``--plot-ratios`` figures of the
+    standalone analyzer ``benchmark_attn/analysis/
+    summarize_full_model_inference_grid.py`` (loaded via
+    ``importlib.util.spec_from_file_location``; the module is not imported
+    as a package because it lives outside ``sys.path`` as a sibling
+    project's analysis script) from the two grid summary CSVs
+    (``full_model_inference_grid_summary.csv`` for B=1 and
+    ``full_model_inference_grid_b64_summary.csv`` for B=64). Per batch the
+    four figures are ``_parts_time_fractions`` (2×2 stacked time
+    fractions of ``total_ms_mean``), ``_parts_forward_time``
+    (``full_forward_ms_mean``), ``_parts_memory``
+    (``peak_mem_reserved_mb_max``, total peak reserved VRAM), and
+    ``_component_ratios`` (component means vs the ``relative_pos``
+    baseline). A builder returning ``None`` (no plottable rows for that
+    batch) is skipped with a printed note instead of aborting the panel.
+
+    Data provenance: H100 job 4525463 (2026-11-04, memory-cleanup rerun;
+    supersedes job 4525220), full Trackastra inference chain from the k16
+    checkpoint, synthetic inputs (seed 42), timing only.
+
+    Caveats carried in every meta sidecar: timing-only experiment on
+    synthetic data; the memory figure plots the TOTAL peak reserved VRAM
+    (caching-allocator reserved, including the model-weight baseline),
+    not the incremental delta; no accuracy or tracking-quality claim.
+
+    Candidate figures only: not ``\\includegraphics``'d in the report
+    (F7 pending). See ``REPRODUCIBILITY.md`` §1a and
+    ``benchmark_attn/REPRODUCTION.md`` §2.8.
+
+    Returns:
+        List of saved PDF file names (the ``save()`` return values) for
+        the ``__main__`` figure list; empty when every builder skipped.
+    """
+    spec = importlib.util.spec_from_file_location(
+        'summarize_full_model_inference_grid', FULL_MODEL_GRID_SUMMARIZER_PATH)
+    inference_grid_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(inference_grid_module)
+
+    sidecar_note = ('timing-only experiment on synthetic data (seed 42); '
+                    'memory figure shows total peak reserved VRAM '
+                    '(caching-allocator reserved, includes the '
+                    'model-weight baseline), not the incremental delta; '
+                    'no accuracy or tracking-quality claim')
+    figure_names = []
+    for batch_size, summary_csv in ((1, B1_GRID_SUMMARY_CSV),
+                                    (64, B64_GRID_SUMMARY_CSV)):
+        summary = pd.read_csv(summary_csv)
+        name_prefix = ('full_model_inference_grid' if batch_size == 1
+                       else 'full_model_inference_grid_b64')
+        meta = {
+            'sources': [str(B1_GRID_SUMMARY_CSV), str(B64_GRID_SUMMARY_CSV)],
+            'batch_size': batch_size,
+            'note': sidecar_note,
+        }
+        for name_suffix, builder_name, values_description in GRID_FIGURE_SPECS:
+            builder = getattr(inference_grid_module, builder_name)
+            figure = builder(summary, batch_size)
+            if figure is None:
+                print(f'  [full-model grid B={batch_size}] '
+                      f'{name_prefix}{name_suffix}: builder returned None '
+                      '(no plottable rows) — skipped')
+                continue
+            plt.figure(figure.number)
+            figure_names.append(save(f'{name_prefix}{name_suffix}',
+                                     meta={**meta,
+                                          'values': values_description}))
+    return figure_names
+
+
+# ═══════════════════════════════════════════════════════════════
 # 9. Per-Epoch Training Time
 # ═══════════════════════════════════════════════════════════════
 def panel_per_epoch_time():
@@ -1905,6 +2015,7 @@ if __name__ == '__main__':
     figs.append(panel_dist_cache_effect())
     figs.append(panel_b64_saturation())
     figs.append(panel_mask_decomposition())
+    figs.extend(panel_full_model_inference_grid())
     figs.append(panel_convergence())
     figs.append(panel_tra())
     figs.append(panel_aogm())

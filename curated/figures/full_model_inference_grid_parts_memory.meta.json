@@ -1,0 +1,12 @@
+{
+  "figure": "full_model_inference_grid_parts_memory",
+  "created_utc": "2026-11-04T14:35:10.477275+00:00",
+  "generator": "curated/generate_report.py",
+  "sources": [
+    "/home/leonard.starke@mediainterface.de/Dokumente/Uni/research-proj/benchmark_attn/results/full_model_inference_grid_summary.csv",
+    "/home/leonard.starke@mediainterface.de/Dokumente/Uni/research-proj/benchmark_attn/results/full_model_inference_grid_b64_summary.csv"
+  ],
+  "batch_size": 1,
+  "note": "timing-only experiment on synthetic data (seed 42); memory figure shows total peak reserved VRAM (caching-allocator reserved, includes the model-weight baseline), not the incremental delta; no accuracy or tracking-quality claim",
+  "values": "peak_mem_reserved_mb_max per variant = total peak reserved VRAM during a repeat (not the incremental delta)"
+}

@@ -43,6 +43,64 @@ regenerates the corrected H100/memory/dist-cache set straight into
 `report-shorten/figs`. Every written figure carries a `.meta.json` sidecar
 with its exact sources.
 
+## 1a. Full-model inference grid (SPEC 0062; timing-only, candidate figures)
+
+Eight candidate figures rendered from the SPEC 0062 full-model inference-grid
+summary CSVs — the full Trackastra inference chain (embedding, encoder,
+decoder, association head, `normalize_output`) with the four attention
+variants swapped in, measured on synthetic data (seed 42). **Timing-only; no
+accuracy or tracking-quality claim.** These figures are **not
+`\includegraphics`'d in the report** (F7 report integration pending owner
+review); the memory figure plots the **total peak reserved VRAM**
+(`peak_mem_reserved_mb_max`), not the incremental delta.
+
+| Figure (`curated/figures/`) | Batch | Summary CSV data artifact |
+|---|---|---|
+| `full_model_inference_grid_parts_time_fractions.{pdf,svg}` | B=1 | `benchmark_attn/results/full_model_inference_grid_summary.csv` |
+| `full_model_inference_grid_parts_forward_time.{pdf,svg}` | B=1 | `benchmark_attn/results/full_model_inference_grid_summary.csv` |
+| `full_model_inference_grid_parts_memory.{pdf,svg}` | B=1 | `benchmark_attn/results/full_model_inference_grid_summary.csv` |
+| `full_model_inference_grid_component_ratios.{pdf,svg}` | B=1 | `benchmark_attn/results/full_model_inference_grid_summary.csv` |
+| `full_model_inference_grid_b64_parts_time_fractions.{pdf,svg}` | B=64 | `benchmark_attn/results/full_model_inference_grid_b64_summary.csv` |
+| `full_model_inference_grid_b64_parts_forward_time.{pdf,svg}` | B=64 | `benchmark_attn/results/full_model_inference_grid_b64_summary.csv` |
+| `full_model_inference_grid_b64_parts_memory.{pdf,svg}` | B=64 | `benchmark_attn/results/full_model_inference_grid_b64_summary.csv` |
+| `full_model_inference_grid_b64_component_ratios.{pdf,svg}` | B=64 | `benchmark_attn/results/full_model_inference_grid_b64_summary.csv` |
+
+- **Generator:** `python curated/generate_report.py`
+  (`panel_full_model_inference_grid`, which reuses the figure builders of the
+  standalone analyzer `benchmark_attn/analysis/summarize_full_model_inference_grid.py`
+  via `importlib`). Each figure carries a `.meta.json` sidecar naming the two
+  summary CSVs, the plotted batch, and the timing-only/synthetic-data caveats.
+- **Equivalent standalone analyzer commands** (write PNG analysis artifacts
+  under `benchmark_attn/results/`; from the repository root):
+
+  ```bash
+  cd benchmark_attn && .venv/bin/python analysis/summarize_full_model_inference_grid.py \
+      --plot-parts results/full_model_inference_grid_parts \
+      --plot-ratios results/full_model_inference_grid_ratios
+  ```
+
+  ```bash
+  cd benchmark_attn && .venv/bin/python analysis/summarize_full_model_inference_grid.py \
+      --raw results/full_model_inference_grid_b64.csv \
+      --env-json results/full_model_inference_grid_b64_env.json \
+      --out results/full_model_inference_grid_b64_summary.csv \
+      --plot-batch 64 \
+      --plot-parts results/full_model_inference_grid_b64_parts \
+      --plot-ratios results/full_model_inference_grid_b64_ratios
+  ```
+
+- **Data provenance:** both grids (B=1, `N=512..32768`, 84 rows; B=64,
+  `N=512..8192`, 60 rows) were produced by H100 Slurm job `4525463`
+  (2026-11-04, partition `capella`), submitted through the owner/runner
+  workflow. On the cluster the benchmark runs with `$TRK/.venv/bin/python`
+  (the Trackastra checkout's venv — `benchmark_attn/.venv` lacks
+  dask/trackastra; exact commands in `benchmark_attn/REPRODUCTION.md` §2.8).
+- **Memory-cleanup caveat:** job `4525463` is the final memory-cleanup rerun
+  (`gc.collect()` + `torch.cuda.empty_cache()` before every repeat's baseline
+  capture; each repeat's `association`/`normalized_association` tensors are
+  released in its `finally` block). The same-day job `4525220` is superseded
+  contaminated history — do not quote its memory values.
+
 ## 2. Live report tables & headline numbers
 
 | Element | Data artifact | Generator | Status |
