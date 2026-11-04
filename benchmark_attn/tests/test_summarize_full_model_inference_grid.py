@@ -5,9 +5,10 @@ repeats, and an explicit ``oom`` row. The assertions cover counts, sample
 standard deviation (including the single-repeat ``std=0`` case), the derived
 speedups and attention shares, the ``n/a`` handling when the baseline or a
 variant did not complete, the total-peak-VRAM mean/std/max columns of
-SPEC 0062 §12, the optional ``--plot-all`` PNG output, and the optional
+SPEC 0062 §12, the optional ``--plot-all`` PNG output, the optional
 ``--plot-parts`` three-figure decomposition output (including the
-``--plot-batch 64`` selection of B>1 rows whose linker timing is skipped).
+``--plot-batch 64`` selection of B>1 rows whose linker timing is skipped),
+and the optional ``--plot-ratios`` component-ratio PNG output.
 """
 
 from __future__ import annotations
@@ -604,3 +605,69 @@ def test_plot_parts_cli_default_prefix():
     assert arguments.plot_parts == summary_module.DEFAULT_PARTS_PNG_PREFIX
     assert summary_module.parse_arguments([]).plot_parts is None
     assert summary_module.parse_arguments([]).plot_batch == 1
+
+
+def test_plot_ratios_writes_component_ratios_png(tmp_path):
+    """``--plot-ratios`` writes the component-ratio PNG when matplotlib exists.
+
+    All four canonical variants at two ``N`` values with linker timings give
+    the five-panel B=1 layout; one ``sparse_gather_k16`` OOM row at the
+    larger ``N`` exercises the missing-ratio path (a baseline or variant
+    ``oom`` must not break the figure).
+    """
+    pytest.importorskip("matplotlib")
+    raw_path = tmp_path / "raw.csv"
+    ratios_prefix = tmp_path / "ratios"
+
+    rows = []
+    for sequence_length, scale in ((512, 1.0), (1024, 2.0)):
+        rows.append(
+            _ok_row(
+                "relative_pos", sequence_length, 0,
+                80.0 * scale, 100.0 * scale, 20.0 * scale, 10.0 * scale,
+                100.0 * scale,
+            )
+        )
+        rows.append(
+            _ok_row(
+                "cached_dist", sequence_length, 0,
+                70.0 * scale, 90.0 * scale, 15.0 * scale, 9.0 * scale,
+                150.0 * scale,
+            )
+        )
+        rows.append(
+            _ok_row(
+                "sparse_mask_k16", sequence_length, 0,
+                60.0 * scale, 80.0 * scale, 12.0 * scale, 8.0 * scale,
+                200.0 * scale,
+            )
+        )
+    rows.append(_ok_row("sparse_gather_k16", 512, 0, 50.0, 70.0, 10.0, 6.0, 250.0))
+    rows.append(_oom_row("sparse_gather_k16", 1024, 0))
+    _write_raw_csv(raw_path, rows)
+
+    exit_code = summary_module.main(
+        [
+            "--raw",
+            str(raw_path),
+            "--env-json",
+            str(tmp_path / "missing_env.json"),
+            "--out",
+            str(tmp_path / "summary.csv"),
+            "--plot-ratios",
+            str(ratios_prefix),
+        ]
+    )
+
+    ratios_png = tmp_path / "ratios_component_ratios.png"
+
+    assert exit_code == 0
+    assert ratios_png.exists()
+    assert ratios_png.stat().st_size > 0
+
+
+def test_plot_ratios_cli_default_prefix():
+    """The bare --plot-ratios flag selects the default prefix; omit gives None."""
+    arguments = summary_module.parse_arguments(["--plot-ratios"])
+    assert arguments.plot_ratios == summary_module.DEFAULT_RATIOS_PNG_PREFIX
+    assert summary_module.parse_arguments([]).plot_ratios is None

@@ -56,6 +56,29 @@ H100 VRAM reference line with a small label. All three figures space ``N``
 logarithmically (base 2) but label the x ticks with the plain integer
 sequence lengths (512, 1024, 2048, …), never power notation, and skip with
 a warning when matplotlib is unavailable.
+
+The optional ``--plot-ratios`` writes one more decomposition PNG from a path
+prefix for the batch size selected by ``--plot-batch``:
+``<prefix>_component_ratios.png`` is a small-multiple figure with one panel
+per timed component — ``total_ms``, ``full_forward_ms``, attention
+(``encoder_attn_ms_mean + decoder_attn_ms_mean``), ``normalize_ms``, and
+``linker_ms`` (only when the selected batch has linker timings, i.e.
+``B=1``; the linker is skipped for ``B>1``, F4) — showing per non-baseline
+variant (``cached_dist``, ``sparse_mask_k16``, ``sparse_gather_k16``;
+Okabe-Ito colours shared with the other parts figures) the component time
+ratio variant / ``relative_pos`` at the same ``(N, B, linker_mode)``
+(relaxed to the same ``(N, B)`` when the linker-mode baseline is absent).
+The y-axis is logarithmic with a grey dashed parity line at 1.0, so ratios
+below 1.0 mean the variant's component is faster than the baseline's; the
+x-axis spaces ``N`` logarithmically (base 2) but labels the ticks with the
+plain integer sequence lengths of the batch grid. Missing or non-positive
+ratios (a baseline or variant ``oom``, e.g. the B=64 ``relative_pos`` and
+``cached_dist`` OOM at ``N=8192``) are skipped per variant and panel, and a
+panel without any plottable line is annotated "no data". The ``B=1`` figure
+is a 2×3 grid (five panels plus one slot annotating the ratio direction);
+a ``B>1`` batch gives a 2×2 grid of the four linker-free panels. The
+matplotlib fallback behaviour matches ``--plot``/``--plot-all``/
+``--plot-parts``.
 """
 
 from __future__ import annotations
@@ -170,6 +193,19 @@ PARTS_LINE_FIGSIZE: tuple[float, float] = (5.6, 2.6)
 #: only memory panel).
 PARTS_MEMORY_VRAM_MB: float = 94000.0
 
+#: Default ``--plot-ratios`` path prefix; the figure is written as
+#: ``<prefix>_component_ratios.png``.
+DEFAULT_RATIOS_PNG_PREFIX = Path("results/full_model_inference_grid_ratios")
+
+#: Variants of the ``--plot-ratios`` figure: the canonical
+#: :data:`PARTS_VARIANT_ORDER` without the ``relative_pos`` baseline, whose
+#: component times are the denominators of every plotted ratio.
+RATIO_VARIANT_ORDER: tuple[str, ...] = tuple(
+    variant_name
+    for variant_name in PARTS_VARIANT_ORDER
+    if variant_name != BASELINE_VARIANT
+)
+
 
 class AllMetricsPanel(NamedTuple):
     """Definition of one panel of the ``--plot-all`` figure.
@@ -248,6 +284,62 @@ ALL_METRICS_PANELS: tuple[AllMetricsPanel, ...] = (
 )
 
 
+class ComponentRatioPanel(NamedTuple):
+    """Definition of one panel of the ``--plot-ratios`` figure.
+
+    Attributes:
+        title: Panel heading.
+        ylabel: Axis label describing the plotted ratio.
+        value_column: Summary column whose per-variant mean is divided by
+            the ``relative_pos`` mean at the same ``(N, B)`` (a derived
+            column such as ``attention_module_ms`` is allowed).
+        linker_only: Whether the panel needs linker timings. The linker
+            panel is dropped when the selected batch has no linker value
+            (``B>1``, where the CPU linker is intentionally skipped, F4).
+    """
+
+    title: str
+    ylabel: str
+    value_column: str
+    linker_only: bool
+
+
+#: Panel order of the ``--plot-ratios`` figure. The linker panel is included
+#: only when the selected batch has linker timings (B=1).
+COMPONENT_RATIO_PANELS: tuple[ComponentRatioPanel, ...] = (
+    ComponentRatioPanel(
+        title="Total time",
+        ylabel="total_ms ratio",
+        value_column="total_ms_mean",
+        linker_only=False,
+    ),
+    ComponentRatioPanel(
+        title="Full forward time",
+        ylabel="full_forward_ms ratio",
+        value_column="full_forward_ms_mean",
+        linker_only=False,
+    ),
+    ComponentRatioPanel(
+        title="Attention modules",
+        ylabel="encoder+decoder attn ratio",
+        value_column="attention_module_ms",
+        linker_only=False,
+    ),
+    ComponentRatioPanel(
+        title="Output normalisation",
+        ylabel="normalize_ms ratio",
+        value_column="normalize_ms_mean",
+        linker_only=False,
+    ),
+    ComponentRatioPanel(
+        title="CPU linker (B=1 greedy)",
+        ylabel="linker_ms ratio",
+        value_column="linker_ms_mean",
+        linker_only=True,
+    ),
+)
+
+
 # ─── CLI ────────────────────────────────────────────────────────────────────
 
 
@@ -259,8 +351,9 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
 
     Returns:
         The parsed namespace with ``raw``, ``env_json``, ``out``, and the
-        optional ``plot``, ``plot_all``, and ``plot_parts`` paths plus the
-        ``plot_batch`` batch size of the parts figures.
+        optional ``plot``, ``plot_all``, ``plot_parts``, and ``plot_ratios``
+        paths plus the ``plot_batch`` batch size of the parts and ratio
+        figures.
     """
     parser = argparse.ArgumentParser(
         description=(
@@ -333,16 +426,38 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--plot-ratios",
+        nargs="?",
+        const=DEFAULT_RATIOS_PNG_PREFIX,
+        default=None,
+        type=Path,
+        help=(
+            "Optional component-ratio PNG prefix. Writes "
+            "<prefix>_component_ratios.png: one small-multiple panel per "
+            "time component (total, full forward, attention, normalize, "
+            "and linker when timed) showing each non-baseline variant's "
+            "component time ratio vs relative_pos at the same (N, B) on a "
+            "log y-axis with a parity line at 1.0 (below 1.0 means the "
+            "variant's component is faster). Selects the batch size given "
+            "by --plot-batch (default B=1; the linker panel is omitted for "
+            "B>1 because the linker is skipped) and uses plain integer N "
+            "ticks. Pass the flag alone to use "
+            f"{DEFAULT_RATIOS_PNG_PREFIX}; omit it to skip."
+        ),
+    )
+    parser.add_argument(
         "--plot-batch",
         type=int,
         default=1,
         help=(
-            "Batch size B whose summary rows the --plot-parts figures "
-            "select (default: 1, the primary production-large-N case; the "
-            "B=64 grid writes results/full_model_inference_grid_b64.csv). "
-            "Only --plot-parts uses it; --plot/--plot-all are unaffected. "
-            "For B>1 the CPU linker is skipped, so the time-fraction figure "
-            "treats the missing linker as 0 and shows it at zero."
+            "Batch size B whose summary rows the --plot-parts and "
+            "--plot-ratios figures select (default: 1, the primary "
+            "production-large-N case; the B=64 grid writes "
+            "results/full_model_inference_grid_b64.csv). "
+            "--plot/--plot-all are unaffected. "
+            "For B>1 the CPU linker is skipped, so the time-fraction "
+            "figure treats the missing linker as 0 and shows it at zero, "
+            "and the component-ratio figure omits the linker panel."
         ),
     )
     return parser.parse_args(argv)
@@ -1491,7 +1606,7 @@ def _build_memory_figure(
 def _save_parts_figure(
     figure: "plt.Figure", plot_path: Path, description: str
 ) -> bool:
-    """Save and close one ``--plot-parts`` figure.
+    """Save and close one built ``--plot-parts``/``--plot-ratios`` figure.
 
     Args:
         figure: The built figure; ownership passes to this function.
@@ -1640,6 +1755,280 @@ def write_parts_plots(
     return time_fractions_written and forward_time_written and memory_written
 
 
+def _component_ratio_vs_baseline(
+    sequence_length: object,
+    batch_size: object,
+    linker_mode: str,
+    value: float,
+    exact_baseline: dict[tuple[int, int, str], float],
+    relaxed_baseline: dict[tuple[int, int], float],
+) -> float:
+    """Return ``value / baseline_mean`` for one component at the same grid point.
+
+    Mirrors the baseline resolution of :func:`_relative_speedup` (exact
+    ``(N, B, linker_mode)`` key, relaxed ``(N, B)`` fallback) but divides the
+    other way round: the result is the variant-to-baseline component ratio
+    plotted by ``--plot-ratios``, where values below 1.0 mean the variant's
+    component is faster.
+
+    Args:
+        sequence_length: ``N`` of the row.
+        batch_size: ``B`` of the row.
+        linker_mode: Linker mode of the row.
+        value: The row's component mean.
+        exact_baseline: Baseline lookup keyed by ``(N, B, linker_mode)``.
+        relaxed_baseline: Baseline lookup keyed by ``(N, B)``.
+
+    Returns:
+        The component ratio, or ``NaN`` when the value or the resolved
+        baseline is missing or non-positive (a log axis cannot show it).
+    """
+    if pd.isna(value) or float(value) <= 0.0:
+        return np.nan
+    try:
+        baseline_key = (int(sequence_length), int(batch_size))
+    except (TypeError, ValueError):
+        return np.nan
+    baseline = exact_baseline.get((*baseline_key, str(linker_mode)))
+    if baseline is None:
+        baseline = relaxed_baseline.get(baseline_key)
+    if baseline is None or baseline <= 0.0:
+        return np.nan
+    return float(value) / baseline
+
+
+def _draw_component_ratio_panel(
+    axis: "plt.Axes",
+    panel: ComponentRatioPanel,
+    plot_frame: pd.DataFrame,
+) -> bool:
+    """Draw one component-ratio panel (caller applies the shared N ticks).
+
+    For each non-baseline variant in :data:`RATIO_VARIANT_ORDER` the panel
+    plots the variant's ``panel.value_column`` mean divided by the
+    ``relative_pos`` mean at the same ``(N, B, linker_mode)`` (relaxed to
+    ``(N, B)``), on a logarithmic y-axis with a grey dashed parity line at
+    1.0. Ratios with a missing or non-positive operand are skipped per
+    variant (a baseline or variant ``oom``); a panel without any plottable
+    line is annotated "no data".
+
+    Args:
+        axis: The matplotlib axes to draw on.
+        panel: Panel definition (title, y label, value column).
+        plot_frame: Selected-batch summary frame including the derived
+            ``attention_module_ms`` column from
+            :func:`_prepare_all_metrics_frame`.
+
+    Returns:
+        ``True`` when at least one variant line was drawn.
+    """
+    axis.set_yscale("log")
+    axis.axhline(1.0, color="gray", linestyle="--", linewidth=1.0, zorder=1)
+    axis.grid(True, alpha=0.3)
+    axis.set_xlabel("N")
+    axis.set_ylabel(panel.ylabel)
+    axis.set_title(panel.title, fontsize="medium")
+
+    if panel.value_column not in plot_frame.columns:
+        _annotate_empty_panel(axis)
+        return False
+
+    exact_baseline, relaxed_baseline = _build_baseline_lookup(
+        plot_frame, panel.value_column
+    )
+    drew_line = False
+    for variant_name in RATIO_VARIANT_ORDER:
+        variant_rows = plot_frame[
+            plot_frame["variant"] == variant_name
+        ].sort_values("N")
+        ratios = np.array(
+            [
+                _component_ratio_vs_baseline(
+                    sequence_length=row.N,
+                    batch_size=row.B,
+                    linker_mode=str(row.linker_mode),
+                    value=getattr(row, panel.value_column),
+                    exact_baseline=exact_baseline,
+                    relaxed_baseline=relaxed_baseline,
+                )
+                for row in variant_rows.itertuples(index=False)
+            ],
+            dtype=float,
+        )
+        plottable = np.isfinite(ratios)
+        if not plottable.any():
+            continue
+        sequence_lengths = pd.to_numeric(
+            variant_rows["N"], errors="coerce"
+        ).to_numpy(dtype=float)
+        axis.plot(
+            sequence_lengths[plottable],
+            ratios[plottable],
+            color=PARTS_VARIANT_COLORS[str(variant_name)],
+            marker="o",
+            markersize=2.2,
+            linewidth=0.8,
+            linestyle="-",
+            zorder=3,
+            label=str(variant_name),
+        )
+        drew_line = True
+    if not drew_line:
+        _annotate_empty_panel(axis)
+    return drew_line
+
+
+def _build_component_ratios_figure(
+    summary: pd.DataFrame,
+    batch_size: int = 1,
+) -> "plt.Figure | None":
+    """Build the component-ratio small-multiple figure (caller saves/closes).
+
+    One panel per timed component in :data:`COMPONENT_RATIO_PANELS` — the
+    linker panel only when the selected batch has linker timings (``B=1``;
+    for ``B>1`` the linker is skipped, F4) — each showing the component time
+    ratio of every :data:`RATIO_VARIANT_ORDER` variant vs ``relative_pos``
+    at the same ``(N, B)`` on a log y-axis with a parity line at 1.0 (see
+    :func:`_draw_component_ratio_panel`). The layout is a 2×3 grid for five
+    panels (``B=1``; the sixth slot annotates the ratio direction) and a
+    2×2 grid for four panels (``B>1``), with a shared legend and a figure
+    title naming the batch. Panels that draw a line get the plain integer
+    ``N`` tick labels of the batch grid (see
+    :func:`_apply_plain_integer_n_ticks`). Variants outside the canonical
+    four are skipped with a warning, matching the parts figures.
+
+    Args:
+        summary: The summary frame from :func:`summarize_grid`.
+        batch_size: Batch size whose rows are plotted (``--plot-batch``).
+
+    Returns:
+        The matplotlib figure, or ``None`` when the selected-batch rows are
+        empty or no panel has a plottable line.
+    """
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    batch_rows = _select_batch_rows(summary, batch_size)
+    if batch_rows.empty:
+        return None
+    plot_frame = _prepare_all_metrics_frame(batch_rows)
+    extra_variants = sorted(
+        set(plot_frame["variant"]) - set(PARTS_VARIANT_ORDER)
+    )
+    if extra_variants:
+        print(
+            "[warn] --plot-ratios covers only "
+            f"{list(PARTS_VARIANT_ORDER)}; skipping variants {extra_variants}"
+        )
+
+    linker_timed = (
+        "linker_ms_mean" in plot_frame.columns
+        and pd.to_numeric(
+            plot_frame["linker_ms_mean"], errors="coerce"
+        ).notna().any()
+    )
+    active_panels = [
+        panel
+        for panel in COMPONENT_RATIO_PANELS
+        if linker_timed or not panel.linker_only
+    ]
+
+    panel_count = len(active_panels)
+    column_count = 3 if panel_count > 4 else 2
+    row_count = (panel_count + column_count - 1) // column_count
+    figure, axes = plt.subplots(
+        row_count,
+        column_count,
+        figsize=(4.4 * column_count, 3.4 * row_count),
+        layout="constrained",
+        squeeze=False,
+    )
+
+    plotted_any = False
+    axis_iterator = iter(axes.ravel())
+    for panel in active_panels:
+        axis = next(axis_iterator)
+        if _draw_component_ratio_panel(axis, panel, plot_frame):
+            plotted_any = True
+            _apply_plain_integer_n_ticks(axis, plot_frame["N"])
+
+    leftover_axes = list(axis_iterator)
+    if leftover_axes:
+        # The B=1 layout has one unused slot; annotate the ratio direction
+        # there instead of leaving blank space. Any further leftover slots
+        # stay hidden.
+        note_axis = leftover_axes[0]
+        note_axis.set_axis_off()
+        note_axis.text(
+            0.5,
+            0.5,
+            "ratio = variant / relative_pos\n"
+            "same component and (N, B)\n"
+            "< 1: variant component faster",
+            ha="center",
+            va="center",
+            transform=note_axis.transAxes,
+            color="gray",
+            fontsize="small",
+        )
+        for hidden_axis in leftover_axes[1:]:
+            hidden_axis.set_visible(False)
+    if not plotted_any:
+        plt.close(figure)
+        return None
+
+    legend_handles: list = []
+    legend_labels: list[str] = []
+    for axis in axes.ravel():
+        handles, labels = axis.get_legend_handles_labels()
+        if len(labels) > len(legend_labels):
+            legend_handles, legend_labels = handles, labels
+    if legend_labels:
+        figure.legend(
+            legend_handles,
+            legend_labels,
+            loc="outside upper center",
+            ncol=min(len(legend_labels), 3),
+            fontsize="small",
+        )
+    figure.suptitle(
+        f"Component time ratio vs {BASELINE_VARIANT} (B={batch_size})"
+    )
+    return figure
+
+
+def write_component_ratios_plot(
+    summary: pd.DataFrame,
+    plot_path: Path,
+    batch_size: int = 1,
+) -> bool:
+    """Write the component-ratio PNG when matplotlib exists.
+
+    Args:
+        summary: The summary frame from :func:`summarize_grid`.
+        plot_path: Destination PNG path (``<prefix>_component_ratios.png``).
+        batch_size: Batch size whose rows are plotted (``--plot-batch``).
+
+    Returns:
+        ``True`` when a figure was written, ``False`` when matplotlib is
+        unavailable or no selected-batch panel has a plottable line.
+    """
+    try:
+        figure = _build_component_ratios_figure(summary, batch_size)
+    except ImportError:
+        print("[warn] matplotlib is not available; skipping --plot-ratios")
+        return False
+    if figure is None:
+        print(
+            f"[warn] no B={batch_size} component-ratio rows to plot; "
+            "skipping --plot-ratios figure"
+        )
+        return False
+    return _save_parts_figure(figure, plot_path, "component-ratios plot")
+
+
 def print_environment_provenance(environment: dict[str, object]) -> None:
     """Print the provenance fields that matter when reading the numbers.
 
@@ -1695,6 +2084,12 @@ def main(argv: list[str] | None = None) -> int:
     if arguments.plot_parts is not None:
         write_parts_plots(
             summary, arguments.plot_parts, batch_size=arguments.plot_batch
+        )
+    if arguments.plot_ratios is not None:
+        write_component_ratios_plot(
+            summary,
+            Path(f"{arguments.plot_ratios}_component_ratios.png"),
+            batch_size=arguments.plot_batch,
         )
     return 0
 

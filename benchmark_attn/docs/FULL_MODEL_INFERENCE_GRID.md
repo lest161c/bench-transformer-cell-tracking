@@ -386,6 +386,12 @@ cd benchmark_attn
   --plot-parts results/full_model_inference_grid_b64_parts
 ```
 
+**Run status:** the `B=64` grid was executed under Slurm job `4525220`
+(2026-11-04, H100) — 60 raw rows (54 `ok`, 6 `oom`: `relative_pos` and
+`cached_dist` at `N=8192`), 20 summary rows, all rows
+`linker_status=skipped_b_gt_1`; see the "H100 total-VRAM rerun" section
+below for the memory and speedup tables.
+
 `--plot-parts` (optional argument, default prefix
 `results/full_model_inference_grid_parts`) writes three decomposition PNGs
 from one prefix, selecting the rows of the batch size given by `--plot-batch`
@@ -420,6 +426,48 @@ time-fraction figure therefore treats the missing linker as 0 — the "linker"
 band and legend entry appear at zero — and the "other" fraction keeps its
 residual meaning. Do not compare a B=64 `total_ms` decomposition against the
 B=1 one as if both included linker time.
+
+Component-ratio plot (additive; from `benchmark_attn/`):
+
+```bash
+cd benchmark_attn
+.venv/bin/python analysis/summarize_full_model_inference_grid.py \
+  --plot-ratios results/full_model_inference_grid_ratios
+```
+
+B=64 batch run:
+
+```bash
+cd benchmark_attn
+.venv/bin/python analysis/summarize_full_model_inference_grid.py \
+  --raw results/full_model_inference_grid_b64.csv \
+  --env-json results/full_model_inference_grid_b64_env.json \
+  --out results/full_model_inference_grid_b64_summary.csv \
+  --plot-batch 64 \
+  --plot-ratios results/full_model_inference_grid_b64_ratios
+```
+
+`--plot-ratios` (optional argument, default prefix
+`results/full_model_inference_grid_ratios`) writes
+`<prefix>_component_ratios.png`, a small-multiple figure with one panel per
+timed component — `total_ms`, `full_forward_ms`, attention
+(`encoder_attn_ms + decoder_attn_ms`), `normalize_ms`, and `linker_ms`
+(only when the selected batch has linker timings, i.e. `B=1`; the linker
+panel is omitted for `B>1` because the linker is skipped) — showing per
+non-baseline variant (`cached_dist`, `sparse_mask_k16`, `sparse_gather_k16`;
+the Okabe-Ito colours of the other parts figures) the component time ratio
+variant / `relative_pos` at the same `(N, B)` on a logarithmic y-axis with a
+grey dashed parity line at 1.0, so **ratios below 1.0 mean the variant's
+component is faster**. The x ticks are the plain integer sequence lengths of
+the batch grid (`512, 1024, 2048, 4096, 8192, 16384, 32768` for the primary
+B=1 grid; `512–8192` for B=64), never power notation. Missing or
+non-positive ratios are skipped per variant and panel — e.g. in the B=64 run
+`relative_pos` and `cached_dist` OOM at `N=8192`, so no variant shows a
+ratio there. The B=1 figure is a 2×3 grid (five panels plus one slot
+annotating the ratio direction); a B>1 batch gives a 2×2 grid of the four
+linker-free panels. `--plot-batch` selects the batch (default 1);
+`--plot`/`--plot-all`/`--plot-parts` are unchanged. The figure is an
+analysis artifact for reading the F6 numbers, not a report figure.
 
 ## Caveats
 
@@ -477,8 +525,12 @@ expected k16 values (`d_model=320`, `nhead=4`, 6+6 layers, `window=10`,
 (4 variants × 7 `N` × `B=1` × 3 repeats), every row `status=ok` and
 `linker_status=ok` — no `oom`, no `err` rows. The summary CSV has 28 rows.
 This run predates the total-peak-VRAM columns of SPEC 0062 §12: its raw CSV
-and summary carry only `peak_mem_mb`, and the new columns stay empty until
-the owner reruns the grid.
+and summary carried only `peak_mem_mb` (the incremental delta — its
+identical 27136 MB `peak_mem_mb_max` values are **not** total memory). The
+owner reran the grid with the new columns as job `4525220` on 2026-11-04;
+the current `results/full_model_inference_grid{,_summary}.csv` come from
+that rerun, and the corrected total-VRAM tables are in the "H100 total-VRAM
+rerun" section below.
 
 **`N=32768` result table** (`B=1`, greedy linker; means over the 3 ok
 repeats, from `results/full_model_inference_grid_summary.csv`):
@@ -502,3 +554,75 @@ GPU-timed (a synthetic sum, not a wall-clock overlap measurement).
 faster because ~8.0 s of the ~8.5 s total is the CPU linker plus the shared
 `N×N` costs (`dist_2d`, logits `einsum`, `normalize_output`). Timing-only
 result on synthetic data; no accuracy or tracking-quality claim.
+
+## H100 total-VRAM rerun (job 4525220, F6 correction + F8 `B=64` comparison)
+
+**Job:** Slurm job `4525220` (partition `capella`, NVIDIA H100), completed
+2026-11-04, submitted through the owner/runner workflow. Logs:
+`benchmark_attn/logs/full_model_memtotal_4525220.out` and `.err`. One job
+produced **both** grids: the full `B=1` grid (rerun so the CSVs carry the
+SPEC 0062 §12 total-peak-VRAM columns, superseding the job-`4522664` CSV)
+and the `B=64` grid (`N=512..8192`). Environment as in the job-`4522664`
+record (Python 3.10.12, torch 2.14.0+cu130, CUDA 13.0, cuDNN 92400, H100,
+fp16, seed 42, repeats 3, warmup 5, greedy linker, `motile_available=false`,
+checkpoint SHA-256 `cc36f8a3…dad2b0`), except git commit
+`169af0fa7e2e3a835c072e09d114e11be6d108cf` (`git_dirty: true`).
+
+**Row/status counts:** `B=1` — 84 raw rows, all `ok`, 28 summary rows.
+`B=64` — 60 raw rows (**54 `ok`**, **6 `oom`**), 20 summary rows; all 60
+rows `linker_status=skipped_b_gt_1`, so `total_ms = full_forward_ms +
+normalize_ms` there. The 6 OOM rows (`relative_pos` and `cached_dist` at
+`N=8192`) are recorded, not dropped.
+
+**Memory-quantity correction.** The job-`4522664` run recorded only
+`peak_mem_mb`, the **incremental delta** (total peak minus the pre-repeat
+allocated baseline). Its identical 27136 MB values for every variant at
+`N=32768` are that delta — dominated by the shared `N×N` allocations — and
+must **not** be quoted as total memory. Total peak VRAM is
+`peak_mem_total_mb` (allocated) / `peak_mem_reserved_mb` (reserved by the
+caching allocator, reserved ≥ allocated) and includes the model-weight
+baseline. The memory figures plot `peak_mem_reserved_mb_max` with the
+y-label `Total peak VRAM (reserved, MB)` against the 94 GB H100 line —
+**reserved total, never the delta**.
+
+**`B=1` `N=32768` memory table** (maxima over the 3 `ok` repeats, MiB):
+
+| Variant | total allocated | total reserved | forward reserved | normalize reserved | incremental delta |
+|---|---:|---:|---:|---:|---:|
+| `relative_pos` | 29758 | 29978 | 27930 | 29978 | 27136 |
+| `cached_dist` | 29918 | 40236 | 40236 | 40236 | 27136 |
+| `sparse_mask_k16` | 29758 | 30826 | 20586 | 30826 | 27136 |
+| `sparse_gather_k16` | 29758 | 32300 | 12398 | 32300 | 27136 |
+
+`baseline_mem_mb` mean 3134.24 MiB; the normalize stage sets the total
+reserved peak for every variant. Timing at `N=32768` is unchanged within
+noise (total speedup: gather 1.06x, mask 1.05x, cached 1.01x; gather
+forward 7.67x), so the linker-bound finding of the job-`4522664` record
+stands.
+
+**`B=64` memory and speedup tables** (`peak_mem_reserved_mb_max` over the
+`ok` repeats, MiB; speedups vs `relative_pos` at the same `(N, B)`):
+
+`N=4096` (all variants `ok`):
+
+| Variant | total reserved | total speedup | forward speedup |
+|---|---:|---:|---:|
+| `relative_pos` | 29486 | 1.00x | 1.00x |
+| `cached_dist` | 41802 | 1.06x | 1.09x |
+| `sparse_mask_k16` | 23354 | **2.03x** | **3.11x** |
+| `sparse_gather_k16` | 32874 | **1.36x** | **1.54x** |
+
+`N=8192` (`relative_pos` and `cached_dist` OOM in all 3 repeats; speedups
+`n/a` because the baseline OOMed):
+
+| Variant | total reserved | total speedup | forward speedup |
+|---|---:|---:|---:|
+| `relative_pos` | n/a (oom) | n/a | n/a |
+| `cached_dist` | n/a (oom) | n/a | n/a |
+| `sparse_mask_k16` | **82026** | n/a | n/a |
+| `sparse_gather_k16` | **59498** | n/a | n/a |
+
+Because the linker is skipped for `B>1`, a `B=64` `total_ms` is not
+comparable with the `B=1` one (linker-skipped caveat above). Timing-only
+result on synthetic data; no accuracy or tracking-quality claim; F7 report
+integration remains blocked on owner review.
