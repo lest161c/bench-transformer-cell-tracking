@@ -24,27 +24,34 @@ Usage (from ``benchmark_attn``)::
 The optional ``--plot`` writes a PNG when matplotlib is importable; pass a
 path or use the flag alone for the default summary PNG.
 
-The optional ``--plot-all`` writes an eight-panel PNG of every measured
-summary metric — total and forward speedup, total/full-forward time,
-attention module time, normalisation time, CPU linker time, and attention
-share — against ``N`` on a log2 axis, one line per variant, with the same
-matplotlib fallback behaviour as ``--plot``.
+The optional ``--plot-all`` writes a nine-panel PNG of every measured
+summary metric — total and forward speedup, total and forward time,
+attention module time, normalisation time, CPU linker time, attention
+share, and the total peak VRAM (reserved) — against ``N`` on a log2 axis,
+one line per variant, with the same matplotlib fallback behaviour as
+``--plot``.
 
 The optional ``--plot-parts`` writes three decomposition PNGs from one path
-prefix: ``<prefix>_time_fractions.png`` shows, per variant (2×2 panels,
-``B=1`` only), a 100% stacked area over ``N`` of the attention
+prefix for the batch size selected by ``--plot-batch`` (int, default 1, the
+primary production-large-``N`` case): ``<prefix>_time_fractions.png`` shows,
+per variant (2×2 panels), a 100% stacked area over ``N`` of the attention
 (``encoder_attn_ms_mean + decoder_attn_ms_mean``), normalisation
 (``normalize_ms_mean``), linker (``linker_ms_mean``), and remaining "other"
-fractions of ``total_ms_mean``. ``<prefix>_forward_time.png`` and
-``<prefix>_memory.png`` are separate single-panel log-log figures styled
+fractions of ``total_ms_mean``. For ``B>1`` the benchmark intentionally skips
+the CPU linker (F4), so ``linker_ms`` is empty and
+``total_ms = full_forward_ms + normalize_ms``; the time-fraction figure then
+treats the missing linker as 0 and shows the "linker" band (and legend
+entry) at zero. ``<prefix>_forward_time.png`` and ``<prefix>_memory.png`` are
+separate single-panel log-log figures styled
 after the attention-only H100 report panels
 (``curated/generate_report.py::panel_speed_vs_n_h100`` and
 ``panel_memory_vs_n``): one solid measured line per canonical variant in
 Okabe-Ito colours (``o`` markers, size 2.2, linewidth 0.8), a frameless
 method legend in the upper left, y major ticks labelled as base-10 powers
 via ``LogFormatterMathtext``, and no projections because every plotted
-``N`` is measured. The forward-time figure plots ``full_forward_ms_mean``;
-the memory figure plots ``peak_mem_mb_max`` plus a grey dashed 94000 MB
+``N`` is measured. The forward-time figure plots ``full_forward_ms_mean``; the memory figure
+plots ``peak_mem_reserved_mb_max`` — the total peak VRAM reserved during a
+repeat, not the ``peak_mem_mb`` delta — plus a grey dashed 94000 MB
 H100 VRAM reference line with a small label. All three figures space ``N``
 logarithmically (base 2) but label the x ticks with the plain integer
 sequence lengths (512, 1024, 2048, …), never power notation, and skip with
@@ -79,6 +86,31 @@ METRIC_COLUMNS: tuple[str, ...] = (
     "linker_build_graph_ms",
     "linker_greedy_ms",
     "linker_ms",
+)
+
+#: Total-peak-VRAM raw columns (SPEC 0062 §12) that follow ``peak_mem_mb`` and
+#: receive a mean and a sample standard deviation. ``peak_mem_reserved_mb``
+#: reports the caching-allocator reserved peak (segments, including cached
+#: free blocks; reserved ≥ allocated) while ``peak_mem_total_mb`` reports the
+#: allocated peak; ``peak_mem_mb`` itself stays the incremental delta and is
+#: aggregated as ``peak_mem_mb_max`` only.
+MEMORY_METRIC_COLUMNS: tuple[str, ...] = (
+    "baseline_mem_mb",
+    "peak_mem_total_mb",
+    "peak_mem_reserved_mb",
+    "forward_peak_mem_total_mb",
+    "forward_peak_mem_reserved_mb",
+    "normalize_peak_mem_total_mb",
+    "normalize_peak_mem_reserved_mb",
+)
+
+#: Memory columns that additionally receive a ``*_max`` summary column over
+#: the ``ok`` repeats (the owner-requested total-VRAM maxima, SPEC 0062 §12).
+PEAK_MAX_MEMORY_COLUMNS: tuple[str, ...] = (
+    "peak_mem_total_mb",
+    "peak_mem_reserved_mb",
+    "forward_peak_mem_total_mb",
+    "normalize_peak_mem_total_mb",
 )
 
 #: Grouping keys for one summary row.
@@ -207,6 +239,12 @@ ALL_METRICS_PANELS: tuple[AllMetricsPanel, ...] = (
         value_column="attention_share",
         log_y=False,
     ),
+    AllMetricsPanel(
+        title="Total peak VRAM (reserved)",
+        ylabel="Total peak VRAM (reserved, MB)",
+        value_column="peak_mem_reserved_mb_max",
+        log_y=True,
+    ),
 )
 
 
@@ -221,7 +259,8 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
 
     Returns:
         The parsed namespace with ``raw``, ``env_json``, ``out``, and the
-        optional ``plot``, ``plot_all``, and ``plot_parts`` paths.
+        optional ``plot``, ``plot_all``, and ``plot_parts`` paths plus the
+        ``plot_batch`` batch size of the parts figures.
     """
     parser = argparse.ArgumentParser(
         description=(
@@ -269,9 +308,10 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         type=Path,
         help=(
-            "Optional eight-panel PNG of every measured metric (total and "
+            "Optional nine-panel PNG of every measured metric (total and "
             "forward speedup, total/full-forward/attention/normalize/linker "
-            "times, attention share) against N on a log2 axis. Pass the flag "
+            "times, attention share, total peak VRAM reserved) against N on "
+            "a log2 axis. Pass the flag "
             f"alone to use {DEFAULT_ALL_METRICS_PNG}; omit it to skip."
         ),
     )
@@ -284,11 +324,25 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
         help=(
             "Optional three-figure decomposition PNG prefix. Writes "
             "<prefix>_time_fractions.png (2x2 100%%-stacked time-fraction "
-            "areas per variant, B=1), <prefix>_forward_time.png (log-log "
-            "forward time vs sequence length, B=1), and <prefix>_memory.png "
-            "(log-log GPU memory vs sequence length with the 94 GB H100 "
-            "VRAM line, B=1); plain integer N ticks on all three. Pass the "
-            f"flag alone to use {DEFAULT_PARTS_PNG_PREFIX}; omit it to skip."
+            "areas per variant), <prefix>_forward_time.png (log-log forward "
+            "time vs sequence length), and <prefix>_memory.png (log-log GPU "
+            "memory vs sequence length with the 94 GB H100 VRAM line); all "
+            "three select the batch size given by --plot-batch (default "
+            "B=1) and use plain integer N ticks. Pass the flag alone to use "
+            f"{DEFAULT_PARTS_PNG_PREFIX}; omit it to skip."
+        ),
+    )
+    parser.add_argument(
+        "--plot-batch",
+        type=int,
+        default=1,
+        help=(
+            "Batch size B whose summary rows the --plot-parts figures "
+            "select (default: 1, the primary production-large-N case; the "
+            "B=64 grid writes results/full_model_inference_grid_b64.csv). "
+            "Only --plot-parts uses it; --plot/--plot-all are unaffected. "
+            "For B>1 the CPU linker is skipped, so the time-fraction figure "
+            "treats the missing linker as 0 and shows it at zero."
         ),
     )
     return parser.parse_args(argv)
@@ -301,9 +355,17 @@ def _expected_raw_columns() -> list[str]:
     """Return the minimum raw columns needed to build the summary.
 
     Returns:
-        The group keys, status, all metric columns, and the peak memory column.
+        The group keys, status, all metric columns, and the peak memory
+        columns (the incremental delta plus the total-VRAM columns of
+        SPEC 0062 §12).
     """
-    return [*GROUP_KEYS, "status", *METRIC_COLUMNS, "peak_mem_mb"]
+    return [
+        *GROUP_KEYS,
+        "status",
+        *METRIC_COLUMNS,
+        "peak_mem_mb",
+        *MEMORY_METRIC_COLUMNS,
+    ]
 
 
 def load_raw_csv(raw_path: Path) -> pd.DataFrame:
@@ -345,7 +407,11 @@ def load_raw_csv(raw_path: Path) -> pd.DataFrame:
         typed[column] = pd.to_numeric(
             typed[column], errors="coerce"
         ).astype("Int64")
-    for column in (*METRIC_COLUMNS, "peak_mem_mb"):
+    for column in (
+        *METRIC_COLUMNS,
+        "peak_mem_mb",
+        *MEMORY_METRIC_COLUMNS,
+    ):
         if column not in typed.columns:
             typed[column] = np.nan
         typed[column] = pd.to_numeric(typed[column], errors="coerce")
@@ -385,10 +451,11 @@ def load_environment_json(env_path: Path) -> dict[str, object]:
 def summarize_grid(raw_frame: pd.DataFrame) -> pd.DataFrame:
     """Build one summary row per ``(variant, N, B, linker_mode)``.
 
-    Counts use all repeats. Means, sample standard deviations, and the maximum
-    peak memory use only ``status="ok"`` repeats. A single successful repeat
-    has zero sample standard deviation by definition here, matching the
-    ticket's single-repeat requirement.
+    Counts use all repeats. Means, sample standard deviations, and the peak
+    memory maxima (the incremental delta and the total-VRAM columns of
+    SPEC 0062 §12) use only ``status="ok"`` repeats. A single successful
+    repeat has zero sample standard deviation by definition here, matching
+    the ticket's single-repeat requirement.
 
     Args:
         raw_frame: Typed raw rows from :func:`load_raw_csv`.
@@ -421,17 +488,20 @@ def summarize_grid(raw_frame: pd.DataFrame) -> pd.DataFrame:
     ok_rows = working[working["_is_ok"]]
     if ok_rows.empty:
         statistics = counts[list(GROUP_KEYS)].copy()
-        for column in METRIC_COLUMNS:
+        for column in (*METRIC_COLUMNS, *MEMORY_METRIC_COLUMNS):
             statistics[f"{column}_mean"] = np.nan
             statistics[f"{column}_std"] = np.nan
         statistics["peak_mem_mb_max"] = np.nan
+        for column in PEAK_MAX_MEMORY_COLUMNS:
+            statistics[f"{column}_max"] = np.nan
     else:
+        grouped_columns = [*METRIC_COLUMNS, *MEMORY_METRIC_COLUMNS]
         grouped_ok = ok_rows.groupby(
             list(GROUP_KEYS), dropna=False, sort=False
         )
-        means = grouped_ok[list(METRIC_COLUMNS)].mean()
-        standard_deviations = grouped_ok[list(METRIC_COLUMNS)].std(ddof=1)
-        non_missing_counts = grouped_ok[list(METRIC_COLUMNS)].count()
+        means = grouped_ok[grouped_columns].mean()
+        standard_deviations = grouped_ok[grouped_columns].std(ddof=1)
+        non_missing_counts = grouped_ok[grouped_columns].count()
         standard_deviations = standard_deviations.mask(
             non_missing_counts == 1, 0.0
         )
@@ -442,6 +512,8 @@ def summarize_grid(raw_frame: pd.DataFrame) -> pd.DataFrame:
         )
         statistics = means.join(standard_deviations)
         statistics["peak_mem_mb_max"] = grouped_ok["peak_mem_mb"].max()
+        for column in PEAK_MAX_MEMORY_COLUMNS:
+            statistics[f"{column}_max"] = grouped_ok[column].max()
         statistics = statistics.reset_index()
 
     summary = counts.merge(
@@ -503,15 +575,20 @@ def build_summary_columns() -> list[str]:
     """Return the summary CSV column order.
 
     Returns:
-        Group keys, counts, per-metric mean/std pairs, peak memory maximum,
-        and the derived speedup/share columns.
+        Group keys, counts, per-metric mean/std pairs, the incremental peak
+        memory maximum, the total-VRAM mean/std pairs and maxima (SPEC 0062
+        §12), and the derived speedup/share columns.
     """
     columns = [*GROUP_KEYS, "n_ok", "n_oom", "n_err"]
     for column in METRIC_COLUMNS:
         columns.extend((f"{column}_mean", f"{column}_std"))
+    columns.append("peak_mem_mb_max")
+    for column in MEMORY_METRIC_COLUMNS:
+        columns.extend((f"{column}_mean", f"{column}_std"))
+    for column in PEAK_MAX_MEMORY_COLUMNS:
+        columns.append(f"{column}_max")
     columns.extend(
         (
-            "peak_mem_mb_max",
             "speedup_vs_relative_pos",
             "attention_share",
             "attention_share_of_forward",
@@ -855,12 +932,13 @@ def _draw_all_metrics_panel(
 
 
 def write_all_metrics_plot(summary: pd.DataFrame, plot_path: Path) -> bool:
-    """Write the eight-panel all-metrics PNG when matplotlib exists.
+    """Write the nine-panel all-metrics PNG when matplotlib exists.
 
-    The figure shows every measured summary metric against ``N`` on a log2
-    x-axis with one line per variant and one shared legend (SPEC 0062 §11).
-    A variant color is fixed across panels so a variant missing from one
-    panel (for example the ``B=1``-only linker time) keeps its color
+    The figure shows every measured summary metric — timings, speedups,
+    attention share, and the total peak VRAM — against ``N`` on a log2
+    x-axis with one line per variant and one shared legend (SPEC 0062 §11
+    and §12). A variant color is fixed across panels so a variant missing
+    from one panel (for example the ``B=1``-only linker time) keeps its color
     everywhere.
 
     Args:
@@ -893,7 +971,7 @@ def write_all_metrics_plot(summary: pd.DataFrame, plot_path: Path) -> bool:
     }
 
     figure, axes = plt.subplots(
-        len(ALL_METRICS_PANELS) // 2,
+        (len(ALL_METRICS_PANELS) + 1) // 2,
         2,
         figsize=(12.5, 14.0),
         layout="constrained",
@@ -902,6 +980,8 @@ def write_all_metrics_plot(summary: pd.DataFrame, plot_path: Path) -> bool:
     for panel, axis in zip(ALL_METRICS_PANELS, axes.ravel()):
         if _draw_all_metrics_panel(axis, panel, plot_frame, variant_colors):
             plotted_any = True
+    for unused_axis in axes.ravel()[len(ALL_METRICS_PANELS):]:
+        unused_axis.set_visible(False)
     if not plotted_any:
         print("[warn] no numeric summary rows to plot; skipping --plot-all")
         plt.close(figure)
@@ -934,23 +1014,28 @@ def write_all_metrics_plot(summary: pd.DataFrame, plot_path: Path) -> bool:
     return True
 
 
-def _select_b1_rows(summary: pd.DataFrame) -> pd.DataFrame:
-    """Return the summary rows with ``B == 1``, the ``--plot-parts`` scope.
+def _select_batch_rows(
+    summary: pd.DataFrame, batch_size: int
+) -> pd.DataFrame:
+    """Return the summary rows with ``B == batch_size``, the parts scope.
 
-    The parts figures describe the primary production-large-``N`` case
-    (``B=1``, SPEC 0062 §"Synthetic data recipe"). A missing batch size
-    counts as "not ``B=1``" so an unexpected ``NaN`` group is never plotted.
+    ``B=1`` is the primary production-large-``N`` case (SPEC 0062 §"Synthetic
+    data recipe"); ``B>1`` grids (for example the B=64 run) replicate that
+    sample across the batch. A missing batch size counts as "not this batch"
+    so an unexpected ``NaN`` group is never plotted.
 
     Args:
         summary: The summary frame from :func:`summarize_grid`.
+        batch_size: The ``B`` value whose rows are selected (the
+            ``--plot-batch`` CLI value; 1 by default).
 
     Returns:
-        The rows whose batch size is exactly 1; an empty frame when ``B`` is
-        absent or no row qualifies.
+        The rows whose batch size equals ``batch_size``; an empty frame when
+        ``B`` is absent or no row qualifies.
     """
     if summary.empty or "B" not in summary.columns:
         return summary.iloc[0:0]
-    return summary[summary["B"].fillna(0) == 1]
+    return summary[summary["B"].fillna(0) == batch_size]
 
 
 def _apply_plain_integer_n_ticks(
@@ -993,12 +1078,20 @@ def _stacked_fraction_frame(
     (``normalize_ms_mean``), linker (``linker_ms_mean``), and the "other"
     residual ``total_ms_mean - attention - normalize - linker`` (embedding,
     model-level ``dist_2d``, MLP/norm blocks, head/logits, einsum, …). Every
-    component is divided by ``total_ms_mean`` so the fractions sum to 1. Rows
-    with a missing/NaN total or component are dropped; a stacked area needs a
-    range, so fewer than two usable ``N`` points yields ``None``.
+    component is divided by ``total_ms_mean`` so the fractions sum to 1.
+
+    A missing/NaN linker is treated as 0 instead of dropping the row: for
+    ``B>1`` the linker is intentionally skipped (F4, ``linker_status=
+    skipped_b_gt_1``), ``linker_ms`` is empty, and
+    ``total_ms = full_forward_ms + normalize_ms``, so the zero is exact and
+    the "other" residual stays correct (the legend still shows "linker" at
+    zero). Rows with a missing/NaN total, attention, or normalisation are
+    dropped; a stacked area needs a range, so fewer than two usable ``N``
+    points yields ``None``.
 
     Args:
-        variant_rows: ``B=1`` summary rows of one variant (any order).
+        variant_rows: Selected-batch summary rows of one variant (any
+            order).
 
     Returns:
         A frame with columns ``N`` and the fraction columns ``attention``,
@@ -1038,6 +1131,9 @@ def _stacked_fraction_frame(
     linker = pd.to_numeric(
         ordered_rows["linker_ms_mean"], errors="coerce"
     ).to_numpy(dtype=float)
+    # A missing linker contributes zero (the B>1 linker-skip case, where
+    # total_ms already excludes it) instead of invalidating the row.
+    linker = np.where(np.isfinite(linker), linker, 0.0)
 
     usable = (
         np.isfinite(sequence_lengths)
@@ -1045,7 +1141,6 @@ def _stacked_fraction_frame(
         & (totals > 0.0)
         & np.isfinite(attention)
         & np.isfinite(normalize)
-        & np.isfinite(linker)
     )
     if int(usable.sum()) < 2:
         return None
@@ -1068,18 +1163,22 @@ def _stacked_fraction_frame(
 
 def _build_time_fractions_figure(
     summary: pd.DataFrame,
+    batch_size: int = 1,
 ) -> "plt.Figure | None":
     """Build the 2×2 100%-stacked time-fraction figure (caller saves/closes).
 
     One panel per canonical SPEC 0062 variant in
     :data:`PARTS_VARIANT_ORDER`, each a :func:`matplotlib.axes.Axes.stackplot`
     over ``N`` of the attention, normalisation, linker, and other fractions of
-    ``total_ms_mean`` (``B=1`` rows only, see :func:`_stacked_fraction_frame`).
-    Panels without usable data are annotated "no data"; variants outside the
-    canonical four are skipped with a warning rather than silently dropped.
+    ``total_ms_mean`` (rows of the selected batch, see
+    :func:`_stacked_fraction_frame`; for ``B>1`` the linker band is zero
+    because the linker timing is skipped). Panels without usable data are
+    annotated "no data"; variants outside the canonical four are skipped with
+    a warning rather than silently dropped.
 
     Args:
         summary: The summary frame from :func:`summarize_grid`.
+        batch_size: Batch size whose rows are plotted (``--plot-batch``).
 
     Returns:
         The matplotlib figure, or ``None`` when no variant has plottable rows.
@@ -1089,8 +1188,10 @@ def _build_time_fractions_figure(
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    b1_rows = _select_b1_rows(summary)
-    extra_variants = sorted(set(b1_rows["variant"]) - set(PARTS_VARIANT_ORDER))
+    batch_rows = _select_batch_rows(summary, batch_size)
+    extra_variants = sorted(
+        set(batch_rows["variant"]) - set(PARTS_VARIANT_ORDER)
+    )
     if extra_variants:
         print(
             "[warn] --plot-parts time-fraction figure covers only "
@@ -1105,7 +1206,7 @@ def _build_time_fractions_figure(
     plotted_any = False
     for panel_index, variant_name in enumerate(PARTS_VARIANT_ORDER):
         axis = axes.ravel()[panel_index]
-        variant_rows = b1_rows[b1_rows["variant"] == variant_name]
+        variant_rows = batch_rows[batch_rows["variant"] == variant_name]
         fraction_frame = _stacked_fraction_frame(variant_rows)
         axis.set_title(str(variant_name), fontsize="medium")
         axis.set_ylabel("fraction of total_ms")
@@ -1146,7 +1247,7 @@ def _build_time_fractions_figure(
 
 
 def _draw_variant_lines(
-    axis: "plt.Axes", b1_rows: pd.DataFrame, value_column: str
+    axis: "plt.Axes", batch_rows: pd.DataFrame, value_column: str
 ) -> bool:
     """Draw one solid measured Okabe-Ito line per canonical variant.
 
@@ -1161,18 +1262,19 @@ def _draw_variant_lines(
 
     Args:
         axis: The matplotlib axes to draw on.
-        b1_rows: The ``B=1`` summary rows from :func:`_select_b1_rows`.
+        batch_rows: The selected-batch summary rows from
+            :func:`_select_batch_rows`.
         value_column: Summary column to plot (``full_forward_ms_mean`` or
-            ``peak_mem_mb_max``).
+            ``peak_mem_reserved_mb_max``).
 
     Returns:
         ``True`` when at least one variant line was drawn.
     """
     drew_line = False
     for variant_name in PARTS_VARIANT_ORDER:
-        variant_rows = b1_rows[b1_rows["variant"] == variant_name].sort_values(
-            "N"
-        )
+        variant_rows = batch_rows[
+            batch_rows["variant"] == variant_name
+        ].sort_values("N")
         variant_values = pd.to_numeric(
             variant_rows[value_column], errors="coerce"
         )
@@ -1232,6 +1334,7 @@ def _style_parts_log_axis(
 def _build_parts_variant_figure(
     summary: pd.DataFrame,
     *,
+    batch_size: int = 1,
     value_column: str,
     ylabel: str,
     title: str,
@@ -1251,6 +1354,7 @@ def _build_parts_variant_figure(
 
     Args:
         summary: The summary frame from :func:`summarize_grid`.
+        batch_size: Batch size whose rows are plotted (``--plot-batch``).
         value_column: Summary column plotted per variant.
         ylabel: Y-axis label.
         title: Panel title.
@@ -1263,18 +1367,21 @@ def _build_parts_variant_figure(
             (``axhline`` never participates in autoscaling).
 
     Returns:
-        The matplotlib figure, or ``None`` when the ``B=1`` rows are empty,
-        the value column is absent, or no variant has a plottable value.
+        The matplotlib figure, or ``None`` when the selected-batch rows are
+        empty, the value column is absent, or no variant has a plottable
+        value.
     """
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    b1_rows = _select_b1_rows(summary)
-    if b1_rows.empty or value_column not in b1_rows.columns:
+    batch_rows = _select_batch_rows(summary, batch_size)
+    if batch_rows.empty or value_column not in batch_rows.columns:
         return None
-    extra_variants = sorted(set(b1_rows["variant"]) - set(PARTS_VARIANT_ORDER))
+    extra_variants = sorted(
+        set(batch_rows["variant"]) - set(PARTS_VARIANT_ORDER)
+    )
     if extra_variants:
         print(
             "[warn] --plot-parts forward-time/memory figures cover only "
@@ -1282,11 +1389,11 @@ def _build_parts_variant_figure(
         )
 
     figure, axis = plt.subplots(figsize=PARTS_LINE_FIGSIZE)
-    if not _draw_variant_lines(axis, b1_rows, value_column):
+    if not _draw_variant_lines(axis, batch_rows, value_column):
         plt.close(figure)
         return None
 
-    _apply_plain_integer_n_ticks(axis, b1_rows["N"])
+    _apply_plain_integer_n_ticks(axis, batch_rows["N"])
     _style_parts_log_axis(axis, ylabel=ylabel, title=title, yticks=yticks)
     axis.autoscale_view()
     if vram_line_mb is not None:
@@ -1319,16 +1426,18 @@ def _build_parts_variant_figure(
 
 def _build_forward_time_figure(
     summary: pd.DataFrame,
+    batch_size: int = 1,
 ) -> "plt.Figure | None":
     """Build the H100-styled forward-time figure (caller saves/closes).
 
     Single log-log panel of ``full_forward_ms_mean`` per canonical variant
-    (``B=1`` rows only), styled after
+    (rows of the selected batch size), styled after
     ``curated/generate_report.py::panel_speed_vs_n_h100``; see
     :func:`_build_parts_variant_figure` for the shared styling.
 
     Args:
         summary: The summary frame from :func:`summarize_grid`.
+        batch_size: Batch size whose rows are plotted (``--plot-batch``).
 
     Returns:
         The matplotlib figure, or ``None`` when no variant has a plottable
@@ -1336,26 +1445,33 @@ def _build_forward_time_figure(
     """
     return _build_parts_variant_figure(
         summary,
+        batch_size=batch_size,
         value_column="full_forward_ms_mean",
         ylabel="Forward time (ms)",
-        title="Forward time vs sequence length (B=1)",
+        title=f"Forward time vs sequence length (B={batch_size})",
         yticks=(0.1, 1.0, 10.0, 100.0, 1000.0, 10000.0),
     )
 
 
 def _build_memory_figure(
     summary: pd.DataFrame,
+    batch_size: int = 1,
 ) -> "plt.Figure | None":
-    """Build the H100-styled GPU-memory figure (caller saves/closes).
+    """Build the H100-styled total-peak-VRAM figure (caller saves/closes).
 
-    Single log-log panel of ``peak_mem_mb_max`` per canonical variant
-    (``B=1`` rows only) with the grey dashed 94000 MB H100 VRAM reference
-    line of the attention-only memory panel, styled after
+    Single log-log panel of ``peak_mem_reserved_mb_max`` — the total peak
+    VRAM reserved during a repeat, allocated plus cached free segments —
+    per canonical variant (rows of the selected batch size) with the grey
+    dashed 94000 MB H100 VRAM reference line of the attention-only memory
+    panel, styled after
     ``curated/generate_report.py::panel_memory_vs_n``; see
-    :func:`_build_parts_variant_figure` for the shared styling.
+    :func:`_build_parts_variant_figure` for the shared styling. The
+    incremental delta ``peak_mem_mb_max`` is intentionally not plotted here
+    (SPEC 0062 §12): the figure reads against absolute VRAM budgets.
 
     Args:
         summary: The summary frame from :func:`summarize_grid`.
+        batch_size: Batch size whose rows are plotted (``--plot-batch``).
 
     Returns:
         The matplotlib figure, or ``None`` when no variant has a plottable
@@ -1363,9 +1479,10 @@ def _build_memory_figure(
     """
     return _build_parts_variant_figure(
         summary,
-        value_column="peak_mem_mb_max",
-        ylabel="GPU memory (MB)",
-        title="GPU memory vs sequence length (B=1)",
+        batch_size=batch_size,
+        value_column="peak_mem_reserved_mb_max",
+        ylabel="Total peak VRAM (reserved, MB)",
+        title=f"Total peak VRAM vs sequence length (B={batch_size})",
         yticks=(100.0, 1000.0, 10000.0, 100000.0, 1000000.0),
         vram_line_mb=PARTS_MEMORY_VRAM_MB,
     )
@@ -1398,103 +1515,128 @@ def _save_parts_figure(
     return True
 
 
-def write_time_fractions_plot(summary: pd.DataFrame, plot_path: Path) -> bool:
+def write_time_fractions_plot(
+    summary: pd.DataFrame,
+    plot_path: Path,
+    batch_size: int = 1,
+) -> bool:
     """Write the 2×2 time-fraction PNG when matplotlib exists.
 
     Args:
         summary: The summary frame from :func:`summarize_grid`.
         plot_path: Destination PNG path.
+        batch_size: Batch size whose rows are plotted (``--plot-batch``).
 
     Returns:
         ``True`` when a figure was written, ``False`` when matplotlib is
-        unavailable or no ``B=1`` variant has plottable rows.
+        unavailable or no selected-batch variant has plottable rows.
     """
     try:
-        figure = _build_time_fractions_figure(summary)
+        figure = _build_time_fractions_figure(summary, batch_size)
     except ImportError:
         print("[warn] matplotlib is not available; skipping --plot-parts")
         return False
     if figure is None:
         print(
-            "[warn] no B=1 time-fraction rows to plot; "
+            f"[warn] no B={batch_size} time-fraction rows to plot; "
             "skipping --plot-parts time-fractions figure"
         )
         return False
     return _save_parts_figure(figure, plot_path, "time-fractions plot")
 
 
-def write_forward_time_plot(summary: pd.DataFrame, plot_path: Path) -> bool:
+def write_forward_time_plot(
+    summary: pd.DataFrame,
+    plot_path: Path,
+    batch_size: int = 1,
+) -> bool:
     """Write the H100-styled forward-time PNG when matplotlib exists.
 
     Args:
         summary: The summary frame from :func:`summarize_grid`.
         plot_path: Destination PNG path.
+        batch_size: Batch size whose rows are plotted (``--plot-batch``).
 
     Returns:
         ``True`` when a figure was written, ``False`` when matplotlib is
-        unavailable or no ``B=1`` variant has a plottable forward-time value.
+        unavailable or no selected-batch variant has a plottable
+        forward-time value.
     """
     try:
-        figure = _build_forward_time_figure(summary)
+        figure = _build_forward_time_figure(summary, batch_size)
     except ImportError:
         print("[warn] matplotlib is not available; skipping --plot-parts")
         return False
     if figure is None:
         print(
-            "[warn] no B=1 forward-time rows to plot; "
+            f"[warn] no B={batch_size} forward-time rows to plot; "
             "skipping --plot-parts forward-time figure"
         )
         return False
     return _save_parts_figure(figure, plot_path, "forward-time plot")
 
 
-def write_memory_plot(summary: pd.DataFrame, plot_path: Path) -> bool:
+def write_memory_plot(
+    summary: pd.DataFrame,
+    plot_path: Path,
+    batch_size: int = 1,
+) -> bool:
     """Write the H100-styled GPU-memory PNG when matplotlib exists.
 
     Args:
         summary: The summary frame from :func:`summarize_grid`.
         plot_path: Destination PNG path.
+        batch_size: Batch size whose rows are plotted (``--plot-batch``).
 
     Returns:
         ``True`` when a figure was written, ``False`` when matplotlib is
-        unavailable or no ``B=1`` variant has a plottable peak-memory value.
+        unavailable or no selected-batch variant has a plottable
+        peak-memory value.
     """
     try:
-        figure = _build_memory_figure(summary)
+        figure = _build_memory_figure(summary, batch_size)
     except ImportError:
         print("[warn] matplotlib is not available; skipping --plot-parts")
         return False
     if figure is None:
         print(
-            "[warn] no B=1 memory rows to plot; "
+            f"[warn] no B={batch_size} memory rows to plot; "
             "skipping --plot-parts memory figure"
         )
         return False
     return _save_parts_figure(figure, plot_path, "memory plot")
 
 
-def write_parts_plots(summary: pd.DataFrame, prefix: Path) -> bool:
+def write_parts_plots(
+    summary: pd.DataFrame,
+    prefix: Path,
+    batch_size: int = 1,
+) -> bool:
     """Write the three ``--plot-parts`` figures derived from ``prefix``.
 
     Writes ``<prefix>_time_fractions.png``, ``<prefix>_forward_time.png``,
-    and ``<prefix>_memory.png``. Each figure is skipped with a warning when
-    matplotlib is unavailable or has no ``B=1`` rows to draw; the two
+    and ``<prefix>_memory.png`` from the rows of ``batch_size`` (the
+    ``--plot-batch`` value). Each figure is skipped with a warning when
+    matplotlib is unavailable or has no selected-batch rows to draw; the two
     existing ``--plot``/``--plot-all`` figures are untouched.
 
     Args:
         summary: The summary frame from :func:`summarize_grid`.
         prefix: Path prefix for the three PNG file names.
+        batch_size: Batch size whose rows are plotted (``--plot-batch``).
 
     Returns:
         ``True`` only when all three PNG files were written.
     """
     time_fractions_written = write_time_fractions_plot(
-        summary, Path(f"{prefix}_time_fractions.png")
+        summary, Path(f"{prefix}_time_fractions.png"), batch_size
     )
     forward_time_written = write_forward_time_plot(
-        summary, Path(f"{prefix}_forward_time.png")
+        summary, Path(f"{prefix}_forward_time.png"), batch_size
     )
-    memory_written = write_memory_plot(summary, Path(f"{prefix}_memory.png"))
+    memory_written = write_memory_plot(
+        summary, Path(f"{prefix}_memory.png"), batch_size
+    )
     return time_fractions_written and forward_time_written and memory_written
 
 
@@ -1551,7 +1693,9 @@ def main(argv: list[str] | None = None) -> int:
     if arguments.plot_all is not None:
         write_all_metrics_plot(summary, arguments.plot_all)
     if arguments.plot_parts is not None:
-        write_parts_plots(summary, arguments.plot_parts)
+        write_parts_plots(
+            summary, arguments.plot_parts, batch_size=arguments.plot_batch
+        )
     return 0
 
 

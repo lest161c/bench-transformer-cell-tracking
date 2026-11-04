@@ -93,10 +93,28 @@ EXPECTED_RAW_CSV_HEADER = [
     "linker_ms",
     "total_ms",
     "peak_mem_mb",
+    "baseline_mem_mb",
+    "peak_mem_total_mb",
+    "peak_mem_reserved_mb",
+    "forward_peak_mem_total_mb",
+    "forward_peak_mem_reserved_mb",
+    "normalize_peak_mem_total_mb",
+    "normalize_peak_mem_reserved_mb",
     "dist_2d_standalone_ms",
     "forward_closure_error_ms",
     "error",
 ]
+#: Total-peak-VRAM columns of SPEC 0062 §12; they must directly follow
+#: ``peak_mem_mb`` in the raw header and are ``0.0`` on CPU.
+EXPECTED_TOTAL_VRAM_COLUMNS = (
+    "baseline_mem_mb",
+    "peak_mem_total_mb",
+    "peak_mem_reserved_mb",
+    "forward_peak_mem_total_mb",
+    "forward_peak_mem_reserved_mb",
+    "normalize_peak_mem_total_mb",
+    "normalize_peak_mem_reserved_mb",
+)
 EXPECTED_OK_TIMING_COLUMNS = (
     "full_forward_ms",
     "embed_ms",
@@ -112,6 +130,13 @@ EXPECTED_OK_TIMING_COLUMNS = (
     "normalize_ms",
     "total_ms",
     "peak_mem_mb",
+    "baseline_mem_mb",
+    "peak_mem_total_mb",
+    "peak_mem_reserved_mb",
+    "forward_peak_mem_total_mb",
+    "forward_peak_mem_reserved_mb",
+    "normalize_peak_mem_total_mb",
+    "normalize_peak_mem_reserved_mb",
     "dist_2d_standalone_ms",
     "forward_closure_error_ms",
 )
@@ -490,6 +515,26 @@ def test_raw_csv_header_matches_spec_4_1_contract():
     assert set(base_row) == set(EXPECTED_RAW_CSV_HEADER)
 
 
+def test_total_vram_columns_directly_follow_peak_mem_delta():
+    """The total-VRAM columns exist and sit right after ``peak_mem_mb``.
+
+    SPEC 0062 §12 keeps ``peak_mem_mb`` as the incremental delta for
+    compatibility and appends the total peak VRAM columns (baseline,
+    allocated/reserved totals, and per-stage peaks) directly after it.
+    """
+    header = full_grid.RAW_CSV_HEADER
+    delta_index = header.index("peak_mem_mb")
+    column_count = len(EXPECTED_TOTAL_VRAM_COLUMNS)
+    assert (
+        header[delta_index + 1:delta_index + 1 + column_count]
+        == list(EXPECTED_TOTAL_VRAM_COLUMNS)
+    )
+    assert header[delta_index + 1 + column_count] == "dist_2d_standalone_ms"
+
+    for column in EXPECTED_TOTAL_VRAM_COLUMNS:
+        assert column in full_grid._TIMING_COLUMNS
+
+
 @pytest.mark.skipif(
     not CHECKPOINT_PATH.is_dir(),
     reason=f"Checkpoint not found: {CHECKPOINT_PATH}",
@@ -501,7 +546,8 @@ def test_cpu_smoke_run_grid_writes_one_ok_row_per_variant(tmp_path):
     primary output paths: one repeat, one warmup, ``B=1``, CPU fp32. Every
     row must carry ``linker_status="ok"``, populated linker stage cells, and a
     ``total_ms`` that includes the linker in addition to the forward and
-    normalization intervals.
+    normalization intervals. Because the run is on CPU, every total-VRAM
+    memory column (SPEC 0062 §12) must be exactly ``0.0``.
     """
     sequence_length = 128
     result = full_grid.run_grid(
@@ -540,6 +586,8 @@ def test_cpu_smoke_run_grid_writes_one_ok_row_per_variant(tmp_path):
         for column in EXPECTED_LINKER_TIMING_COLUMNS:
             assert row[column] not in ("", None)
             assert float(row[column]) >= 0.0
+        for column in EXPECTED_TOTAL_VRAM_COLUMNS:
+            assert float(row[column]) == 0.0
         assert float(row["linker_ms"]) > 0.0
         assert float(row["linker_ms"]) == pytest.approx(
             float(row["linker_build_graph_ms"])

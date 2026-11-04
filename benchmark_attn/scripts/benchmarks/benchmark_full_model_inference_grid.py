@@ -4,8 +4,10 @@
 F1 loads the complete Trackastra transformer from a local checkpoint,
 generates the synthetic full-model inputs, and swaps one of four attention
 implementations into every encoder and decoder layer. F2 adds the fp32 CPU
-sanity/equivalence checks. F3 adds the timed forward chain, environment JSON,
-and raw CSV writing. F4 adds linker timing for ``B=1`` using a read-only
+sanity/equivalence checks. F3 adds the timed forward chain, the total-peak
+VRAM memory columns (allocated and reserved per stage plus the incremental
+delta; SPEC 0062 §12), environment JSON, and raw CSV writing. F4 adds linker
+timing for ``B=1`` using a read-only
 consecutive-frame weight lookup over the normalized association matrix.
 
 A fresh model is loaded for every variant so a swap cannot contaminate the
@@ -126,6 +128,13 @@ RAW_CSV_HEADER = [
     "linker_ms",
     "total_ms",
     "peak_mem_mb",
+    "baseline_mem_mb",
+    "peak_mem_total_mb",
+    "peak_mem_reserved_mb",
+    "forward_peak_mem_total_mb",
+    "forward_peak_mem_reserved_mb",
+    "normalize_peak_mem_total_mb",
+    "normalize_peak_mem_reserved_mb",
     "dist_2d_standalone_ms",
     "forward_closure_error_ms",
     "error",
@@ -145,6 +154,13 @@ _TIMING_COLUMNS = (
     "normalize_ms",
     "total_ms",
     "peak_mem_mb",
+    "baseline_mem_mb",
+    "peak_mem_total_mb",
+    "peak_mem_reserved_mb",
+    "forward_peak_mem_total_mb",
+    "forward_peak_mem_reserved_mb",
+    "normalize_peak_mem_total_mb",
+    "normalize_peak_mem_reserved_mb",
     "dist_2d_standalone_ms",
     "forward_closure_error_ms",
 )
@@ -1293,6 +1309,13 @@ def _fill_ok_timings(
     embed_proj_ms: float,
     normalize_ms: float,
     peak_mem_mb: float,
+    baseline_mem_mb: float,
+    peak_mem_total_mb: float,
+    peak_mem_reserved_mb: float,
+    forward_peak_mem_total_mb: float,
+    forward_peak_mem_reserved_mb: float,
+    normalize_peak_mem_total_mb: float,
+    normalize_peak_mem_reserved_mb: float,
     dist_2d_standalone_ms: float,
     linker_ms: float | None = None,
 ) -> None:
@@ -1301,6 +1324,12 @@ def _fill_ok_timings(
     ``total_ms`` includes the linker only when ``linker_ms`` is provided. This
     keeps the SPEC's ``B>1`` formula (forward plus normalization) and the
     ``B=1`` formula (forward plus normalization plus linker) in one place.
+
+    The memory columns report the total peak VRAM (allocated and reserved)
+    per repeat and per stage, plus the pre-repeat allocated baseline;
+    ``peak_mem_mb`` keeps its incremental-delta meaning
+    (``max(0, peak_mem_total_mb - baseline_mem_mb)``) for compatibility with
+    earlier runs (SPEC 0062 §12).
 
     Args:
         row: Mutable raw-CSV row.
@@ -1316,7 +1345,22 @@ def _fill_ok_timings(
         einsum_ms: ``head_y`` exit to forward exit.
         embed_proj_ms: ``transformer.proj`` hook interval.
         normalize_ms: Event pair around ``normalize_output``.
-        peak_mem_mb: Incremental CUDA peak, or ``0.0`` on CPU.
+        peak_mem_mb: Incremental CUDA peak (total peak minus baseline, floored
+            at 0), or ``0.0`` on CPU.
+        baseline_mem_mb: CUDA memory allocated before the repeat, or ``0.0``
+            on CPU.
+        peak_mem_total_mb: Total peak VRAM allocated across forward plus
+            normalization, or ``0.0`` on CPU.
+        peak_mem_reserved_mb: Total peak VRAM reserved by the caching
+            allocator across forward plus normalization, or ``0.0`` on CPU.
+        forward_peak_mem_total_mb: Peak allocated captured after the forward,
+            or ``0.0`` on CPU.
+        forward_peak_mem_reserved_mb: Peak reserved captured after the
+            forward, or ``0.0`` on CPU.
+        normalize_peak_mem_total_mb: Peak allocated captured after
+            ``normalize_output``, or ``0.0`` on CPU.
+        normalize_peak_mem_reserved_mb: Peak reserved captured after
+            ``normalize_output``, or ``0.0`` on CPU.
         dist_2d_standalone_ms: Standalone model-level distance-matrix time.
         linker_ms: Total CPU linker time, or ``None`` when the linker was
             skipped or failed. A failed linker leaves its cells empty but
@@ -1338,6 +1382,13 @@ def _fill_ok_timings(
         full_forward_ms + normalize_ms + (linker_ms or 0.0)
     )
     row["peak_mem_mb"] = peak_mem_mb
+    row["baseline_mem_mb"] = baseline_mem_mb
+    row["peak_mem_total_mb"] = peak_mem_total_mb
+    row["peak_mem_reserved_mb"] = peak_mem_reserved_mb
+    row["forward_peak_mem_total_mb"] = forward_peak_mem_total_mb
+    row["forward_peak_mem_reserved_mb"] = forward_peak_mem_reserved_mb
+    row["normalize_peak_mem_total_mb"] = normalize_peak_mem_total_mb
+    row["normalize_peak_mem_reserved_mb"] = normalize_peak_mem_reserved_mb
     row["dist_2d_standalone_ms"] = dist_2d_standalone_ms
     row["forward_closure_error_ms"] = full_forward_ms - (
         embed_ms + encoder_ms + decoder_ms + head_logits_ms
@@ -1764,9 +1815,10 @@ def run_grid(
     ``(N, B)`` shapes. Inputs and the standalone ``dist_2d`` estimate are
     cached per ``(N, B)`` and shared across variants. Each repeat resets
     peak-memory statistics, clears the cache, registers component hooks,
-    runs the forward and ``normalize_output`` under ``torch.no_grad()``, and
-    writes one raw row. Failures are recorded as ``oom``/``err`` rows and the
-    grid continues.
+    runs the forward and ``normalize_output`` under ``torch.no_grad()``,
+    records the total peak VRAM (allocated and reserved) per stage plus the
+    pre-repeat baseline (``0.0`` on CPU; SPEC 0062 §12), and writes one raw
+    row. Failures are recorded as ``oom``/``err`` rows and the grid continues.
 
     Args:
         checkpoint_path: Resolved checkpoint directory.
@@ -1962,11 +2014,15 @@ def run_grid(
                                 torch.cuda.synchronize()
                                 torch.cuda.empty_cache()
                                 torch.cuda.reset_peak_memory_stats()
-                                baseline_memory_bytes = (
+                                baseline_allocated_bytes = (
                                     torch.cuda.memory_allocated()
                                 )
+                                baseline_reserved_bytes = (
+                                    torch.cuda.memory_reserved()
+                                )
                             else:
-                                baseline_memory_bytes = 0
+                                baseline_allocated_bytes = 0
+                                baseline_reserved_bytes = 0
 
                             timer.clear()
                             hook_handles = _register_component_timing_hooks(
@@ -1980,6 +2036,18 @@ def run_grid(
                                     padding_mask=None,
                                     knn_indices=knn_indices,
                                 )
+                                if device.type == "cuda":
+                                    torch.cuda.synchronize()
+                                    forward_peak_allocated_bytes = (
+                                        torch.cuda.max_memory_allocated()
+                                    )
+                                    forward_peak_reserved_bytes = (
+                                        torch.cuda.max_memory_reserved()
+                                    )
+                                    torch.cuda.reset_peak_memory_stats()
+                                    normalize_baseline_allocated_bytes = (
+                                        torch.cuda.memory_allocated()
+                                    )
                                 timer.start("normalize_start")
                                 normalized_association = (
                                     transformer.normalize_output(
@@ -2032,18 +2100,55 @@ def run_grid(
 
                             if device.type == "cuda":
                                 torch.cuda.synchronize()
-                                peak_memory_bytes = (
+                                normalize_peak_allocated_bytes = (
                                     torch.cuda.max_memory_allocated()
                                 )
+                                normalize_peak_reserved_bytes = (
+                                    torch.cuda.max_memory_reserved()
+                                )
+                                peak_allocated_bytes = max(
+                                    forward_peak_allocated_bytes,
+                                    normalize_peak_allocated_bytes,
+                                )
+                                peak_reserved_bytes = max(
+                                    forward_peak_reserved_bytes,
+                                    normalize_peak_reserved_bytes,
+                                )
+                                bytes_per_mib = 1024 ** 2
+                                baseline_mem_mb = (
+                                    baseline_allocated_bytes / bytes_per_mib
+                                )
+                                peak_mem_total_mb = (
+                                    peak_allocated_bytes / bytes_per_mib
+                                )
+                                peak_mem_reserved_mb = (
+                                    peak_reserved_bytes / bytes_per_mib
+                                )
+                                forward_peak_mem_total_mb = (
+                                    forward_peak_allocated_bytes / bytes_per_mib
+                                )
+                                forward_peak_mem_reserved_mb = (
+                                    forward_peak_reserved_bytes / bytes_per_mib
+                                )
+                                normalize_peak_mem_total_mb = (
+                                    normalize_peak_allocated_bytes
+                                    / bytes_per_mib
+                                )
+                                normalize_peak_mem_reserved_mb = (
+                                    normalize_peak_reserved_bytes
+                                    / bytes_per_mib
+                                )
                                 peak_mem_mb = max(
-                                    0.0,
-                                    (
-                                        peak_memory_bytes
-                                        - baseline_memory_bytes
-                                    )
-                                    / (1024 ** 2),
+                                    0.0, peak_mem_total_mb - baseline_mem_mb
                                 )
                             else:
+                                baseline_mem_mb = 0.0
+                                peak_mem_total_mb = 0.0
+                                peak_mem_reserved_mb = 0.0
+                                forward_peak_mem_total_mb = 0.0
+                                forward_peak_mem_reserved_mb = 0.0
+                                normalize_peak_mem_total_mb = 0.0
+                                normalize_peak_mem_reserved_mb = 0.0
                                 peak_mem_mb = 0.0
 
                             linker_timing = _prepare_and_time_linker(
@@ -2068,6 +2173,21 @@ def run_grid(
                                 embed_proj_ms=embed_proj_ms,
                                 normalize_ms=normalize_ms,
                                 peak_mem_mb=peak_mem_mb,
+                                baseline_mem_mb=baseline_mem_mb,
+                                peak_mem_total_mb=peak_mem_total_mb,
+                                peak_mem_reserved_mb=peak_mem_reserved_mb,
+                                forward_peak_mem_total_mb=(
+                                    forward_peak_mem_total_mb
+                                ),
+                                forward_peak_mem_reserved_mb=(
+                                    forward_peak_mem_reserved_mb
+                                ),
+                                normalize_peak_mem_total_mb=(
+                                    normalize_peak_mem_total_mb
+                                ),
+                                normalize_peak_mem_reserved_mb=(
+                                    normalize_peak_mem_reserved_mb
+                                ),
                                 dist_2d_standalone_ms=(
                                     prepared_inputs.dist_2d_standalone_ms
                                 ),

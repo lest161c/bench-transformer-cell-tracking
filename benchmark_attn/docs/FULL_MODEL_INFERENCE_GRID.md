@@ -114,8 +114,13 @@ For each `(variant, N, B)`:
      CPU;
    - run `model.transformer(...)` and `normalize_output(...)` under
      `torch.no_grad()`;
-   - read incremental peak memory as `max_memory_allocated()` minus the
-     pre-repeat allocated baseline (`0.0` on CPU);
+   - measure memory per repeat (SPEC 0062 §12): synchronise and capture the
+     allocated/reserved forward peaks after the forward; reset the peak
+     statistics, run `normalize_output`, synchronise, and capture the
+     allocated/reserved normalization peaks; report the total peaks
+     (`max` of the two stages), the per-stage peaks, the pre-repeat
+     allocated baseline, and keep `peak_mem_mb` as the incremental delta
+     (all `0.0` on CPU; empty cells on `oom`/`err`);
    - time the CPU linker separately and write one raw row.
 4. On OOM or any exception, record a row with status `oom` or
    `err: <message>`, clear caches, and continue with the next configuration.
@@ -169,8 +174,10 @@ coord_layout,linker_mode,linker_status,
 full_forward_ms,embed_ms,encoder_ms,encoder_attn_ms,decoder_ms,
 decoder_attn_ms,head_logits_ms,head_x_ms,head_y_ms,einsum_ms,
 embed_proj_ms,normalize_ms,linker_build_graph_ms,linker_greedy_ms,
-linker_ms,total_ms,peak_mem_mb,dist_2d_standalone_ms,
-forward_closure_error_ms,error
+linker_ms,total_ms,peak_mem_mb,baseline_mem_mb,peak_mem_total_mb,
+peak_mem_reserved_mb,forward_peak_mem_total_mb,forward_peak_mem_reserved_mb,
+normalize_peak_mem_total_mb,normalize_peak_mem_reserved_mb,
+dist_2d_standalone_ms,forward_closure_error_ms,error
 ```
 
 | Column | Meaning |
@@ -192,7 +199,20 @@ forward_closure_error_ms,error
 | `normalize_ms` | Event pair around `normalize_output(A, timepoints, coords)`. |
 | `linker_build_graph_ms`, `linker_greedy_ms`, `linker_ms` | CPU linker stages and their sum. |
 | `total_ms` | `full_forward_ms + normalize_ms + linker_ms` for `B=1`; forward + normalize for `B>1`. Mixed GPU/CPU sum. |
-| `peak_mem_mb` | Incremental CUDA peak for one repeat; `0.0` on CPU. |
+| `peak_mem_mb` | Incremental CUDA peak for one repeat (`peak_mem_total_mb - baseline_mem_mb`, floored at 0); `0.0` on CPU. Kept for compatibility with earlier runs. |
+| `baseline_mem_mb` | CUDA memory allocated before the repeat (model weights plus persistent tensors), in MiB; `0.0` on CPU. |
+| `peak_mem_total_mb` | **Total peak VRAM allocated** across forward + normalize (`max` of the two stage peaks), in MiB; `0.0` on CPU. |
+| `peak_mem_reserved_mb` | **Total peak VRAM reserved** by the caching allocator across forward + normalize, in MiB; `0.0` on CPU. |
+| `forward_peak_mem_total_mb`, `forward_peak_mem_reserved_mb` | Allocated/reserved peaks captured after the forward, before `normalize_output`. |
+| `normalize_peak_mem_total_mb`, `normalize_peak_mem_reserved_mb` | Allocated/reserved peaks captured after `normalize_output` (peak statistics are reset between the two stages). |
+
+Memory semantics (SPEC 0062 §12): **allocated** bytes are live tensor
+payload; **reserved** bytes are caching-allocator segments, including cached
+free blocks (reserved ≥ allocated, and reserved is what can hit the VRAM
+limit). Peaks are read after `torch.cuda.synchronize()`; peak statistics are
+reset once before the repeat and again between the forward and
+`normalize_output` so the two stages are separable. All memory cells are
+empty on `oom`/`err` rows and `0.0` on CPU.
 | `dist_2d_standalone_ms` | Standalone `torch.cdist` estimate on the same `(B, N)` shape, repeated in each row; already included in the forward, never subtracted. |
 | `forward_closure_error_ms` | Diagnostic closure residual; not a correction. |
 | `error` | Empty on success, otherwise the exception type/message. |
@@ -209,6 +229,13 @@ replaces the explicit F3 placeholder):
   `decoder_attn_ms`, `head_logits_ms`, `einsum_ms`, `normalize_ms`,
   `linker_build_graph_ms`, `linker_greedy_ms`, `linker_ms`;
 - `peak_mem_mb_max`;
+- mean and sample standard deviation (`n-1`) for `baseline_mem_mb`,
+  `peak_mem_total_mb`, `peak_mem_reserved_mb`, `forward_peak_mem_total_mb`,
+  `forward_peak_mem_reserved_mb`, `normalize_peak_mem_total_mb`,
+  `normalize_peak_mem_reserved_mb` (SPEC 0062 §12);
+- total-VRAM maxima over the `ok` repeats: `peak_mem_total_mb_max`,
+  `peak_mem_reserved_mb_max`, `forward_peak_mem_total_mb_max`,
+  `normalize_peak_mem_total_mb_max`;
 - `speedup_vs_relative_pos = mean(total_ms of relative_pos) / mean(total_ms of
   variant)` at the same `(N, B)`;
 - `attention_share = (encoder_attn_ms + decoder_attn_ms) / total_ms`;
@@ -324,13 +351,15 @@ cd benchmark_attn
 ```
 
 `--plot-all` (optional argument, default
-`results/full_model_inference_grid_all_metrics.png`) writes an eight-panel
+`results/full_model_inference_grid_all_metrics.png`) writes a nine-panel
 PNG of every measured summary metric against `N` on a log2 axis, one
 line+marker per variant with a shared legend: total and forward speedup vs
 `relative_pos`, `total_ms`, `full_forward_ms`, the attention module time
 (`encoder_attn_ms + decoder_attn_ms`), `normalize_ms`, `linker_ms`
-(`B=1` greedy only — the linker is not timed for `B>1`), and
-`attention_share` of `total_ms`. Timings use log y-axes; NaN/missing values
+(`B=1` greedy only — the linker is not timed for `B>1`),
+`attention_share` of `total_ms`, and the total peak VRAM
+(`peak_mem_reserved_mb_max`, y-label `Total peak VRAM (reserved, MB)`).
+Timings use log y-axes; NaN/missing values
 are skipped per variant and panel, and an empty panel is annotated
 "no data". The two-panel `--plot` summary PNG is unchanged. This figure is
 an analysis artifact for reading the F6 numbers; it makes no accuracy or
@@ -344,28 +373,53 @@ cd benchmark_attn
   --plot-parts results/full_model_inference_grid_parts
 ```
 
+B=64 batch run (the B=64 grid writes `results/full_model_inference_grid_b64.csv`
+and `_b64_summary.csv`; linker skipped, see caveat below):
+
+```bash
+cd benchmark_attn
+.venv/bin/python analysis/summarize_full_model_inference_grid.py \
+  --raw results/full_model_inference_grid_b64.csv \
+  --env-json results/full_model_inference_grid_b64_env.json \
+  --out results/full_model_inference_grid_b64_summary.csv \
+  --plot-batch 64 \
+  --plot-parts results/full_model_inference_grid_b64_parts
+```
+
 `--plot-parts` (optional argument, default prefix
 `results/full_model_inference_grid_parts`) writes three decomposition PNGs
-from one prefix: `<prefix>_time_fractions.png` — 2×2 panels, one per
+from one prefix, selecting the rows of the batch size given by `--plot-batch`
+(int, default 1): `<prefix>_time_fractions.png` — 2×2 panels, one per
 variant (`relative_pos`, `cached_dist`, `sparse_mask_k16`,
 `sparse_gather_k16`), each a 100% stacked area over `N` of the attention
 (`encoder_attn_ms + decoder_attn_ms`), `normalize_ms`, `linker_ms`, and
-remaining "other" fraction of `total_ms`, `B=1` only, with a shared legend
-and missing/NaN cells dropped per variant; `<prefix>_forward_time.png` —
-log-log forward time (`full_forward_ms`) vs sequence length, `B=1` only;
-and `<prefix>_memory.png` — log-log GPU memory (`peak_mem_mb`) vs sequence
-length with a grey dashed 94 GB H100 VRAM reference line, `B=1` only. The
-forward-time and memory figures are separate single panels styled after the
-attention-only H100 report panels (`curated/generate_report.py::
-panel_speed_vs_n_h100` and `panel_memory_vs_n`): one solid measured line
-per variant in Okabe-Ito colours (black, vermilion, sky blue, orange;
-`o` markers, size 2.2, linewidth 0.8), a frameless method legend in the
-upper left, y major ticks labelled as base-10 powers, and no projections
-(all plotted `N` are measured). All three figures space `N` logarithmically
-(base 2) but label the x ticks with the plain integer sequence lengths
-(512, 1024, 2048, …, 32768), never power notation. The matplotlib fallback
-behaviour matches `--plot`/`--plot-all`. All three are analysis artifacts
-for reading the F6 numbers, not report figures.
+remaining "other" fraction of `total_ms`, with a shared legend and
+missing/NaN cells dropped per variant; `<prefix>_forward_time.png` —
+log-log forward time (`full_forward_ms`) vs sequence length; and
+`<prefix>_memory.png` — log-log **total peak VRAM**
+(`peak_mem_reserved_mb_max`, y-label `Total peak VRAM (reserved, MB)`;
+not the `peak_mem_mb` delta) vs sequence length
+with a grey dashed 94 GB H100 VRAM reference line. The forward-time
+and memory figures are separate single panels styled after the attention-only
+H100 report panels (`curated/generate_report.py::panel_speed_vs_n_h100` and
+`panel_memory_vs_n`): one solid measured line per variant in Okabe-Ito
+colours (black, vermilion, sky blue, orange; `o` markers, size 2.2,
+linewidth 0.8), a frameless method legend in the upper left, y major ticks
+labelled as base-10 powers, and no projections (all plotted `N` are
+measured). All three figures space `N` logarithmically (base 2) but label
+the x ticks with the plain integer sequence lengths (512, 1024, 2048, …),
+never power notation. The matplotlib fallback behaviour matches
+`--plot`/`--plot-all`. `--plot-batch` affects `--plot-parts` only;
+`--plot`/`--plot-all` are unchanged. All three are analysis artifacts for
+reading the F6 numbers, not report figures.
+
+**Linker-skipped caveat (`B>1`).** For `B>1` the CPU linker is not timed
+(`linker_status=skipped_b_gt_1`), `linker_ms` is empty, and
+`total_ms = full_forward_ms + normalize_ms`. The `--plot-batch 64`
+time-fraction figure therefore treats the missing linker as 0 — the "linker"
+band and legend entry appear at zero — and the "other" fraction keeps its
+residual meaning. Do not compare a B=64 `total_ms` decomposition against the
+B=1 one as if both included linker time.
 
 ## Caveats
 
@@ -381,6 +435,14 @@ for reading the F6 numbers, not report figures.
   if they were the same numerics.
 - **Mixed GPU/CPU total.** `total_ms` adds a GPU forward to a CPU linker; it is
   not a wall-clock overlap measurement.
+- **Total peak VRAM vs incremental delta (SPEC 0062 §12).** `peak_mem_mb`
+  remains the incremental delta (total peak minus the pre-repeat allocated
+  baseline) for compatibility; `peak_mem_total_mb` and `peak_mem_reserved_mb`
+  report the absolute total peak VRAM, where **allocated** counts live tensor
+  bytes and **reserved** counts caching-allocator segments including cached
+  free blocks (reserved ≥ allocated; reserved is what can hit the VRAM
+  limit). The memory figures plot the reserved total against the 94 GB H100
+  line, never the delta.
 - **Shared `N×N` costs.** `dist_2d`, the logits `einsum`, and
   `normalize_output` cap end-to-end Gather speedups and are reported explicitly
   rather than hidden.
@@ -414,6 +476,9 @@ expected k16 values (`d_model=320`, `nhead=4`, 6+6 layers, `window=10`,
 **Row/status counts:** the raw CSV contains 84 data rows
 (4 variants × 7 `N` × `B=1` × 3 repeats), every row `status=ok` and
 `linker_status=ok` — no `oom`, no `err` rows. The summary CSV has 28 rows.
+This run predates the total-peak-VRAM columns of SPEC 0062 §12: its raw CSV
+and summary carry only `peak_mem_mb`, and the new columns stay empty until
+the owner reruns the grid.
 
 **`N=32768` result table** (`B=1`, greedy linker; means over the 3 ok
 repeats, from `results/full_model_inference_grid_summary.csv`):

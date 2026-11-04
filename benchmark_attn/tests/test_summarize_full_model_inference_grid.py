@@ -4,8 +4,10 @@ The synthetic raw CSVs contain a small, hand-checkable grid: two variants, two
 repeats, and an explicit ``oom`` row. The assertions cover counts, sample
 standard deviation (including the single-repeat ``std=0`` case), the derived
 speedups and attention shares, the ``n/a`` handling when the baseline or a
-variant did not complete, the optional ``--plot-all`` PNG output, and the
-optional ``--plot-parts`` three-figure decomposition output.
+variant did not complete, the total-peak-VRAM mean/std/max columns of
+SPEC 0062 §12, the optional ``--plot-all`` PNG output, and the optional
+``--plot-parts`` three-figure decomposition output (including the
+``--plot-batch 64`` selection of B>1 rows whose linker timing is skipped).
 """
 
 from __future__ import annotations
@@ -44,6 +46,13 @@ RAW_HEADER = [
     "linker_greedy_ms",
     "linker_ms",
     "peak_mem_mb",
+    "baseline_mem_mb",
+    "peak_mem_total_mb",
+    "peak_mem_reserved_mb",
+    "forward_peak_mem_total_mb",
+    "forward_peak_mem_reserved_mb",
+    "normalize_peak_mem_total_mb",
+    "normalize_peak_mem_reserved_mb",
 ]
 
 DEFAULT_METRIC_VALUES = {
@@ -56,6 +65,18 @@ DEFAULT_METRIC_VALUES = {
     "linker_build_graph_ms": 7.0,
     "linker_greedy_ms": 8.0,
     "linker_ms": 15.0,
+}
+
+#: Deterministic total-peak-VRAM values (SPEC 0062 §12) merged into every
+#: ``_ok_row`` so the memory mean/std/max aggregation is exercised.
+DEFAULT_MEMORY_METRIC_VALUES = {
+    "baseline_mem_mb": 100.0,
+    "peak_mem_total_mb": 400.0,
+    "peak_mem_reserved_mb": 500.0,
+    "forward_peak_mem_total_mb": 350.0,
+    "forward_peak_mem_reserved_mb": 450.0,
+    "normalize_peak_mem_total_mb": 400.0,
+    "normalize_peak_mem_reserved_mb": 500.0,
 }
 
 
@@ -82,6 +103,8 @@ def _ok_row(
     encoder_attn_ms: float,
     decoder_attn_ms: float,
     peak_mem_mb: float,
+    batch_size: int = 1,
+    memory_columns: dict[str, float] | None = None,
 ) -> dict[str, object]:
     """Build one successful raw row with deterministic filler metrics.
 
@@ -94,6 +117,9 @@ def _ok_row(
         encoder_attn_ms: Encoder attention timing.
         decoder_attn_ms: Decoder attention timing.
         peak_mem_mb: Incremental peak memory.
+        batch_size: ``B`` for the row (1 by default, 64 for batch runs).
+        memory_columns: Overrides for the total-peak-VRAM columns
+            (SPEC 0062 §12); ``None`` uses :data:`DEFAULT_MEMORY_METRIC_VALUES`.
 
     Returns:
         A dictionary covering every raw header column used by the summary.
@@ -101,7 +127,7 @@ def _ok_row(
     row: dict[str, object] = {
         "variant": variant,
         "N": sequence_length,
-        "B": 1,
+        "B": batch_size,
         "repeat_idx": repeat_idx,
         "status": "ok",
         "linker_mode": "greedy",
@@ -112,6 +138,10 @@ def _ok_row(
         "peak_mem_mb": peak_mem_mb,
     }
     row.update(DEFAULT_METRIC_VALUES)
+    row.update(
+        DEFAULT_MEMORY_METRIC_VALUES if memory_columns is None
+        else memory_columns
+    )
     return row
 
 
@@ -164,7 +194,13 @@ def test_summary_counts_means_std_and_derived_metrics(tmp_path):
 
     rows = [
         _ok_row("relative_pos", 128, 0, 80.0, 100.0, 20.0, 10.0, 100.0),
-        _ok_row("relative_pos", 128, 1, 100.0, 120.0, 24.0, 12.0, 200.0),
+        _ok_row(
+            "relative_pos", 128, 1, 100.0, 120.0, 24.0, 12.0, 200.0,
+            memory_columns={
+                **DEFAULT_MEMORY_METRIC_VALUES,
+                "peak_mem_reserved_mb": 700.0,
+            },
+        ),
         _ok_row("sparse_gather_k16", 128, 0, 50.0, 60.0, 8.0, 4.0, 300.0),
         _oom_row("sparse_gather_k16", 128, 1),
     ]
@@ -217,6 +253,94 @@ def test_summary_counts_means_std_and_derived_metrics(tmp_path):
 
     assert relative_row["peak_mem_mb_max"] == pytest.approx(200.0)
     assert gather_row["peak_mem_mb_max"] == pytest.approx(300.0)
+
+    assert relative_row["baseline_mem_mb_mean"] == pytest.approx(100.0)
+    assert relative_row["peak_mem_total_mb_max"] == pytest.approx(400.0)
+    assert relative_row["peak_mem_reserved_mb_mean"] == pytest.approx(600.0)
+    assert relative_row["peak_mem_reserved_mb_std"] == pytest.approx(
+        math.sqrt(20000.0)
+    )
+    assert relative_row["peak_mem_reserved_mb_max"] == pytest.approx(700.0)
+    assert gather_row["peak_mem_reserved_mb_max"] == pytest.approx(500.0)
+    assert gather_row["peak_mem_reserved_mb_std"] == pytest.approx(0.0)
+    assert gather_row["forward_peak_mem_total_mb_max"] == pytest.approx(350.0)
+    assert gather_row["normalize_peak_mem_total_mb_max"] == pytest.approx(
+        400.0
+    )
+
+
+def test_summary_includes_total_peak_vram_mean_std_and_max_columns(tmp_path):
+    """The total-VRAM columns are aggregated with mean/std and the maxima.
+
+    SPEC 0062 §12: the seven new raw memory columns receive mean/std, and
+    exactly four of them additionally receive a ``*_max`` column over the
+    ``ok`` repeats, while ``peak_mem_mb`` keeps its delta-only
+    ``peak_mem_mb_max`` aggregation.
+    """
+    expected_memory_mean_std_columns = (
+        "baseline_mem_mb",
+        "peak_mem_total_mb",
+        "peak_mem_reserved_mb",
+        "forward_peak_mem_total_mb",
+        "forward_peak_mem_reserved_mb",
+        "normalize_peak_mem_total_mb",
+        "normalize_peak_mem_reserved_mb",
+    )
+    expected_peak_max_columns = (
+        "peak_mem_total_mb_max",
+        "peak_mem_reserved_mb_max",
+        "forward_peak_mem_total_mb_max",
+        "normalize_peak_mem_total_mb_max",
+    )
+
+    raw_path = tmp_path / "raw.csv"
+    summary_path = tmp_path / "summary.csv"
+    rows = [
+        _ok_row("relative_pos", 256, 0, 80.0, 100.0, 20.0, 10.0, 100.0),
+        _ok_row("relative_pos", 256, 1, 90.0, 110.0, 22.0, 11.0, 150.0),
+        _oom_row("cached_dist", 256, 0),
+    ]
+    _write_raw_csv(raw_path, rows)
+
+    exit_code = summary_module.main(
+        [
+            "--raw",
+            str(raw_path),
+            "--env-json",
+            str(tmp_path / "missing_env.json"),
+            "--out",
+            str(summary_path),
+        ]
+    )
+
+    assert exit_code == 0
+    summary = pd.read_csv(summary_path)
+    summary_columns = list(summary.columns)
+    for column in expected_memory_mean_std_columns:
+        assert f"{column}_mean" in summary_columns
+        assert f"{column}_std" in summary_columns
+    for column in expected_peak_max_columns:
+        assert column in summary_columns
+    assert "peak_mem_mb_max" in summary_columns
+
+    relative_row = _row_for(summary, "relative_pos", 256)
+    cached_row = _row_for(summary, "cached_dist", 256)
+    for column in expected_peak_max_columns:
+        assert math.isnan(cached_row[column])
+    assert relative_row["peak_mem_total_mb_max"] == pytest.approx(400.0)
+    assert relative_row["peak_mem_reserved_mb_max"] == pytest.approx(500.0)
+    assert relative_row["forward_peak_mem_total_mb_max"] == pytest.approx(
+        350.0
+    )
+    assert relative_row["normalize_peak_mem_total_mb_max"] == pytest.approx(
+        400.0
+    )
+    assert relative_row["forward_peak_mem_reserved_mb_mean"] == pytest.approx(
+        450.0
+    )
+    assert relative_row["normalize_peak_mem_reserved_mb_std"] == pytest.approx(
+        0.0
+    )
 
 
 def test_compact_table_marks_oom_and_missing_baseline_as_na(tmp_path, capsys):
@@ -402,8 +526,81 @@ def test_plot_parts_writes_three_pngs(tmp_path):
     assert not (tmp_path / "parts_forward_time_memory.png").exists()
 
 
+def test_plot_parts_b64_plots_rows_with_skipped_linker(tmp_path):
+    """``--plot-batch 64`` plots B=64 rows whose linker cells are empty.
+
+    For ``B>1`` the benchmark skips the CPU linker, so ``linker_ms`` is
+    empty and ``total_ms = full_forward_ms + normalize_ms``. Before the
+    ``--plot-batch`` change the stacked-fraction builder required a finite
+    linker and silently dropped every B=64 row into "no data" panels; this
+    test locks in the missing-linker-as-zero rule through the full ``main()``
+    CLI path.
+    """
+    pytest.importorskip("matplotlib")
+    raw_path = tmp_path / "raw_b64.csv"
+    parts_prefix = tmp_path / "parts_b64"
+
+    rows = []
+    for sequence_length, scale in ((512, 1.0), (1024, 2.0)):
+        for variant_index, variant in enumerate(
+            (
+                "relative_pos",
+                "cached_dist",
+                "sparse_mask_k16",
+                "sparse_gather_k16",
+            )
+        ):
+            row = _ok_row(
+                variant,
+                sequence_length,
+                0,
+                40.0 * scale + variant_index,
+                100.0 * scale + variant_index,
+                20.0 * scale,
+                10.0 * scale,
+                100.0 * scale + variant_index,
+                batch_size=64,
+            )
+            for linker_column in (
+                "linker_build_graph_ms",
+                "linker_greedy_ms",
+                "linker_ms",
+            ):
+                row[linker_column] = ""
+            rows.append(row)
+    _write_raw_csv(raw_path, rows)
+
+    exit_code = summary_module.main(
+        [
+            "--raw",
+            str(raw_path),
+            "--env-json",
+            str(tmp_path / "missing_env.json"),
+            "--out",
+            str(tmp_path / "summary_b64.csv"),
+            "--plot-batch",
+            "64",
+            "--plot-parts",
+            str(parts_prefix),
+        ]
+    )
+
+    time_fractions_png = tmp_path / "parts_b64_time_fractions.png"
+    forward_time_png = tmp_path / "parts_b64_forward_time.png"
+    memory_png = tmp_path / "parts_b64_memory.png"
+
+    assert exit_code == 0
+    assert time_fractions_png.exists()
+    assert time_fractions_png.stat().st_size > 0
+    assert forward_time_png.exists()
+    assert forward_time_png.stat().st_size > 0
+    assert memory_png.exists()
+    assert memory_png.stat().st_size > 0
+
+
 def test_plot_parts_cli_default_prefix():
     """The bare flag selects the default prefix; omitting it selects None."""
     arguments = summary_module.parse_arguments(["--plot-parts"])
     assert arguments.plot_parts == summary_module.DEFAULT_PARTS_PNG_PREFIX
     assert summary_module.parse_arguments([]).plot_parts is None
+    assert summary_module.parse_arguments([]).plot_batch == 1
