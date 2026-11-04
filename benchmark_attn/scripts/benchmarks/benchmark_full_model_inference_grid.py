@@ -10,6 +10,13 @@ delta; SPEC 0062 §12), environment JSON, and raw CSV writing. F4 adds linker
 timing for ``B=1`` using a read-only
 consecutive-frame weight lookup over the normalized association matrix.
 
+The memory protocol matches the isolated attention benchmark
+(``src/bench/timing.py::measure``): every repeat synchronises, runs
+``gc.collect()`` plus ``empty_cache()`` before the peak-memory baseline is
+captured, and the repeat's ``association``/``normalized_association``
+tensors are released and the cache cleared once after each repeat,
+outside the timed region.
+
 A fresh model is loaded for every variant so a swap cannot contaminate the
 next variant. The swap copies ``q_pro``/``k_pro``/``v_pro``/``proj`` and
 ``rot_pos_enc`` weights with a strict state-dict load and raises a descriptive
@@ -1017,10 +1024,18 @@ def _failure_status(exception: BaseException) -> str:
 
 
 def _clear_device_cache(device: torch.device) -> None:
-    """Release Python objects and CUDA cache after a failed attempt.
+    """Run ``gc.collect()`` and release the CUDA caching-allocator cache.
+
+    Called before every repeat's baseline capture (the same
+    ``gc.collect()`` + ``empty_cache()`` protocol as the isolated
+    attention benchmark, ``src/bench/timing.py::measure``) and once in
+    each repeat's ``finally`` block so no large tensor survives into the
+    next measurement or a subsequent configuration.
 
     Args:
-        device: Device whose cache should be cleared.
+        device: Device whose cache should be cleared. ``empty_cache()``
+            runs only when ``device`` is a CUDA device and CUDA is
+            available; otherwise only ``gc.collect()`` runs.
     """
     gc.collect()
     if device.type == "cuda" and torch.cuda.is_available():
@@ -1813,12 +1828,19 @@ def run_grid(
 
     A fresh model is loaded per variant and reused across the requested
     ``(N, B)`` shapes. Inputs and the standalone ``dist_2d`` estimate are
-    cached per ``(N, B)`` and shared across variants. Each repeat resets
-    peak-memory statistics, clears the cache, registers component hooks,
-    runs the forward and ``normalize_output`` under ``torch.no_grad()``,
-    records the total peak VRAM (allocated and reserved) per stage plus the
-    pre-repeat baseline (``0.0`` on CPU; SPEC 0062 §12), and writes one raw
-    row. Failures are recorded as ``oom``/``err`` rows and the grid continues.
+    cached per ``(N, B)`` and shared across variants. Each repeat
+    synchronises, clears the cache through :func:`_clear_device_cache`
+    (``gc.collect()`` plus ``empty_cache()``, as in the isolated
+    attention benchmark ``src/bench/timing.py::measure``), synchronises
+    again, resets peak-memory statistics, and captures the pre-repeat
+    baseline before registering component hooks and running the forward
+    and ``normalize_output`` under ``torch.no_grad()``. It records the
+    total peak VRAM (allocated and reserved) per stage plus the
+    pre-repeat baseline (``0.0`` on CPU; SPEC 0062 §12) and writes one raw
+    row. After every repeat the association tensors are released and the
+    cache is cleared once outside the timed region, so no ``N x N`` tensor
+    survives into the next repeat. Failures are recorded as ``oom``/``err``
+    rows and the grid continues.
 
     Args:
         checkpoint_path: Resolved checkpoint directory.
@@ -2009,10 +2031,13 @@ def run_grid(
                         hook_handles: list[
                             torch.utils.hooks.RemovableHandle
                         ] = []
+                        association = None
+                        normalized_association = None
                         try:
                             if device.type == "cuda":
                                 torch.cuda.synchronize()
-                                torch.cuda.empty_cache()
+                                _clear_device_cache(device)
+                                torch.cuda.synchronize()
                                 torch.cuda.reset_peak_memory_stats()
                                 baseline_allocated_bytes = (
                                     torch.cuda.memory_allocated()
@@ -2224,9 +2249,11 @@ def run_grid(
                                 _TIMING_COLUMNS + _LINKER_TIMING_COLUMNS
                             ):
                                 row[timing_column] = ""
-                            _clear_device_cache(device)
                         finally:
                             _remove_hooks(hook_handles)
+                            association = None
+                            normalized_association = None
+                            _clear_device_cache(device)
 
                         _write_raw_row(writer, row)
                         csv_file.flush()

@@ -109,7 +109,10 @@ For each `(variant, N, B)`:
    `transformer.proj`, every `encoder[i]` / `encoder[i].attn`, every
    `decoder[i]` / `decoder[i].attn`, `head_x`, and `head_y`.
 3. For each of `repeats` (`3` primary):
-   - synchronise, clear the CUDA cache, reset peak-memory statistics;
+   - synchronise, run `gc.collect()` plus `torch.cuda.empty_cache()`
+     (`_clear_device_cache`), synchronise again, and reset peak-memory
+     statistics — the same pre-baseline protocol as the isolated attention
+     benchmark (`src/bench/timing.py::measure`);
    - use CUDA events on GPU and `time.perf_counter` at the same boundaries on
      CPU;
    - run `model.transformer(...)` and `normalize_output(...)` under
@@ -121,9 +124,14 @@ For each `(variant, N, B)`:
      (`max` of the two stages), the per-stage peaks, the pre-repeat
      allocated baseline, and keep `peak_mem_mb` as the incremental delta
      (all `0.0` on CPU; empty cells on `oom`/`err`);
-   - time the CPU linker separately and write one raw row.
+   - time the CPU linker separately;
+   - in the `finally` block, outside the timed region, remove the hooks,
+     release the repeat's `association`/`normalized_association` tensors
+     (set to `None`), and call `_clear_device_cache` once, so no `N×N`
+     tensor survives into the next repeat; then write one raw row.
 4. On OOM or any exception, record a row with status `oom` or
-   `err: <message>`, clear caches, and continue with the next configuration.
+   `err: <message>` and continue with the next configuration; the same
+   `finally` cleanup (hooks, tensors, cache) runs for success and failure.
 
 `total_ms = full_forward_ms + normalize_ms + linker_ms` for `B=1`. The forward
 and normalisation are GPU-timed while the linker is CPU-timed, so `total_ms` is
@@ -211,8 +219,13 @@ payload; **reserved** bytes are caching-allocator segments, including cached
 free blocks (reserved ≥ allocated, and reserved is what can hit the VRAM
 limit). Peaks are read after `torch.cuda.synchronize()`; peak statistics are
 reset once before the repeat and again between the forward and
-`normalize_output` so the two stages are separable. All memory cells are
-empty on `oom`/`err` rows and `0.0` on CPU.
+`normalize_output` so the two stages are separable. The pre-repeat protocol
+(synchronise, `gc.collect()` + `empty_cache()` via `_clear_device_cache`,
+synchronise, reset peak statistics, capture baseline) matches the isolated
+attention benchmark (`src/bench/timing.py::measure`), and each repeat's
+`association`/`normalized_association` tensors are released after the repeat
+so the baseline reflects only the model weights plus persistent inputs. All
+memory cells are empty on `oom`/`err` rows and `0.0` on CPU.
 | `dist_2d_standalone_ms` | Standalone `torch.cdist` estimate on the same `(B, N)` shape, repeated in each row; already included in the forward, never subtracted. |
 | `forward_closure_error_ms` | Diagnostic closure residual; not a correction. |
 | `error` | Empty on success, otherwise the exception type/message. |
