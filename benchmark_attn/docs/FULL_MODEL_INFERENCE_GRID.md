@@ -399,9 +399,11 @@ cd benchmark_attn
   --plot-parts results/full_model_inference_grid_b64_parts
 ```
 
-**Run status:** the `B=64` grid was executed under Slurm job `4525220`
-(2026-11-04, H100) — 60 raw rows (54 `ok`, 6 `oom`: `relative_pos` and
-`cached_dist` at `N=8192`), 20 summary rows, all rows
+**Run status:** the `B=64` grid was executed under Slurm job `4525463`
+(2026-11-04, H100; first executed under job `4525220` the same day, which is
+superseded — see the memory note in the "H100 total-VRAM rerun" section
+below) — 60 raw rows (54 `ok`, 6 `oom`: `relative_pos` and `cached_dist` at
+`N=8192`), 20 summary rows, all rows
 `linker_status=skipped_b_gt_1`; see the "H100 total-VRAM rerun" section
 below for the memory and speedup tables.
 
@@ -540,10 +542,12 @@ expected k16 values (`d_model=320`, `nhead=4`, 6+6 layers, `window=10`,
 This run predates the total-peak-VRAM columns of SPEC 0062 §12: its raw CSV
 and summary carried only `peak_mem_mb` (the incremental delta — its
 identical 27136 MB `peak_mem_mb_max` values are **not** total memory). The
-owner reran the grid with the new columns as job `4525220` on 2026-11-04;
-the current `results/full_model_inference_grid{,_summary}.csv` come from
-that rerun, and the corrected total-VRAM tables are in the "H100 total-VRAM
-rerun" section below.
+owner reran the grid with the new columns — first as job `4525220`
+(2026-11-04, superseded the same day, see below), then as the FINAL
+memory-cleanup rerun **job `4525463`**; the current
+`results/full_model_inference_grid{,_summary}.csv` come from job `4525463`,
+and the corrected total-VRAM tables are in the "H100 total-VRAM rerun"
+section below.
 
 **`N=32768` result table** (`B=1`, greedy linker; means over the 3 ok
 repeats, from `results/full_model_inference_grid_summary.csv`):
@@ -568,18 +572,50 @@ faster because ~8.0 s of the ~8.5 s total is the CPU linker plus the shared
 `N×N` costs (`dist_2d`, logits `einsum`, `normalize_output`). Timing-only
 result on synthetic data; no accuracy or tracking-quality claim.
 
-## H100 total-VRAM rerun (job 4525220, F6 correction + F8 `B=64` comparison)
+## H100 total-VRAM rerun (job 4525463, FINAL — F6 correction + F8 `B=64` comparison)
 
-**Job:** Slurm job `4525220` (partition `capella`, NVIDIA H100), completed
+> **Supersedes job `4525220` (same day, 2026-11-04).** The first total-VRAM
+> rerun produced impossible values because the repeat loop did not
+> `gc.collect()` before `empty_cache()` and did not release the repeat's
+> `association`/`normalized_association` tensors between repeats — previous
+> repeats' `N×N` tensors were counted inside the next repeat's baselines and
+> peaks. All job-`4525220` memory values (e.g. the `B=1` `N=32768` reserved
+> 29978/40236/30826/32300 MiB table and the `B=64` tables quoted from it) are
+> contaminated history and must not be quoted. The tables below are the
+> final, clean measurement.
+
+**Job:** Slurm job `4525463` (partition `capella`, NVIDIA H100), completed
 2026-11-04, submitted through the owner/runner workflow. Logs:
-`benchmark_attn/logs/full_model_memtotal_4525220.out` and `.err`. One job
+`benchmark_attn/logs/full_model_memclean_4525463.out` and `.err`. One job
 produced **both** grids: the full `B=1` grid (rerun so the CSVs carry the
 SPEC 0062 §12 total-peak-VRAM columns, superseding the job-`4522664` CSV)
-and the `B=64` grid (`N=512..8192`). Environment as in the job-`4522664`
-record (Python 3.10.12, torch 2.14.0+cu130, CUDA 13.0, cuDNN 92400, H100,
-fp16, seed 42, repeats 3, warmup 5, greedy linker, `motile_available=false`,
-checkpoint SHA-256 `cc36f8a3…dad2b0`), except git commit
-`169af0fa7e2e3a835c072e09d114e11be6d108cf` (`git_dirty: true`).
+and the `B=64` grid (`N=512..8192`).
+
+**Memory-cleanup protocol (cluster commit `9da9520` / local commit
+`7a87679`, "fix(bench): flush memory between full-model repeats").** The
+repeat loop now:
+
+1. synchronises, runs `gc.collect()` **plus** `torch.cuda.empty_cache()`
+   (through `_clear_device_cache`), and synchronises again **before each
+   repeat's baseline capture** — the same protocol as the isolated attention
+   benchmark (`src/bench/timing.py::measure`);
+2. releases the repeat's `association` / `normalized_association` tensors
+   (`= None`) and clears the cache in the repeat's `finally` block —
+   previously the cache clear ran only on the failure path, so after a
+   successful repeat the previous repeat's `N×N` tensors stayed referenced
+   and contaminated the next repeat's baseline and peaks;
+3. only then resets the peak-memory statistics and captures the pre-repeat
+   baseline, which is now the true model footprint (~52–63 MiB allocated,
+   `baseline_mem_mb` mean 62.24 MiB at `N=32768`).
+
+**Environment (from the job log, echoed for both grids):** device `cuda`,
+dtype `fp16`, GPU `NVIDIA H100`, torch `2.14.0+cu130`, CUDA `13.0`, seed 42,
+repeats 3, warmup 5, greedy linker, `motile_available=false`, checkpoint
+SHA-256 `cc36f8a3…dad2b0` (unchanged), git commit
+`9da9520cbcbb89c0a6560836bca979dbbe52504b`. Note: the local
+`results/full_model_inference_grid{,_b64}_env.json` files were not re-pulled
+after this rerun and still carry the superseded job-`4525220` environment;
+the job log is the authoritative `4525463` environment record.
 
 **Row/status counts:** `B=1` — 84 raw rows, all `ok`, 28 summary rows.
 `B=64` — 60 raw rows (**54 `ok`**, **6 `oom`**), 20 summary rows; all 60
@@ -602,38 +638,42 @@ y-label `Total peak VRAM (reserved, MB)` against the 94 GB H100 line —
 
 | Variant | total allocated | total reserved | forward reserved | normalize reserved | incremental delta |
 |---|---:|---:|---:|---:|---:|
-| `relative_pos` | 29758 | 29978 | 27930 | 29978 | 27136 |
-| `cached_dist` | 29918 | 40236 | 40236 | 40236 | 27136 |
-| `sparse_mask_k16` | 29758 | 30826 | 20586 | 30826 | 27136 |
-| `sparse_gather_k16` | 29758 | 32300 | 12398 | 32300 | 27136 |
+| `relative_pos` | 27710 | 27930 | 23834 | 27930 | 27648 |
+| `cached_dist` | 27710 | 36140 | 36140 | 36140 | 27648 |
+| `sparse_mask_k16` | 27710 | 28972 | 20780 | 28972 | 27648 |
+| `sparse_gather_k16` | 27710 | 29234 | 7730 | 29234 | 27648 |
 
-`baseline_mem_mb` mean 3134.24 MiB; the normalize stage sets the total
-reserved peak for every variant. Timing at `N=32768` is unchanged within
-noise (total speedup: gather 1.06x, mask 1.05x, cached 1.01x; gather
-forward 7.67x), so the linker-bound finding of the job-`4522664` record
-stands.
+The total **allocated** peak is now uniform across variants (27710 MiB — the
+shared `N×N` allocations dominate); the pre-repeat baseline is the true
+model footprint (`baseline_mem_mb` mean 62.24 MiB), and at the smallest grid
+point (`B=1` `N=512`) the reserved totals are 82 / 100 / 100 / 126 MiB
+(`relative_pos` / `cached_dist` / mask / gather) — no multi-GB residue.
+Timing at `N=32768` (total speedup: gather 1.090x, mask 1.076x, cached
+1.02x; gather forward 7.570x) keeps the linker-bound finding of the
+job-`4522664` record standing.
 
-**`B=64` memory and speedup tables** (`peak_mem_reserved_mb_max` over the
-`ok` repeats, MiB; speedups vs `relative_pos` at the same `(N, B)`):
+**`B=64` memory and speedup tables** (`peak_mem_reserved_mb_max` /
+`peak_mem_total_mb_max` over the `ok` repeats, MiB; speedups vs
+`relative_pos` at the same `(N, B)`):
 
 `N=4096` (all variants `ok`):
 
-| Variant | total reserved | total speedup | forward speedup |
-|---|---:|---:|---:|
-| `relative_pos` | 29486 | 1.00x | 1.00x |
-| `cached_dist` | 41802 | 1.06x | 1.09x |
-| `sparse_mask_k16` | 23354 | **2.03x** | **3.11x** |
-| `sparse_gather_k16` | 32874 | **1.36x** | **1.54x** |
+| Variant | total reserved | total allocated | total speedup | forward speedup |
+|---|---:|---:|---:|---:|
+| `relative_pos` | 25378 | 22852 | 1.00x | 1.00x |
+| `cached_dist` | 37698 | 26963 | 1.061x | 1.087x |
+| `sparse_mask_k16` | 22338 | 13971 | **2.019x** | **3.082x** |
+| `sparse_gather_k16` | 16194 | 13139 | **1.356x** | **1.523x** |
 
 `N=8192` (`relative_pos` and `cached_dist` OOM in all 3 repeats; speedups
 `n/a` because the baseline OOMed):
 
-| Variant | total reserved | total speedup | forward speedup |
-|---|---:|---:|---:|
-| `relative_pos` | n/a (oom) | n/a | n/a |
-| `cached_dist` | n/a (oom) | n/a | n/a |
-| `sparse_mask_k16` | **82026** | n/a | n/a |
-| `sparse_gather_k16` | **59498** | n/a | n/a |
+| Variant | total reserved | total allocated | total speedup | forward speedup |
+|---|---:|---:|---:|---:|
+| `relative_pos` | n/a (oom) | n/a (oom) | n/a | n/a |
+| `cached_dist` | n/a (oom) | n/a (oom) | n/a | n/a |
+| `sparse_mask_k16` | 85638 | 52436 | n/a | n/a |
+| `sparse_gather_k16` | 48774 | 36946 | n/a | n/a |
 
 Because the linker is skipped for `B>1`, a `B=64` `total_ms` is not
 comparable with the `B=1` one (linker-skipped caveat above). Timing-only
