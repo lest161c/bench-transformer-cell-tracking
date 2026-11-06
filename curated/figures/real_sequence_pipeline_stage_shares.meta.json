@@ -1,0 +1,8 @@
+{
+  "figure": "real_sequence_pipeline_stage_shares",
+  "sources": [
+    "/home/leonard.starke@mediainterface.de/Dokumente/Uni/research-proj/benchmark_attn/results/real_sequence_pipeline_v2_summary.csv"
+  ],
+  "values": "stage shares of compute_ms for the real vanvliet aggregate at N=32768 (predict, regionprops features, build_graph, normalize, greedy, build_windows)",
+  "note": "timing-only H100 job 4538990; real-sequence aggregate, not the synthetic fixed-10-frame stress test; no accuracy claim"
+}
