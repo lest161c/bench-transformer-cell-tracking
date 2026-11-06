@@ -49,7 +49,7 @@ if [ -n "${DRY_RUN:-}" ]; then
     echo "    --summary results/full_model_inference_grid_b64_v2_summary.csv"
     echo ""
     echo "cd \"\$BENCH/benchmark_attn\" && \"\$TRK/.venv/bin/python\" scripts/benchmarks/benchmark_real_sequence_pipeline.py \\"
-    echo "    --checkpoint ../checkpoints/k16 --data-root ../data/vanvliet \\"
+    echo "    --checkpoint ../checkpoints/k16 --data-root \$DATA_DIR/vanvliet \\"
     echo "    --target-detections 32768 --device cuda --dtype fp16 --batch-size 4 \\"
     echo "    --seed 42 \\"
     echo "    --out results/real_sequence_pipeline_v2.csv \\"
@@ -67,6 +67,10 @@ cd "$BENCH/benchmark_attn" || exit 1
 mkdir -p logs results
 
 VARIANTS="relative_pos,cached_dist,sparse_mask_k16,sparse_gather_k16,flex_attn"
+# DATA_DIR comes from ~/.bench.env; the repo itself does not track the
+# multi-gigabyte vanvliet images. Fall back to $BENCH/../data for a local
+# checkout that happens to have data beside the repo.
+REAL_DATA_ROOT="${DATA_DIR:-$BENCH/../data}/vanvliet"
 
 echo "=== Full-model inference grid rerun (SPEC 0062 + FlexAttention) ==="
 echo "checkpoint: ../checkpoints/k16 (SparseMask K=16)"
@@ -133,7 +137,7 @@ if [ -f "$REAL_CSV" ]; then
 else
     "$TRK/.venv/bin/python" scripts/benchmarks/benchmark_real_sequence_pipeline.py \
         --checkpoint ../checkpoints/k16 \
-        --data-root ../data/vanvliet \
+        --data-root "$REAL_DATA_ROOT" \
         --target-detections 32768 \
         --device cuda \
         --dtype fp16 \
