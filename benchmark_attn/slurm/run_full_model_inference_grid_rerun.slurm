@@ -113,20 +113,6 @@ run_grid() {
         --summary "$summary_csv"
 }
 
-run_grid \
-    results/full_model_inference_grid_v2.csv \
-    results/full_model_inference_grid_v2_env.json \
-    results/full_model_inference_grid_v2_summary.csv \
-    512,1024,2048,4096,8192,16384,32768 \
-    1
-
-run_grid \
-    results/full_model_inference_grid_b64_v2.csv \
-    results/full_model_inference_grid_b64_v2_env.json \
-    results/full_model_inference_grid_b64_v2_summary.csv \
-    512,1024,2048,4096,8192 \
-    64
-
 # Real-sequence aggregate at N=32768. This is the natural end-to-end
 # measurement: each sequence is a real video prefix, and the target N is the
 # sum over sequences. It is deliberately separate from the synthetic N grid
@@ -147,6 +133,20 @@ else
         --env-json results/real_sequence_pipeline_v2_env.json \
         --summary results/real_sequence_pipeline_v2_summary.csv
 fi
+
+run_grid \
+    results/full_model_inference_grid_v2.csv \
+    results/full_model_inference_grid_v2_env.json \
+    results/full_model_inference_grid_v2_summary.csv \
+    512,1024,2048,4096,8192,16384,32768 \
+    1
+
+run_grid \
+    results/full_model_inference_grid_b64_v2.csv \
+    results/full_model_inference_grid_b64_v2_env.json \
+    results/full_model_inference_grid_b64_v2_summary.csv \
+    512,1024,2048,4096,8192 \
+    64
 
 echo ""
 echo "=== Done ==="
