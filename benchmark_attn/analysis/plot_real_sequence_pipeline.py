@@ -54,9 +54,8 @@ def _plot(summary: pd.Series, out_prefix: Path) -> None:
         (label, float(summary[column]) / compute_ms, color)
         for label, column, color in STAGES
     ]
-    link_share = float(summary["linker_share"])
 
-    fig, ax = plt.subplots(figsize=(8.2, 1.55), layout="constrained")
+    fig, ax = plt.subplots(figsize=(8.2, 1.05), layout="constrained")
     left = 0.0
     for label, share, color in shares:
         ax.barh(
@@ -85,39 +84,18 @@ def _plot(summary: pd.Series, out_prefix: Path) -> None:
     ax.set_xlim(0.0, 1.0)
     ax.set_ylim(-0.55, 0.55)
     ax.set_yticks([])
-    ax.set_xlabel("share of compute time", fontsize=9)
-    ax.tick_params(axis="x", labelsize=8)
-    ax.grid(True, axis="x", alpha=0.25, linewidth=0.5)
-    ax.set_axisbelow(True)
+    ax.set_xticks([])
+    ax.grid(False)
     for spine in ("top", "right", "left"):
         ax.spines[spine].set_visible(False)
     ax.legend(
         loc="upper center",
-        bbox_to_anchor=(0.5, -0.55),
+        bbox_to_anchor=(0.5, -0.32),
         ncol=3,
         frameon=False,
-        fontsize=7.5,
-    )
-    ax.set_title(
-        "Real-sequence inference at N=32,768: "
-        f"linker {link_share * 100:.1f}% of compute",
-        fontsize=10,
-        loc="left",
-        pad=8,
-    )
-    fig.text(
-        0.0,
-        -0.02,
-        (
-            f"{int(summary['num_sequences'])} sequences, "
-            f"{int(summary['total_frames'])} frames, "
-            f"mean {float(summary['mean_cells_per_frame']):.1f} cells/frame; "
-            f"compute {compute_ms / 1000:.1f} s, "
-            f"{float(summary['throughput_detections_per_s']):.0f} detections/s"
-        ),
-        fontsize=7.5,
-        color="#444444",
-        transform=fig.transFigure,
+        fontsize=7.0,
+        handlelength=1.2,
+        columnspacing=1.0,
     )
 
     out_prefix.parent.mkdir(parents=True, exist_ok=True)
