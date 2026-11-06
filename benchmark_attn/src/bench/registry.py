@@ -89,6 +89,14 @@ FULL_MODEL_VARIANT_REGISTRY: dict[str, FullModelVariantEntry] = {
         needs_dist_2d=False,
         knn_neighbors=16,
     ),
+    "flex_attn": FullModelVariantEntry(
+        "flex_attn",
+        "src.attention_modules.TrackastraFlexAttention",
+        needs_knn=False,
+        needs_coords=True,
+        needs_dist_2d=False,
+        knn_neighbors=None,
+    ),
 }
 
 

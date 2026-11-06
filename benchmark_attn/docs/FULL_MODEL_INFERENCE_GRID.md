@@ -2,14 +2,16 @@
 
 **Script:** `benchmark_attn/scripts/benchmarks/benchmark_full_model_inference_grid.py`
 **Runner:** `benchmark_attn/slurm/run_full_model_inference_grid.slurm`
+**Rerun runner:** `benchmark_attn/slurm/run_full_model_inference_grid_rerun.slurm`
+**Real-sequence runner:** `benchmark_attn/scripts/benchmarks/benchmark_real_sequence_pipeline.py`
 **Spec:** `docs/agent-state/specs/0062-full-model-inference-grid/SPEC.md`
-**Tickets:** F1–F6; this document is the F5 protocol and is extended with the
-job record in F6.
+**Tickets:** F1–F8; report integration under SPEC 0066 R2 (2026-11-04); this
+document is the F5 protocol and is extended with the job record in F6.
 
 ## Purpose and scope
 
 This benchmark measures the **complete Trackastra inference chain** with one
-of four attention implementations swapped into every encoder and decoder
+of five attention implementations swapped into every encoder and decoder
 layer. It exists because isolated attention timings do not show how much of
 the full forward pass an attention variant actually controls once embedding,
 the encoder, the decoder, the association head, output normalisation, and the
@@ -20,6 +22,44 @@ or out-of-distribution-generalisation claim. The checkpoint was trained at
 roughly `N≈50–200` cells per frame; the large-`N` grid is a synthetic stress
 test of the inference path, not a quality evaluation. No report or
 claim-bearing source is edited by F1–F6.
+
+**Rerun v2 (2026-11-05).** The rerun runner fixes the `build_graph`
+hot loop, applies the paper's `0.05` association threshold in the linker
+lookup, and adds the `flex_attn` variant. It writes
+`full_model_inference_grid_v2*.csv` and `full_model_inference_grid_b64_v2*.csv`
+so the original SPEC 0062 results remain untouched.
+
+## Real-sequence aggregate at N=32768
+
+The synthetic N grid is a kernel stress test: at `N=32768` it places ~3277
+detections in each of 10 frames, whereas vanvliet has median 16, mean 45,
+p95 190 and max 460 cells/frame (DeepCell max 235). Candidate-graph
+construction therefore sees an unrealistically dense graph and can dominate
+the total.
+
+For a natural end-to-end number, use the separate real-sequence runner:
+
+```bash
+cd benchmark_attn
+python scripts/benchmarks/benchmark_real_sequence_pipeline.py \
+  --checkpoint ../checkpoints/k16 \
+  --data-root ../data/vanvliet \
+  --target-detections 32768 \
+  --device cuda --dtype fp16 --batch-size 4 \
+  --out results/real_sequence_pipeline_v2.csv \
+  --env-json results/real_sequence_pipeline_v2_env.json \
+  --summary results/real_sequence_pipeline_v2_summary.csv
+```
+
+It runs Trackastra's actual inference path per real sequence
+(`get_features` → `build_windows` → `predict_windows` → `build_graph` →
+`track_greedy`) and sums timings over enough real sequence prefixes to reach
+`N=32768` total detections. The final frame may be truncated to hit `N`
+exactly; that is recorded in the CSV and env JSON. `predict_windows` applies
+the paper's `0.05` association threshold before `build_graph`, so the graph
+uses realistic sparse weights. This is a throughput measurement across real
+videos, not a single-video latency claim; keep it separate from the synthetic
+N grid.
 
 ## Variants and checkpoint
 
@@ -38,12 +78,14 @@ benchmark script. For k16 the expected values are `coord_dim=2`, `feat_dim=7`,
 | `cached_dist` | `CachedDistAttention` | `rope` | ignored | consumed for the spatial cutoff |
 | `sparse_mask_k16` | `KNNMaskSparseAttention` | `rope` | 16 | passed but ignored |
 | `sparse_gather_k16` | `GatherSparseAttention` | `rope` | 16 | passed but ignored |
+| `flex_attn` | `TrackastraFlexAttention` | `rope` | ignored | passed but ignored; block-mask cutoff |
 
 Each variant gets a fresh model instance loaded from the checkpoint so a swap
 cannot contaminate the next variant. Attention weights are copied by exact
 key (`q_pro.*`, `k_pro.*`, `v_pro.*`, `proj.*`, `rot_pos_enc.*`) with a strict
-load for the default k16 rope checkpoint. `DenseFlash`, `FlexAttention`, and
-other attention classes are out of scope.
+load for the default k16 rope checkpoint. `DenseFlash` and other attention
+classes remain out of scope. The `flex_attn` adapter reuses the checkpoint
+RoPE weights and applies the paper's `0.05` edge threshold and spatial cutoff.
 
 ## Synthetic data recipe
 
@@ -154,7 +196,9 @@ Nodes are one per token with `{"id": i, "time": int(timepoints[0, i]),
 "label": i, "coords": [y, x]}`. The normalised association matrix is copied to
 CPU once outside the timed linker region and exposed through a read-only
 consecutive-frame weight lookup, so no `N×N` Python dictionary is
-materialised. `build_graph` uses `use_distance=False`, `max_distance=256`,
+materialised. The lookup drops associations below the Trackastra edge
+threshold `0.05`, matching `predict_windows`. `build_graph` uses
+`use_distance=False`, `max_distance=256`,
 `max_neighbors=10`, `delta_t=1`; `track_greedy` uses `allow_divisions=True`,
 `threshold=0.5`. `linker_build_graph_ms` and `linker_greedy_ms` are CPU wall
 times and `linker_ms` is their sum.
@@ -173,8 +217,9 @@ directory.
 ### Raw CSV
 
 `results/full_model_inference_grid.csv` has one row per
-`(variant, N, B, repeat_idx)`; the primary grid has
-`4 × 7 × 1 × 3 = 84` planned rows, including `oom`/`err` rows.
+`(variant, N, B, repeat_idx)`. The v2 B=1 grid has `5 × 7 × 1 × 3 = 105`
+planned rows (`4 × 7 × 1 × 3 = 84` in the original four-variant run),
+including `oom`/`err` rows.
 
 ```
 variant,N,B,repeat_idx,status,checkpoint,dtype,seed,knn_neighbors,
@@ -412,7 +457,7 @@ below for the memory and speedup tables.
 from one prefix, selecting the rows of the batch size given by `--plot-batch`
 (int, default 1): `<prefix>_time_fractions.png` — 2×2 panels, one per
 variant (`relative_pos`, `cached_dist`, `sparse_mask_k16`,
-`sparse_gather_k16`), each a 100% stacked area over `N` of the attention
+`sparse_gather_k16`, `flex_attn`), each a 100% stacked area over `N` of the attention
 (`encoder_attn_ms + decoder_attn_ms`), `normalize_ms`, `linker_ms`, and
 remaining "other" fraction of `total_ms`, with a shared legend and
 missing/NaN cells dropped per variant; `<prefix>_forward_time.png` —
@@ -469,7 +514,8 @@ timed component — `total_ms`, `full_forward_ms`, attention
 (`encoder_attn_ms + decoder_attn_ms`), `normalize_ms`, and `linker_ms`
 (only when the selected batch has linker timings, i.e. `B=1`; the linker
 panel is omitted for `B>1` because the linker is skipped) — showing per
-non-baseline variant (`cached_dist`, `sparse_mask_k16`, `sparse_gather_k16`;
+non-baseline variant (`cached_dist`, `sparse_mask_k16`, `sparse_gather_k16`,
+`flex_attn`;
 the Okabe-Ito colours of the other parts figures) the component time ratio
 variant / `relative_pos` at the same `(N, B)` on a logarithmic y-axis with a
 grey dashed parity line at 1.0, so **ratios below 1.0 mean the variant's
@@ -483,6 +529,17 @@ annotating the ratio direction); a B>1 batch gives a 2×2 grid of the four
 linker-free panels. `--plot-batch` selects the batch (default 1);
 `--plot`/`--plot-all`/`--plot-parts` are unchanged. The figure is an
 analysis artifact for reading the F6 numbers, not a report figure.
+
+## Tests
+
+From the repository root:
+
+```bash
+python3 -m pytest benchmark_attn/tests/test_full_model_inference_grid.py benchmark_attn/tests/test_summarize_full_model_inference_grid.py -q
+```
+
+The checkpoint-backed construction/equivalence/smoke tests skip when
+`checkpoints/k16` is absent.
 
 ## Caveats
 
@@ -510,8 +567,10 @@ analysis artifact for reading the F6 numbers, not a report figure.
   `normalize_output` cap end-to-end Gather speedups and are reported explicitly
   rather than hidden.
 - **F4/F6 ownership.** F4 owns the linker timing implementation; F6 owns the
-  H100 execution, the summary script/CSV/PNG, and the `N=32768` table. F7
-  report integration remains blocked on owner review of F6.
+  H100 execution, the summary script/CSV/PNG, and the `N=32768` table. F7's
+  report integration is DONE under SPEC 0066 R2 (2026-11-04); see
+  `docs/agent-state/specs/0066-inference-scaling-narrative/evidence/R2-INTEGRATION.md`
+  and `REPRODUCIBILITY.md` §1a.
 
 ## H100 job record (F6)
 
@@ -677,5 +736,5 @@ job-`4522664` record standing.
 
 Because the linker is skipped for `B>1`, a `B=64` `total_ms` is not
 comparable with the `B=1` one (linker-skipped caveat above). Timing-only
-result on synthetic data; no accuracy or tracking-quality claim; F7 report
-integration remains blocked on owner review.
+result on synthetic data; no accuracy or tracking-quality claim. Report
+integration is DONE under SPEC 0066 R2; see docs/agent-state/specs/0066-inference-scaling-narrative/evidence/R2-INTEGRATION.md and REPRODUCIBILITY.md §1a.

@@ -89,7 +89,7 @@ from trackastra.tracking import build_graph, track_greedy  # noqa: E402
 logger = logging.getLogger(__name__)
 
 _DEFAULT_VARIANTS = (
-    "relative_pos,cached_dist,sparse_mask_k16,sparse_gather_k16"
+    "relative_pos,cached_dist,sparse_mask_k16,sparse_gather_k16,flex_attn"
 )
 _DEFAULT_NS = "512,1024,2048,4096,8192,16384,32768"
 _SMOKE_SEQ_LEN = 128
@@ -102,6 +102,7 @@ _LINKER_STATUS_ILP_UNAVAILABLE = "ilp_unavailable"
 _LINKER_MAX_DISTANCE = 256
 _LINKER_MAX_NEIGHBORS = 10
 _LINKER_DELTA_T = 1
+_LINKER_EDGE_THRESHOLD = 0.05
 _LINKER_THRESHOLD = 0.5
 _LINKER_ALLOW_DIVISIONS = True
 _KNN_NEIGHBORS = 16
@@ -1441,8 +1442,9 @@ class ConsecutiveFrameWeightLookup:
 
     ``build_graph`` asks this callable for a candidate ``(node_in, node_out)``
     weight. The view returns ``association_matrix[node_in, node_out]`` only
-    when ``time_by_node[node_out] == time_by_node[node_in] + 1`` and ``None``
-    otherwise. It therefore exposes only the edges the linker can use and
+    when ``time_by_node[node_out] == time_by_node[node_in] + 1`` and the
+    weight reaches the Trackastra edge threshold; otherwise it returns
+    ``None``. It therefore exposes only the edges the linker can use and
     never builds the full ``N x N`` Python dictionary.
 
     Attributes:
@@ -1503,7 +1505,8 @@ class ConsecutiveFrameWeightLookup:
 
         Returns:
             ``association_matrix[node_in, node_out]`` as a Python float when
-            ``node_out`` is exactly one frame after ``node_in``, otherwise
+            ``node_out`` is exactly one frame after ``node_in`` and the
+            weight is at least ``_LINKER_EDGE_THRESHOLD``; otherwise
             ``None``.
         """
         node_in_index = int(node_in)
@@ -1513,9 +1516,12 @@ class ConsecutiveFrameWeightLookup:
             != int(self._time_by_node[node_in_index]) + 1
         ):
             return None
-        return float(
+        weight = float(
             self._association_matrix[node_in_index, node_out_index]
         )
+        if weight < _LINKER_EDGE_THRESHOLD:
+            return None
+        return weight
 
 
 @dataclass(frozen=True)

@@ -13,7 +13,7 @@
 # run_full_model_inference_grid.slurm — H100 full-model inference grid
 # (SPEC 0062, ticket F5).
 #
-# Runs the complete Trackastra inference chain with the four attention
+# Runs the complete Trackastra inference chain with the five attention
 # variants swapped into every encoder/decoder layer. The primary grid is
 # B=1, N=512..32768, repeats=3, warmup=5, fp16 on CUDA, greedy linker.
 # The optional B=8/16 grid up to N=8192 is prepared but commented out; it is
@@ -44,7 +44,7 @@ if [ -n "${DRY_RUN:-}" ]; then
     echo "#    (skipped when the primary CSV already exists)"
     echo "cd \"\$BENCH/benchmark_attn\" && \"\$TRK/.venv/bin/python\" scripts/benchmarks/benchmark_full_model_inference_grid.py \\"
     echo "    --checkpoint ../checkpoints/k16 \\"
-    echo "    --variants relative_pos,cached_dist,sparse_mask_k16,sparse_gather_k16 \\"
+    echo "    --variants relative_pos,cached_dist,sparse_mask_k16,sparse_gather_k16,flex_attn \\"
     echo "    --Ns 512,1024,2048,4096,8192,16384,32768 \\"
     echo "    --batch-sizes 1 \\"
     echo "    --repeats 3 \\"
@@ -61,7 +61,7 @@ if [ -n "${DRY_RUN:-}" ]; then
     echo "# 2. Optional B=8/16 grid up to N=8192 (commented out; not run here):"
     echo "#    \"\$TRK/.venv/bin/python\" scripts/benchmarks/benchmark_full_model_inference_grid.py \\"
     echo "#        --checkpoint ../checkpoints/k16 \\"
-    echo "#        --variants relative_pos,cached_dist,sparse_mask_k16,sparse_gather_k16 \\"
+    echo "#        --variants relative_pos,cached_dist,sparse_mask_k16,sparse_gather_k16,flex_attn \\"
     echo "#        --Ns 512,1024,2048,4096,8192 \\"
     echo "#        --batch-sizes 8,16 \\"
     echo "#        --repeats 3 --warmup 5 --seed 42 --device cuda --dtype fp16 \\"
@@ -82,7 +82,7 @@ mkdir -p logs results
 
 echo "=== Full-model inference grid (SPEC 0062, F5 runner) ==="
 echo "checkpoint: ../checkpoints/k16 (SparseMask K=16)"
-echo "variants  : relative_pos,cached_dist,sparse_mask_k16,sparse_gather_k16"
+echo "variants  : relative_pos,cached_dist,sparse_mask_k16,sparse_gather_k16,flex_attn"
 echo "grid      : B=1; N=512,1024,2048,4096,8192,16384,32768"
 echo "timing    : repeats=3 warmup=5 seed=42; device=cuda dtype=fp16"
 echo "linker    : greedy (build_graph + track_greedy)"
@@ -115,7 +115,7 @@ else
     fi
     "$TRK/.venv/bin/python" scripts/benchmarks/benchmark_full_model_inference_grid.py \
         --checkpoint ../checkpoints/k16 \
-        --variants relative_pos,cached_dist,sparse_mask_k16,sparse_gather_k16 \
+        --variants relative_pos,cached_dist,sparse_mask_k16,sparse_gather_k16,flex_attn \
         --Ns 512,1024,2048,4096,8192,16384,32768 \
         --batch-sizes 1 \
         --repeats 3 \
@@ -138,7 +138,7 @@ fi
 # if [ ! -f "results/full_model_inference_grid_batch.csv" ]; then
 #     "$TRK/.venv/bin/python" scripts/benchmarks/benchmark_full_model_inference_grid.py \
 #         --checkpoint ../checkpoints/k16 \
-#         --variants relative_pos,cached_dist,sparse_mask_k16,sparse_gather_k16 \
+#         --variants relative_pos,cached_dist,sparse_mask_k16,sparse_gather_k16,flex_attn \
 #         --Ns 512,1024,2048,4096,8192 \
 #         --batch-sizes 8,16 \
 #         --repeats 3 \

@@ -2245,3 +2245,166 @@ class FlexAttentionModule(nn.Module):
         # flex_attention returns (B, H, S, D); transpose back to (B, S, H*D)
         output = output.transpose(1, 2).contiguous().view(batch_size, seq_len, embed_dim)
         return self.proj(output)
+
+
+_FLEX_SHARED_STATE: dict[tuple, tuple] = {}
+
+
+class TrackastraFlexAttention(FlexAttentionModule):
+    """FlexAttention adapter with the Trackastra attention interface.
+
+    This class keeps the checkpoint's RoPE positional encoding and the
+    ``attn_dist_mode="v0"`` spatial cutoff/decay, and accepts the same
+    keyword arguments as the Trackastra encoder/decoder attention modules.
+    It lets FlexAttention be swapped into the full Trackastra model with a
+    strict weight copy.
+
+    Flex block-mask construction and ``torch.compile`` are setup work. A
+    single shared ``(block_mask, score_mod, compiled_flex)`` entry is cached
+    per coordinate tensor so the 12 swapped layers do not each build their
+    own ``N x N`` mask.
+    """
+
+    def __init__(
+        self,
+        coord_dim: int,
+        embed_dim: int,
+        n_head: int,
+        cutoff_spatial: float = 256.0,
+        cutoff_temporal: float = 16.0,
+        n_spatial: int = 32,
+        n_temporal: int = 16,
+        dropout: float = 0.0,
+        mode: Literal["rope", "none"] = "rope",
+        attn_dist_mode: str = "v0",
+    ):
+        super().__init__(
+            embed_dim=embed_dim,
+            n_head=n_head,
+            dropout=dropout,
+            mode=mode,
+            coord_dim=coord_dim,
+            cutoff_spatial=cutoff_spatial,
+            cutoff_temporal=cutoff_temporal,
+            n_spatial=n_spatial,
+            n_temporal=n_temporal,
+            dist_mode=attn_dist_mode,
+        )
+        if mode == "rope":
+            n_split = 2 * (embed_dim // (2 * (coord_dim + 1) * n_head))
+            self.rot_pos_enc = RotaryPositionalEncoding(
+                cutoffs=((cutoff_temporal,) + (cutoff_spatial,) * coord_dim),
+                n_pos=(embed_dim // n_head - coord_dim * n_split,)
+                + (n_split,) * coord_dim,
+            )
+        elif mode != "none":
+            raise ValueError(
+                "TrackastraFlexAttention supports only 'rope' and 'none'"
+            )
+        self.attn_dist_mode = attn_dist_mode
+
+    def _build_mask_mod(self, coords: torch.Tensor):
+        """Build the spatial-cutoff mask without retaining ``self``."""
+        cutoff = self.cutoff_spatial
+        spatial = coords[..., 1:].to(torch.float32)
+
+        def mask_mod(b, h, q_idx, kv_idx):
+            shared_batch_index = b * 0
+            query = spatial[shared_batch_index, q_idx]
+            key = spatial[shared_batch_index, kv_idx]
+            distance = torch.linalg.vector_norm(query - key, dim=-1)
+            return distance <= cutoff
+
+        return mask_mod
+
+    def _build_score_mod(self, coords: torch.Tensor):
+        """Build Trackastra ``v0`` decay: cutoff plus ``exp(-0.1 * dist)``."""
+        cutoff = self.cutoff_spatial
+        spatial = coords[..., 1:].to(torch.float32)
+
+        def score_mod(score, b, h, q_idx, kv_idx):
+            shared_batch_index = b * 0
+            query = spatial[shared_batch_index, q_idx]
+            key = spatial[shared_batch_index, kv_idx]
+            distance = torch.linalg.vector_norm(
+                query - key, dim=-1
+            ).to(score.dtype)
+            decay = torch.exp(-0.1 * distance)
+            return torch.where(
+                distance <= cutoff, score + decay, score - 1e3
+            )
+
+        return score_mod
+
+    def _shared_state_key(self, coords: torch.Tensor) -> tuple:
+        return (
+            coords.device.type,
+            coords.device.index,
+            coords.dtype,
+            tuple(coords.shape),
+            int(coords.data_ptr()),
+            float(self.cutoff_spatial),
+        )
+
+    def prepare(self, coords: torch.Tensor) -> None:
+        """Build or reuse the shared flex setup state."""
+        key = self._shared_state_key(coords)
+        cached = _FLEX_SHARED_STATE.get(key)
+        if cached is None:
+            self._build_block_mask(coords)
+            compiled_flex = torch.compile(flex_attention, dynamic=False)
+            cached = (self._block_mask, self._score_mod, compiled_flex)
+            _FLEX_SHARED_STATE.clear()
+            _FLEX_SHARED_STATE[key] = cached
+        self._block_mask, self._score_mod, self._compiled_flex = cached
+
+    def forward(
+        self,
+        query: torch.Tensor,
+        key: torch.Tensor,
+        value: torch.Tensor,
+        coords: torch.Tensor = None,
+        padding_mask: torch.Tensor = None,
+        knn_indices: torch.Tensor = None,
+        dist_2d: torch.Tensor = None,
+        **kwargs,
+    ) -> torch.Tensor:
+        """Run flex attention with the Trackastra layer call signature."""
+        del padding_mask, knn_indices, dist_2d, kwargs
+        batch_size, seq_len, embed_dim = query.shape
+        if seq_len == 0:
+            return torch.zeros(
+                batch_size, 0, embed_dim,
+                device=query.device, dtype=query.dtype,
+            )
+        if coords is None:
+            raise ValueError(
+                "TrackastraFlexAttention requires coords for its spatial cutoff"
+            )
+        n_head = self.n_head
+        head_dim = embed_dim // n_head
+        self.prepare(coords)
+        projected_q = self.q_pro(query).view(
+            batch_size, seq_len, n_head, head_dim
+        ).transpose(1, 2)
+        projected_k = self.k_pro(key).view(
+            batch_size, seq_len, n_head, head_dim
+        ).transpose(1, 2)
+        projected_v = self.v_pro(value).view(
+            batch_size, seq_len, n_head, head_dim
+        ).transpose(1, 2)
+        if self._mode == "rope":
+            projected_q, projected_k = self.rot_pos_enc(
+                projected_q, projected_k, coords
+            )
+        output = self._compiled_flex(
+            projected_q,
+            projected_k,
+            projected_v,
+            score_mod=self._score_mod,
+            block_mask=self._block_mask,
+        )
+        output = output.transpose(1, 2).contiguous().view(
+            batch_size, seq_len, embed_dim
+        )
+        return self.proj(output)

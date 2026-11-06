@@ -42,7 +42,11 @@ EXPECTED_VARIANT_KEYS = {
     "cached_dist",
     "sparse_mask_k16",
     "sparse_gather_k16",
+    "flex_attn",
 }
+#: FlexAttention cannot run its compiled Triton path on CPU, so the CPU smoke
+#: grid exercises the other variants and leaves Flex to the H100 run.
+CPU_SMOKE_VARIANT_KEYS = EXPECTED_VARIANT_KEYS - {"flex_attn"}
 EXPECTED_METHOD_KEYS = {
     "dense_masked",
     "dense_flash",
@@ -240,6 +244,26 @@ def test_build_graph_lazy_lookup_matches_iterable_weights():
         )
 
 
+def test_consecutive_frame_lookup_drops_below_edge_threshold():
+    """The linker lookup applies the paper's 0.05 association threshold."""
+    matrix = torch.tensor(
+        [
+            [0.0, 0.049, 0.05, 0.2],
+            [0.0, 0.0, 0.0, 0.2],
+            [0.0, 0.0, 0.0, 0.03],
+            [0.0, 0.0, 0.0, 0.0],
+        ]
+    )
+    time_by_node = torch.tensor([0, 1, 1, 2])
+    lookup = full_grid.ConsecutiveFrameWeightLookup(matrix, time_by_node)
+
+    assert lookup(0, 1) is None
+    assert lookup(0, 2) == pytest.approx(0.05)
+    assert lookup(0, 3) is None
+    assert lookup(1, 3) == pytest.approx(0.2)
+    assert lookup(2, 3) is None
+
+
 def test_make_full_model_inputs_shapes_dtypes_and_timepoints():
     """Inputs have the SPEC 0062 shapes, dtypes, and timepoint range."""
     sequence_length = 32
@@ -331,15 +355,15 @@ def test_make_full_model_inputs_tiled_layout_is_deterministic_in_bounds():
     assert float(spatial_coords.max()) <= float(side_length)
 
 
-def test_full_model_registry_has_four_keys_and_methods_are_unchanged():
-    """The additive registry exposes four variants without touching methods."""
+def test_full_model_registry_has_five_keys_and_methods_are_unchanged():
+    """The additive registry exposes five variants without touching methods."""
     assert set(FULL_MODEL_VARIANT_REGISTRY) == EXPECTED_VARIANT_KEYS
     assert set(METHOD_REGISTRY) == EXPECTED_METHOD_KEYS
 
     for variant_key, variant_entry in FULL_MODEL_VARIANT_REGISTRY.items():
         assert variant_entry.registry_key == variant_key
         assert variant_entry.class_path.startswith(
-            "trackastra.model.model_parts."
+            ("trackastra.model.model_parts.", "src.attention_modules.")
         )
 
     assert (
@@ -350,6 +374,11 @@ def test_full_model_registry_has_four_keys_and_methods_are_unchanged():
         sparse_entry = FULL_MODEL_VARIANT_REGISTRY[sparse_key]
         assert sparse_entry.needs_knn is True
         assert sparse_entry.knn_neighbors == 16
+
+    flex_entry = FULL_MODEL_VARIANT_REGISTRY["flex_attn"]
+    assert flex_entry.needs_coords is True
+    assert flex_entry.needs_knn is False
+    assert flex_entry.needs_dist_2d is False
 
 
 @pytest.mark.skipif(
@@ -552,7 +581,7 @@ def test_cpu_smoke_run_grid_writes_one_ok_row_per_variant(tmp_path):
     sequence_length = 128
     result = full_grid.run_grid(
         checkpoint_path=CHECKPOINT_PATH,
-        variant_keys=sorted(EXPECTED_VARIANT_KEYS),
+        variant_keys=sorted(CPU_SMOKE_VARIANT_KEYS),
         sequence_lengths=[sequence_length],
         batch_sizes=[1],
         seed=42,
@@ -570,8 +599,8 @@ def test_cpu_smoke_run_grid_writes_one_ok_row_per_variant(tmp_path):
     )
 
     assert result.out_path == tmp_path / "smoke.csv"
-    assert len(result.rows) == len(EXPECTED_VARIANT_KEYS)
-    assert {row["variant"] for row in result.rows} == EXPECTED_VARIANT_KEYS
+    assert len(result.rows) == len(CPU_SMOKE_VARIANT_KEYS)
+    assert {row["variant"] for row in result.rows} == CPU_SMOKE_VARIANT_KEYS
 
     for row in result.rows:
         assert row["N"] == sequence_length
@@ -608,7 +637,7 @@ def test_cpu_smoke_run_grid_writes_one_ok_row_per_variant(tmp_path):
         written_header = next(reader)
         written_rows = list(reader)
     assert written_header == EXPECTED_RAW_CSV_HEADER
-    assert len(written_rows) == len(EXPECTED_VARIANT_KEYS)
+    assert len(written_rows) == len(CPU_SMOKE_VARIANT_KEYS)
     status_column_index = EXPECTED_RAW_CSV_HEADER.index("status")
     assert {
         written_row[status_column_index] for written_row in written_rows
@@ -616,7 +645,7 @@ def test_cpu_smoke_run_grid_writes_one_ok_row_per_variant(tmp_path):
 
     with open(result.env_json_path) as env_file:
         environment_record = json.load(env_file)
-    assert environment_record["variants"] == sorted(EXPECTED_VARIANT_KEYS)
+    assert environment_record["variants"] == sorted(CPU_SMOKE_VARIANT_KEYS)
     assert environment_record["Ns"] == [sequence_length]
     assert environment_record["batch_sizes"] == [1]
     assert environment_record["repeats"] == 1

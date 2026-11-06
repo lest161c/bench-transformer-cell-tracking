@@ -161,6 +161,7 @@ PARTS_VARIANT_ORDER: tuple[str, ...] = (
     "cached_dist",
     "sparse_mask_k16",
     "sparse_gather_k16",
+    "flex_attn",
 )
 
 #: Label and fill colour of the four stacked time-fraction components, in
@@ -182,6 +183,7 @@ PARTS_VARIANT_COLORS: dict[str, str] = {
     "cached_dist": "#D55E00",
     "sparse_mask_k16": "#56B4E9",
     "sparse_gather_k16": "#E69F00",
+    "flex_attn": "#009E73",
 }
 
 #: Figure size of the ``--plot-parts`` forward-time and memory figures,
@@ -1280,16 +1282,15 @@ def _build_time_fractions_figure(
     summary: pd.DataFrame,
     batch_size: int = 1,
 ) -> "plt.Figure | None":
-    """Build the 2×2 100%-stacked time-fraction figure (caller saves/closes).
+    """Build the 100%-stacked time-fraction panel grid (caller saves/closes).
 
-    One panel per canonical SPEC 0062 variant in
-    :data:`PARTS_VARIANT_ORDER`, each a :func:`matplotlib.axes.Axes.stackplot`
-    over ``N`` of the attention, normalisation, linker, and other fractions of
-    ``total_ms_mean`` (rows of the selected batch, see
-    :func:`_stacked_fraction_frame`; for ``B>1`` the linker band is zero
-    because the linker timing is skipped). Panels without usable data are
-    annotated "no data"; variants outside the canonical four are skipped with
-    a warning rather than silently dropped.
+    One panel per canonical variant in :data:`PARTS_VARIANT_ORDER`, each a
+    :func:`matplotlib.axes.Axes.stackplot` over ``N`` of the attention,
+    normalisation, linker, and other fractions of ``total_ms_mean`` (rows of
+    the selected batch, see :func:`_stacked_fraction_frame`; for ``B>1`` the
+    linker band is zero because the linker timing is skipped). Panels without
+    usable data are annotated "no data"; variants outside the canonical set
+    are skipped with a warning rather than silently dropped.
 
     Args:
         summary: The summary frame from :func:`summarize_grid`.
@@ -1313,8 +1314,15 @@ def _build_time_fractions_figure(
             f"{list(PARTS_VARIANT_ORDER)}; skipping variants {extra_variants}"
         )
 
+    variant_count = len(PARTS_VARIANT_ORDER)
+    column_count = 3 if variant_count > 4 else 2
+    row_count = (variant_count + column_count - 1) // column_count
     figure, axes = plt.subplots(
-        2, 2, figsize=(12.0, 8.0), layout="constrained"
+        row_count,
+        column_count,
+        figsize=(4.0 * column_count, 3.2 * row_count),
+        layout="constrained",
+        squeeze=False,
     )
     legend_handles: list = []
     legend_labels: list[str] = []
@@ -1327,7 +1335,7 @@ def _build_time_fractions_figure(
         axis.set_ylabel("fraction of total_ms")
         axis.set_ylim(0.0, 1.0)
         axis.grid(True, alpha=0.3)
-        if panel_index >= 2:
+        if panel_index >= (row_count - 1) * column_count:
             axis.set_xlabel("N")
         if fraction_frame is None:
             _annotate_empty_panel(axis)
@@ -1347,6 +1355,8 @@ def _build_time_fractions_figure(
         if not legend_handles:
             legend_handles = list(stacked_areas)
             legend_labels = [label for label, _color in TIME_FRACTION_STYLES]
+    for leftover_axis in axes.ravel()[variant_count:]:
+        leftover_axis.set_axis_off()
     if not plotted_any:
         plt.close(figure)
         return None
@@ -1464,7 +1474,7 @@ def _build_parts_variant_figure(
     variant (see :func:`_draw_variant_lines`), plain integer ``N`` tick
     labels, the shared H100 y-axis style (see
     :func:`_style_parts_log_axis`), and a frameless method legend in the
-    upper left. Variants outside the canonical four are skipped with a
+    upper left. Variants outside the canonical set are skipped with a
     warning, matching the time-fraction figure.
 
     Args:
@@ -1895,7 +1905,7 @@ def _build_component_ratios_figure(
     title naming the batch. Panels that draw a line get the plain integer
     ``N`` tick labels of the batch grid (see
     :func:`_apply_plain_integer_n_ticks`). Variants outside the canonical
-    four are skipped with a warning, matching the parts figures.
+    set are skipped with a warning, matching the parts figures.
 
     Args:
         summary: The summary frame from :func:`summarize_grid`.
