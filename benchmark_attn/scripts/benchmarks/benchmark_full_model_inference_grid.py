@@ -38,9 +38,15 @@ Usage (from ``benchmark_attn``)::
         --checkpoint ../checkpoints/k16 --sanity
 
 The smoke path forces ``B=1``, ``N=128``, ``repeats=1``, ``warmup=1``, all
-four variants, CPU unless ``--device cuda`` is explicit, and writes
-``results/full_model_inference_grid_smoke.csv``. The sanity path runs the fp32
-CPU equivalence checks and exits without constructing the grid.
+five registered variants (including ``flex_attn``), CPU unless
+``--device cuda`` is explicit, and writes
+``results/full_model_inference_grid_smoke.csv``. FlexAttention runs its
+``torch.compile`` path on CPU under torch >= 2.12 (verified 2.12.1 local,
+2.14.0 cluster), so the smoke exercises the
+flex adapter end-to-end as well. The sanity path runs the fp32 CPU
+equivalence checks for the four original variants and exits without
+constructing the grid; ``flex_attn`` is a distinct architecture (block-mask
+superset plus score-mod decay), not an equivalence target.
 """
 
 from __future__ import annotations

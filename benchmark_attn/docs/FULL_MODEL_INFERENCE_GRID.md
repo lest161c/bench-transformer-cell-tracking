@@ -23,11 +23,25 @@ roughly `N≈50–200` cells per frame; the large-`N` grid is a synthetic stress
 test of the inference path, not a quality evaluation. No report or
 claim-bearing source is edited by F1–F6.
 
-**Rerun v2 (2026-11-05).** The rerun runner fixes the `build_graph`
-hot loop, applies the paper's `0.05` association threshold in the linker
-lookup, and adds the `flex_attn` variant. It writes
+**Rerun v2 (2026-11-05).** The rerun runner fixes the `build_graph` hot loop,
+applies the paper's `0.05` association threshold in the linker lookup, and adds
+the `flex_attn` variant. It writes
 `full_model_inference_grid_v2*.csv` and `full_model_inference_grid_b64_v2*.csv`
 so the original SPEC 0062 results remain untouched.
+
+**Rerun-v2 prep validation (SPEC 0068, 2026-11-09).** All flex plumbing is
+committed and validated locally: `DRY_RUN=1` echoes the flex-inclusive v2
+commands; the CPU smoke (`--smoke`, N=128) passes with all five variants
+`status=ok` including `flex_attn` — flex runs its `torch.compile` path on CPU
+under torch ≥ 2.12 (verified 2.12.1 local, 2.14.0 cluster), so the CPU smoke
+variant set is now all five variants
+(`CPU_SMOKE_VARIANT_KEYS` in `tests/test_full_model_inference_grid.py`);
+the fp32 CPU sanity passes (3/3 comparisons); and both grid test files pass
+(27 passed). Launch with:
+
+```bash
+sbatch benchmark_attn/slurm/run_full_model_inference_grid_rerun.slurm
+```
 
 ## Real-sequence aggregate at N=32768
 
@@ -329,7 +343,8 @@ run re-records its own value.
 ## Exact run commands
 
 CPU smoke (from `benchmark_attn/`; writes only the smoke CSV and never
-overwrites the primary CSV):
+overwrites the primary CSV; runs all five registered variants including
+`flex_attn`, which exercises its `torch.compile` path on CPU):
 
 ```bash
 cd benchmark_attn
@@ -337,6 +352,21 @@ cd benchmark_attn
   --checkpoint ../checkpoints/k16 \
   --smoke
 ```
+
+Local (non-cluster) note: the `benchmark_attn/.venv` (Python 3.14) lacks
+`dask`/`trackastra`/`lz4`/`numba`; the smoke and sanity paths were validated
+with the system Python 3.12 interpreter, which has `lz4`/`numba` but needs
+`dask` (pure-Python) plus the trackastra checkout on `PYTHONPATH`:
+
+```bash
+cd benchmark_attn
+PYTHONPATH="$PWD/../trackastra:<dir-with-dask>" python3 \
+  scripts/benchmarks/benchmark_full_model_inference_grid.py \
+  --checkpoint ../checkpoints/k16 --smoke    # or --sanity
+```
+
+On the cluster, `$TRK/.venv` already has the full stack and neither note
+applies.
 
 fp32 CPU sanity/equivalence (from the repository root):
 

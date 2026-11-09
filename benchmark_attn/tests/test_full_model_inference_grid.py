@@ -44,9 +44,12 @@ EXPECTED_VARIANT_KEYS = {
     "sparse_gather_k16",
     "flex_attn",
 }
-#: FlexAttention cannot run its compiled Triton path on CPU, so the CPU smoke
-#: grid exercises the other variants and leaves Flex to the H100 run.
-CPU_SMOKE_VARIANT_KEYS = EXPECTED_VARIANT_KEYS - {"flex_attn"}
+#: The CPU smoke grid exercises all five variants. FlexAttention runs its
+#: ``torch.compile`` path on CPU under torch >= 2.12 (verified 2.12.1 local
+#: and 2.14.0 cluster in SPEC 0068), so flex is included in CPU smoke
+#: validation; the earlier claim that the compiled Triton path could not run
+#: on CPU is stale.
+CPU_SMOKE_VARIANT_KEYS = EXPECTED_VARIANT_KEYS
 EXPECTED_METHOD_KEYS = {
     "dense_masked",
     "dense_flash",
