@@ -38,7 +38,19 @@ except ImportError:
     flex_attention = None
     _FLEX_AVAILABLE = False
 
-from native_sparse_attention_pytorch import SparseAttention
+try:
+    from native_sparse_attention_pytorch import SparseAttention
+    _NSA_AVAILABLE = True
+except ImportError:
+    # ``native_sparse_attention_pytorch`` is only needed by
+    # NSASparseAttention. Module import must stay crash-free for the other
+    # methods (owner rule: no silent fallbacks) — the full-model grid swaps
+    # TrackastraFlexAttention from this same module, so a hard module-level
+    # import here would fail every flex row on hosts without the NSA
+    # package. NSASparseAttention.__init__ raises a clear RuntimeError if
+    # constructed without the dependency.
+    SparseAttention = None
+    _NSA_AVAILABLE = False
 
 from .positional_encoding import (
     ATTN_IGNORE_VALUE,
@@ -1594,8 +1606,17 @@ class NSASparseAttention(nn.Module):
 
         Raises:
             AssertionError: If ``embed_dim`` is not divisible by ``n_head``.
+            RuntimeError: If ``native_sparse_attention_pytorch`` is not
+                installed on this host.
         """
         super().__init__()
+        if not _NSA_AVAILABLE:
+            raise RuntimeError(
+                "NSASparseAttention requires the optional package "
+                "'native_sparse_attention_pytorch', which is not installed "
+                "on this host. Install it, or choose another attention "
+                "method."
+            )
         assert embed_dim % n_head == 0
         self.embed_dim = embed_dim
         self.n_head = n_head
